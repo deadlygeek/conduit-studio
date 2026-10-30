@@ -28,6 +28,7 @@ impl Node for Source {
             kind: "source",
             inputs: vec![],
             outputs: vec![PortSpec::new("out", ValueType::Image)],
+            params: vec![],
             gui: false,
         }
     }
@@ -50,6 +51,7 @@ impl Node for Wrap {
             kind: "wrap",
             inputs: vec![PortSpec::new("image", ValueType::Image)],
             outputs: vec![PortSpec::new("out", ValueType::Layer)],
+            params: vec![],
             gui: false,
         }
     }
@@ -71,6 +73,7 @@ impl Node for Pass {
             kind: "pass",
             inputs: vec![PortSpec::new("image", ValueType::Image)],
             outputs: vec![PortSpec::new("out", ValueType::Image)],
+            params: vec![],
             gui: false,
         }
     }
@@ -87,6 +90,7 @@ impl Node for Sink {
             kind: "sink",
             inputs: vec![PortSpec::new("items", ValueType::Layer).multi()],
             outputs: vec![],
+            params: vec![],
             gui: true,
         }
     }

@@ -12,8 +12,8 @@ pub use color::{Color, parse_color};
 pub use eval::{EvalError, Values, evaluate};
 pub use graph::{Graph, GraphNode, LoadError, LoadErrors, Reference, load};
 pub use node::{
-    EvalCtx, GuiHost, Inputs, Node, NodeError, NodeResult, NodeSpec, NullHost, Outputs, PortSpec,
-    parse_params,
+    EvalCtx, GuiHost, Inputs, Node, NodeError, NodeResult, NodeSpec, NullHost, Outputs, ParamKind,
+    ParamSpec, PortSpec, parse_params,
 };
 pub use registry::Registry;
 pub use value::{Layer, Value, ValueType};

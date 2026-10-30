@@ -18,6 +18,7 @@ impl Node for Composite {
                 PortSpec::new("layers", ValueType::Layer).multi().optional(),
             ],
             outputs: vec![PortSpec::new("out", ValueType::Image)],
+            params: vec![],
             gui: false,
         }
     }

@@ -1,5 +1,6 @@
 use conduit_core::{
-    EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, PortSpec, ValueType, parse_params,
+    EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, ValueType,
+    parse_params,
 };
 use serde::Deserialize;
 
@@ -27,6 +28,11 @@ impl Node for Preview {
             kind: "preview",
             inputs: vec![PortSpec::new("image", ValueType::Image)],
             outputs: vec![],
+            params: vec![
+                ParamSpec::text("title", "\"Preview\"")
+                    .optional()
+                    .doc("window title; defaults to the node id"),
+            ],
             gui: true,
         }
     }

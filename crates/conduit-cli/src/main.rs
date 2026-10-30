@@ -132,5 +132,18 @@ fn print_nodes(registry: &Registry) {
         for p in &spec.outputs {
             println!("  out  {:<10} {}", p.name, p.ty);
         }
+        for p in &spec.params {
+            let need = match p.default {
+                _ if p.required => " (required)".to_string(),
+                Some(d) => format!(" (default {d})"),
+                None => String::new(),
+            };
+            let doc = if p.doc.is_empty() {
+                String::new()
+            } else {
+                format!("  — {}", p.doc)
+            };
+            println!("  par  {:<10} {}{need}{doc}", p.name, p.kind);
+        }
     }
 }

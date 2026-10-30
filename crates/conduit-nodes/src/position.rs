@@ -1,6 +1,6 @@
 use conduit_core::{
-    EvalCtx, Inputs, Layer, Node, NodeResult, NodeSpec, Outputs, PortSpec, Value, ValueType,
-    parse_params,
+    EvalCtx, Inputs, Layer, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value,
+    ValueType, parse_params,
 };
 use serde::Deserialize;
 
@@ -22,6 +22,14 @@ impl Node for Position {
             kind: "position",
             inputs: vec![PortSpec::new("image", ValueType::Image)],
             outputs: vec![PortSpec::new("out", ValueType::Layer)],
+            params: vec![
+                ParamSpec::int("x", i64::MIN, i64::MAX, "0")
+                    .default("0")
+                    .doc("left edge, in pixels"),
+                ParamSpec::int("y", i64::MIN, i64::MAX, "0")
+                    .default("0")
+                    .doc("top edge, in pixels"),
+            ],
             gui: false,
         }
     }

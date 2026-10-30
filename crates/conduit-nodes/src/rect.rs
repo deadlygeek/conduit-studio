@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use conduit_core::{
-    Color, EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, PortSpec, RgbaImage,
-    Value, ValueType, parse_params,
+    Color, EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec,
+    RgbaImage, Value, ValueType, parse_params,
 };
 use serde::Deserialize;
 
@@ -39,6 +39,11 @@ impl Node for Rect {
             kind: "rect",
             inputs: vec![],
             outputs: vec![PortSpec::new("out", ValueType::Image)],
+            params: vec![
+                ParamSpec::color("color", "\"white\"").doc("fill color"),
+                ParamSpec::int("width", 1, MAX_DIMENSION.into(), "100").doc("width in pixels"),
+                ParamSpec::int("height", 1, MAX_DIMENSION.into(), "100").doc("height in pixels"),
+            ],
             gui: false,
         }
     }

@@ -22,6 +22,14 @@ pub struct ProjectNode {
 }
 
 impl ProjectNode {
+    /// Every output of this node (palette colors included), or none if its type is unknown.
+    pub fn outputs(&self) -> Vec<(String, crate::value::ValueType)> {
+        self.spec
+            .as_ref()
+            .map(|s| s.outputs_for(&self.params))
+            .unwrap_or_default()
+    }
+
     /// Input ports in display order: the spec's order, then any ports the spec doesn't know.
     /// Unconnected spec ports are included with no references.
     pub fn input_ports(&self) -> Vec<(String, Vec<Reference>)> {

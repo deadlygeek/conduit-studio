@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::node::NodeSpec;
 use crate::registry::Registry;
 use crate::value::ValueType;
 
@@ -327,6 +328,12 @@ fn parse_node(path: &Path, text: &str, registry: &Registry) -> Result<GraphNode,
             message: e.0,
         });
     }
+    for message in check_entry_names(spec, &file.params) {
+        errors.push(LoadError::Params {
+            path: path.to_path_buf(),
+            message,
+        });
+    }
 
     if !errors.is_empty() {
         return Err(errors);
@@ -338,6 +345,29 @@ fn parse_node(path: &Path, text: &str, registry: &Registry) -> Result<GraphNode,
         inputs,
         params: file.params,
     })
+}
+
+/// Entries that become outputs (e.g. palette colors) need names usable in references,
+/// distinct from the node's other outputs.
+fn check_entry_names(spec: &NodeSpec, params: &toml::Table) -> Vec<String> {
+    let mut problems = Vec::new();
+    for port in spec.outputs.iter().filter(|p| p.entries) {
+        let keys = params.get(port.name).and_then(|v| v.as_table());
+        for key in keys.into_iter().flat_map(|t| t.keys()) {
+            if !is_ident(key) {
+                problems.push(format!(
+                    "{}: `{key}` must be a valid name (letters, digits, `_`, `-`)",
+                    port.name
+                ));
+            } else if spec.outputs.iter().any(|o| !o.entries && o.name == key) {
+                problems.push(format!(
+                    "{}: `{key}` clashes with the output of the same name",
+                    port.name
+                ));
+            }
+        }
+    }
+    problems
 }
 
 /// Checks that every reference points at an existing node output of a compatible type.
@@ -366,7 +396,7 @@ fn check_connections(
                 continue;
             };
             let source_spec = registry.spec(&source.kind).expect("kind validated");
-            let Some(out) = source_spec.output(&r.port) else {
+            let Some(found) = source_spec.output_type(&source.params, &r.port) else {
                 errors.push(LoadError::UnknownOutput {
                     path: node.path.clone(),
                     port: port.clone(),
@@ -376,13 +406,13 @@ fn check_connections(
                 });
                 continue;
             };
-            if !out.ty.coerces_to(expected) {
+            if !found.coerces_to(expected) {
                 errors.push(LoadError::TypeMismatch {
                     path: node.path.clone(),
                     port: port.clone(),
                     source_ref: r.clone(),
                     expected,
-                    found: out.ty,
+                    found,
                 });
             }
         }
@@ -607,5 +637,32 @@ mod tests {
         )];
         let errs = from_sources(sources, &registry()).unwrap_err().0;
         assert!(matches!(errs[..], [LoadError::InvalidId { .. }]));
+    }
+
+    #[test]
+    fn entry_outputs() {
+        let pal = "type = \"pal\"\n[params.colors]\nsky = \"#87ceeb\"\nsun = \"yellow\"";
+        let graph = load_str(&[
+            ("p", pal),
+            ("t", "type = \"tint\"\n[inputs]\ncolor = \"p.sun\""),
+        ])
+        .unwrap();
+        assert_eq!(graph.nodes[0].id, "p");
+
+        let errs = errors(&[
+            ("p", pal),
+            ("t", "type = \"tint\"\n[inputs]\ncolor = \"p.moon\""),
+        ]);
+        assert!(
+            matches!(&errs[..], [LoadError::UnknownOutput { output, .. }] if output == "moon"),
+            "{errs:?}"
+        );
+        let errs = errors(&[(
+            "p",
+            "type = \"pal\"\n[params.colors]\n\"no space\" = \"red\"",
+        )]);
+        assert!(
+            matches!(&errs[..], [LoadError::Params { message, .. }] if message.contains("`no space`"))
+        );
     }
 }

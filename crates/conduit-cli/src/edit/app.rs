@@ -374,10 +374,10 @@ impl App {
 
     fn default_probe(&self, id: &str) -> Option<Reference> {
         let node = self.project.get(id)?;
-        if let Some(out) = node.spec.as_ref().and_then(|s| s.outputs.first()) {
+        if let Some((port, _)) = node.outputs().into_iter().next() {
             return Some(Reference {
                 node: id.to_string(),
-                port: out.name.to_string(),
+                port,
             });
         }
         node.input_ports()
@@ -683,12 +683,9 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
         name,
     }));
     rows.extend(
-        node.spec
-            .iter()
-            .flat_map(|s| &s.outputs)
-            .map(|o| Row::Output {
-                port: o.name.to_string(),
-            }),
+        node.outputs()
+            .into_iter()
+            .map(|(port, _)| Row::Output { port }),
     );
     let prefix = format!("{}: ", node.path.display());
     rows.extend(project.errors_for(&node.id).into_iter().map(|e| {

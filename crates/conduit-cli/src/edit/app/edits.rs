@@ -631,13 +631,11 @@ impl App {
         let node = self.focused()?;
         let target = node.spec.as_ref()?.input(port)?.ty;
         let source = node.inputs.get(port)?.get(index)?;
-        let source_ty = self
-            .project
-            .get(&source.node)?
+        let source_node = self.project.get(&source.node)?;
+        let source_ty = source_node
             .spec
             .as_ref()?
-            .output(&source.port)?
-            .ty;
+            .output_type(&source_node.params, &source.port)?;
         Some((source_ty, target))
     }
 }

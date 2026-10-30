@@ -130,3 +130,18 @@ fn colors_and_numbers_do_not_mix() {
         "{err}"
     );
 }
+
+#[test]
+fn palette_colors_feed_color_nodes() {
+    let brand = "type = \"palette\"\n[params.colors]\nprimary = \"#264653\"\naccent = \"red\"";
+    let dark = "type = \"color\"\n[inputs]\ncolor = \"brand.accent\"\n[params]\nlightness = -25";
+    let swatch = "type = \"rect\"\n[inputs]\ncolor = \"dark\"\n[params]\nwidth = 1\nheight = 1";
+    let values = render(&[("brand", brand), ("dark", dark), ("swatch", swatch)]).unwrap();
+    assert!(
+        matches!(value(&values, "brand.primary"), Value::Color(c) if c.0 == [0x26, 0x46, 0x53, 255])
+    );
+    let Value::Image(img) = value(&values, "swatch") else {
+        panic!("expected image")
+    };
+    assert_eq!(img.get_pixel(0, 0).0, [128, 0, 0, 255]);
+}

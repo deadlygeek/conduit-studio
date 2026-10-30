@@ -4,6 +4,7 @@
 mod color;
 mod composite;
 mod int;
+mod palette;
 mod position;
 mod preview;
 mod rect;
@@ -16,6 +17,7 @@ use conduit_core::Registry;
 pub use color::ColorNode;
 pub use composite::Composite;
 pub use int::Int;
+pub use palette::Palette;
 pub use position::Position;
 pub use preview::Preview;
 pub use rect::Rect;
@@ -30,6 +32,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Preview);
     registry.register(Int);
     registry.register(ColorNode);
+    registry.register(Palette);
 }
 
 /// A registry containing every built-in node.

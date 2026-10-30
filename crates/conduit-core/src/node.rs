@@ -19,6 +19,9 @@ pub struct PortSpec {
     /// Feeds the number or color param of the same name, overriding its value (see
     /// [`NodeSpec::with_param_inputs`]). Inputs only.
     pub param: bool,
+    /// Outputs only: stands for one output per entry of the table param with the same
+    /// name (e.g. a palette's `colors`), named after the entry's key.
+    pub entries: bool,
 }
 
 impl PortSpec {
@@ -29,6 +32,7 @@ impl PortSpec {
             multi: false,
             optional: false,
             param: false,
+            entries: false,
         }
     }
 
@@ -41,16 +45,30 @@ impl PortSpec {
         self.optional = true;
         self
     }
+
+    /// See [`PortSpec::entries`].
+    pub const fn entries(mut self) -> Self {
+        self.entries = true;
+        self
+    }
 }
 
 /// What kind of value a param holds. Used by editors and templates; nodes still validate
 /// their params themselves (see [`Node::check_params`]).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamKind {
-    Int { min: i64, max: i64 },
-    Float { min: f64, max: f64 },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    Float {
+        min: f64,
+        max: f64,
+    },
     Color,
     Text,
+    /// A table of named colors (`[params.colors]`), each also an output.
+    Colors,
 }
 
 impl fmt::Display for ParamKind {
@@ -66,6 +84,7 @@ impl fmt::Display for ParamKind {
             ParamKind::Float { min, max } => write!(f, "float {min}..{max}"),
             ParamKind::Color => f.write_str("color"),
             ParamKind::Text => f.write_str("text"),
+            ParamKind::Colors => f.write_str("named colors"),
         }
     }
 }
@@ -106,6 +125,11 @@ impl ParamSpec {
 
     pub fn color(name: &'static str, example: &'static str) -> Self {
         Self::new(name, ParamKind::Color, example)
+    }
+
+    /// A table of named colors; `example` is an inline table literal.
+    pub fn colors(name: &'static str, example: &'static str) -> Self {
+        Self::new(name, ParamKind::Colors, example)
     }
 
     pub fn text(name: &'static str, example: &'static str) -> Self {
@@ -157,6 +181,7 @@ impl ParamSpec {
                 crate::color::parse_color(input).map(|_| toml::Value::String(input.to_string()))
             }
             ParamKind::Text => Ok(toml::Value::String(input.to_string())),
+            ParamKind::Colors => Err("edit the colors one at a time".into()),
         }
     }
 }
@@ -181,6 +206,34 @@ impl NodeSpec {
         self.outputs.iter().find(|p| p.name == name)
     }
 
+    /// Every output of a node with these params, in order: entry outputs (see
+    /// [`PortSpec::entries`]) expand to one per table key; keys that aren't valid port
+    /// names are skipped (load reports them).
+    pub fn outputs_for(&self, params: &toml::Table) -> Vec<(String, ValueType)> {
+        let mut out = Vec::new();
+        for port in &self.outputs {
+            if !port.entries {
+                out.push((port.name.to_string(), port.ty));
+                continue;
+            }
+            let keys = params.get(port.name).and_then(|v| v.as_table());
+            for key in keys.into_iter().flat_map(|t| t.keys()) {
+                if crate::graph::is_ident(key) {
+                    out.push((key.clone(), port.ty));
+                }
+            }
+        }
+        out
+    }
+
+    /// The type of output `port` on a node with these params.
+    pub fn output_type(&self, params: &toml::Table, port: &str) -> Option<ValueType> {
+        self.outputs_for(params)
+            .into_iter()
+            .find(|(name, _)| name == port)
+            .map(|(_, ty)| ty)
+    }
+
     pub fn param(&self, name: &str) -> Option<&ParamSpec> {
         self.params.iter().find(|p| p.name == name)
     }
@@ -196,7 +249,7 @@ impl NodeSpec {
             let ty = match p.kind {
                 ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
                 ParamKind::Color => ValueType::Color,
-                ParamKind::Text => continue,
+                ParamKind::Text | ParamKind::Colors => continue,
             };
             assert!(
                 ty != ValueType::Number || p.default.is_some(),
@@ -251,15 +304,28 @@ impl NodeSpec {
                 out.push_str(&format!("# {} = {value}  # {}\n", p.name, p.ty));
             }
         }
-        if !self.params.is_empty() {
+        let (tables, params): (Vec<&ParamSpec>, Vec<&ParamSpec>) = self
+            .params
+            .iter()
+            .partition(|p| p.kind == ParamKind::Colors);
+        if !params.is_empty() {
             out.push_str("\n[params]\n");
-            for p in &self.params {
+            for p in params {
                 if p.required {
                     out.push_str(&format!("{} = {}\n", p.name, p.example));
                 } else {
                     let value = p.default.unwrap_or(p.example);
                     out.push_str(&format!("# {} = {value}\n", p.name));
                 }
+            }
+        }
+        // Tables get a section each: `[params.colors]` with one line per entry.
+        for p in tables {
+            out.push_str(&format!("\n[params.{}]\n", p.name));
+            let example: Option<toml::Table> = toml::from_str(&format!("v = {}", p.example)).ok();
+            let entries = example.and_then(|mut t| t.remove("v"));
+            for (k, v) in entries.iter().filter_map(|v| v.as_table()).flatten() {
+                out.push_str(&format!("{k} = {v}\n"));
             }
         }
         out

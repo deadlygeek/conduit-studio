@@ -65,3 +65,36 @@ fn nodes_lists_builtins() {
         );
     }
 }
+
+#[test]
+fn palette_import() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let url = "https://coolors.co/264653-2a9d8f-e9c46a";
+    let out = conduit(&["palette", "import", dir, "brand", url]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = std::fs::read_to_string(tmp.path().join("brand.toml")).unwrap();
+    assert!(text.contains(&format!("source = \"{url}\"")), "{text}");
+    assert!(text.contains("c3 = \"#e9c46a\""), "{text}");
+
+    // From a file, replacing the colors; the names in a CSS export are kept.
+    let css = tmp.path().join("export.css");
+    std::fs::write(&css, "--charcoal: #264653ff;\n--sandy-brown: #f4a261ff;\n").unwrap();
+    let out = conduit(&["palette", "import", dir, "brand", css.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let check = conduit(&["check", dir]);
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    assert!(stdout.contains("brand.sandy_brown"), "{stdout}");
+    assert!(!stdout.contains("brand.c1"), "{stdout}");
+
+    let out = conduit(&["palette", "import", dir, "brand", "no colors here"]);
+    assert!(!out.status.success());
+}

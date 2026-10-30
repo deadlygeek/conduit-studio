@@ -37,6 +37,24 @@ enum Command {
     },
     /// List available node types and their ports.
     Nodes,
+    /// Work with palette nodes.
+    #[command(subcommand)]
+    Palette(PaletteCommand),
+}
+
+#[derive(Subcommand)]
+enum PaletteCommand {
+    /// Create (or replace the colors of) a palette node from a Coolors link, hex codes,
+    /// a Coolors CSS/JSON export, or a .hex / .gpl file.
+    Import {
+        /// Project folder.
+        dir: PathBuf,
+        /// Id of the palette node (its file is `<id>.toml`).
+        id: String,
+        /// A link, hex codes, or a file path.
+        #[arg(required = true)]
+        source: Vec<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -62,7 +80,42 @@ fn main() -> ExitCode {
             print_nodes(&registry);
             ExitCode::SUCCESS
         }
+        Command::Palette(PaletteCommand::Import { dir, id, source }) => {
+            match import_palette(&dir, &id, &source.join(" "), &registry) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
+}
+
+fn import_palette(dir: &Path, id: &str, source: &str, registry: &Registry) -> Result<(), String> {
+    let path = Path::new(source);
+    let (text, note) = if path.is_file() {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        (text, Some(source.to_string()))
+    } else {
+        let link = source.contains("://") || source.contains("coolors.co/");
+        (source.to_string(), link.then(|| source.trim().to_string()))
+    };
+    let colors = conduit_core::parse_palette(&text)?;
+    let spec = registry.spec("palette").expect("built-in");
+    let entries: Vec<(String, toml::Value)> = colors
+        .iter()
+        .map(|(name, c)| (name.clone(), conduit_core::to_hex(*c).into()))
+        .collect();
+    let extra: Vec<(&str, toml::Value)> = note.map(|n| ("source", n.into())).into_iter().collect();
+    conduit_core::edit::set_entries(dir, id, spec, "colors", &entries, &extra)
+        .map_err(|e| e.to_string())?;
+    for (name, hex) in &entries {
+        println!("{name:<16} {}", hex.as_str().unwrap_or_default());
+    }
+    println!("wrote {}", dir.join(format!("{id}.toml")).display());
+    Ok(())
 }
 
 fn check(dir: &Path, registry: &Registry) -> ExitCode {
@@ -92,13 +145,14 @@ fn print_outputs(graph: &Graph, registry: &Registry, values: &conduit_core::Valu
         let spec = registry
             .spec(&node.kind)
             .expect("loaded with this registry");
-        if spec.outputs.is_empty() {
+        let outputs = spec.outputs_for(&node.params);
+        if outputs.is_empty() {
             println!("{:<24} {}", node.id, node.kind);
         }
-        for out in &spec.outputs {
+        for (port, _) in outputs {
             let key = conduit_core::Reference {
                 node: node.id.clone(),
-                port: out.name.to_string(),
+                port,
             };
             let summary = values.get(&key).map(describe).unwrap_or_default();
             println!("{:<24} {:<12} {summary}", key.to_string(), node.kind);
@@ -119,7 +173,7 @@ fn describe(value: &Value) -> String {
             )
         }
         Value::Number(n) => format!("number {n}"),
-        Value::Color(c) => format!("color {:?}", c.0),
+        Value::Color(c) => format!("color {}", conduit_core::to_hex(*c)),
     }
 }
 
@@ -143,6 +197,10 @@ fn print_nodes(registry: &Registry) {
             println!("  in   {:<10} {}{flags}", p.name, p.ty);
         }
         for p in &spec.outputs {
+            if p.entries {
+                println!("  out  <name>     {} (one per entry of `{}`)", p.ty, p.name);
+                continue;
+            }
             println!("  out  {:<10} {}", p.name, p.ty);
         }
         for p in &spec.params {

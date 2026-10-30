@@ -197,20 +197,20 @@ fn eval_node(
         .map_err(|e| node_error(e.0))?;
 
     let mut outputs = outputs.values;
-    spec.outputs
-        .iter()
-        .map(|out| match outputs.remove(out.name) {
-            Some(v) if v.ty() == out.ty => Ok((
+    spec.outputs_for(&node.params)
+        .into_iter()
+        .map(|(name, ty)| match outputs.remove(&name) {
+            Some(v) if v.ty() == ty => Ok((
                 Reference {
                     node: node.id.clone(),
-                    port: out.name.to_string(),
+                    port: name,
                 },
                 v,
             )),
             _ => Err(EvalError::BadOutput {
                 node: node.id.clone(),
-                port: out.name.to_string(),
-                expected: out.ty.to_string(),
+                port: name,
+                expected: ty.to_string(),
             }),
         })
         .collect()

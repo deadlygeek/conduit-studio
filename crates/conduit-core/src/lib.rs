@@ -6,6 +6,7 @@ pub mod edit;
 pub mod eval;
 pub mod graph;
 pub mod node;
+pub mod palette;
 pub mod project;
 pub mod query;
 pub mod registry;
@@ -19,6 +20,7 @@ pub use node::{
     EvalCtx, GuiHost, Inputs, Node, NodeError, NodeResult, NodeSpec, NullHost, Outputs, ParamKind,
     ParamSpec, PortSpec, parse_params,
 };
+pub use palette::parse_palette;
 pub use project::{Consumer, Project, ProjectNode, inspect, inspect_sources};
 pub use query::TreeItem;
 pub use registry::Registry;

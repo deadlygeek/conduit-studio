@@ -122,13 +122,12 @@ impl Project {
             .values()
             .filter(|n| n.id != node && !excluded.contains(&n.id))
             .flat_map(|n| {
-                n.spec
-                    .iter()
-                    .flat_map(|s| &s.outputs)
-                    .filter(|o| o.ty.coerces_to(ty))
-                    .map(|o| Reference {
+                n.outputs()
+                    .into_iter()
+                    .filter(|(_, out_ty)| out_ty.coerces_to(ty))
+                    .map(|(port, _)| Reference {
                         node: n.id.clone(),
-                        port: o.name.to_string(),
+                        port,
                     })
             })
             .collect()

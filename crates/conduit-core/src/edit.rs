@@ -370,9 +370,7 @@ pub fn insert_between(
         .ok_or_else(|| EditError::Invalid(format!("`{node}.{port}` is not connected")))?;
     let source_ty = project
         .get(&source.node)
-        .and_then(|n| n.spec.as_ref())
-        .and_then(|s| s.output(&source.port))
-        .map(|o| o.ty)
+        .and_then(|n| n.spec.as_ref()?.output_type(&n.params, &source.port))
         .ok_or_else(|| EditError::Invalid(format!("cannot tell the type of `{source}`")))?;
 
     let new_input = spec
@@ -554,6 +552,168 @@ fn remove_references(doc: &mut DocumentMut, pred: impl Fn(&Reference) -> bool) {
     for port in emptied {
         inputs.remove(&port);
     }
+}
+
+// --- table params whose entries are outputs (palette colors) -----------------------------
+
+/// The `[params.<param>]` table of a node file, created if absent.
+fn entries_mut<'a>(doc: &'a mut DocumentMut, param: &str) -> EditResult<&'a mut dyn TableLike> {
+    let params = table_mut(doc, "params")?;
+    if params.get(param).is_none() {
+        params.insert(param, toml_edit::table());
+    }
+    params
+        .get_mut(param)
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| EditError::Invalid(format!("`{param}` is not a table")))
+}
+
+fn check_entry_name(key: &str) -> EditResult<()> {
+    if is_ident(key) {
+        Ok(())
+    } else {
+        Err(EditError::Invalid(format!(
+            "`{key}` is not a valid name (letters, digits, `_`, `-`)"
+        )))
+    }
+}
+
+/// Replaces every entry of `node`'s table param `param` (e.g. a palette's colors), creating
+/// the node from `spec`'s template first if it doesn't exist. Other params are kept.
+/// `extra` params (e.g. the palette's `source`) are set too.
+pub fn set_entries(
+    dir: &Path,
+    node: &str,
+    spec: &NodeSpec,
+    param: &str,
+    entries: &[(String, toml::Value)],
+    extra: &[(&str, toml::Value)],
+) -> EditResult<Change> {
+    for (key, _) in entries {
+        check_entry_name(key)?;
+    }
+    transact(|tx| {
+        let path = node_path(dir, node);
+        if !path.exists() {
+            add_node_in(tx, dir, node, spec)?;
+        }
+        tx.update(&path, |doc| {
+            let mut table = toml_edit::Table::new();
+            for (key, value) in entries {
+                table.insert(key, Item::Value(to_edit_value(value)?));
+            }
+            table_mut(doc, "params")?.insert(param, Item::Table(table));
+            extra
+                .iter()
+                .try_for_each(|(name, value)| set_param_in(doc, name, value))
+        })
+    })
+}
+
+/// Sets one entry of a table param, appending it if new.
+pub fn set_entry(
+    dir: &Path,
+    node: &str,
+    param: &str,
+    key: &str,
+    value: &toml::Value,
+) -> EditResult<Change> {
+    check_entry_name(key)?;
+    let value = to_edit_value(value)?;
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            let table = entries_mut(doc, param)?;
+            match table.get_mut(key) {
+                Some(item) => replace_value(item, value),
+                None => {
+                    table.insert(key, Item::Value(value));
+                }
+            }
+            Ok(())
+        })
+    })
+}
+
+/// Renames an entry (keeping its position and comments) and rewrites every reference to
+/// the output it provides (`node.old` → `node.new`).
+pub fn rename_entry(
+    dir: &Path,
+    project: &Project,
+    node: &str,
+    param: &str,
+    old: &str,
+    new: &str,
+) -> EditResult<Change> {
+    check_entry_name(new)?;
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            let table = entries_mut(doc, param)?;
+            if table.contains_key(new) {
+                return Err(EditError::Invalid(format!("`{new}` already exists")));
+            }
+            let entries: Vec<(String, Item)> = table
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect();
+            if !entries.iter().any(|(k, _)| k == old) {
+                return Err(EditError::Invalid(format!("no entry `{old}`")));
+            }
+            table.clear();
+            for (key, item) in entries {
+                table.insert(if key == old { new } else { &key }, item);
+            }
+            Ok(())
+        })?;
+        for consumer in entry_consumers(project, node, old) {
+            tx.update(&node_path(dir, &consumer), |doc| {
+                rewrite_references(doc, |r| {
+                    (r.node == node && r.port == old).then(|| Reference {
+                        node: node.into(),
+                        port: new.into(),
+                    })
+                });
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Removes an entry and disconnects every input that used its output.
+pub fn remove_entry(
+    dir: &Path,
+    project: &Project,
+    node: &str,
+    param: &str,
+    key: &str,
+) -> EditResult<Change> {
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            entries_mut(doc, param)?
+                .remove(key)
+                .map(|_| ())
+                .ok_or_else(|| EditError::Invalid(format!("no entry `{key}`")))
+        })?;
+        for consumer in entry_consumers(project, node, key) {
+            tx.update(&node_path(dir, &consumer), |doc| {
+                remove_references(doc, |r| r.node == node && r.port == key);
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Nodes (other than `node` itself) whose inputs use output `port` of `node`.
+fn entry_consumers(project: &Project, node: &str, port: &str) -> Vec<String> {
+    let mut ids: Vec<String> = project
+        .consumers(node)
+        .iter()
+        .filter(|c| c.output == port && c.node != node)
+        .map(|c| c.node.clone())
+        .collect();
+    ids.dedup();
+    ids
 }
 
 fn missing(id: &str) -> EditError {
@@ -884,5 +1044,69 @@ mod tests {
         let err = add_feeding(f.path(), "x", &spec, &params, "nope", "src", "size");
         assert!(err.is_err());
         assert_eq!(f.snapshot().len(), 1, "nothing created on failure");
+    }
+
+    const PAL: &str =
+        "type = \"pal\"\n\n[params.colors]\nsky = \"#87ceeb\" # blue\nsun = \"yellow\"\n";
+    const TINT: &str = "type = \"tint\"\n[inputs]\ncolor = \"p.sun\"\n";
+
+    #[test]
+    fn set_entries_creates_or_replaces() {
+        let f = Fixture::new(&[]);
+        let spec = registry().spec("pal").unwrap().clone();
+        let entries = [("c1".to_string(), "#264653".into())];
+        let extra = [("source", "https://coolors.co/264653".into())];
+        let after =
+            f.apply_and_undo(|| set_entries(f.path(), "p", &spec, "colors", &entries, &extra));
+        assert!(
+            after["p.toml"].contains("[params.colors]\nc1 = \"#264653\""),
+            "{after:?}"
+        );
+        assert!(after["p.toml"].contains("source = \"https://coolors.co/264653\""));
+
+        let f = Fixture::new(&[("p", PAL)]);
+        let after = f.apply_and_undo(|| set_entries(f.path(), "p", &spec, "colors", &entries, &[]));
+        assert!(!after["p.toml"].contains("sky"), "{after:?}");
+        let bad = [("not ok".to_string(), "#264653".into())];
+        assert!(set_entries(f.path(), "p", &spec, "colors", &bad, &[]).is_err());
+    }
+
+    #[test]
+    fn edit_single_entries() {
+        let f = Fixture::new(&[("p", PAL), ("t", TINT)]);
+        let after =
+            f.apply_and_undo(|| set_entry(f.path(), "p", "colors", "sky", &"#000080".into()));
+        assert!(
+            after["p.toml"].contains("sky = \"#000080\" # blue"),
+            "{after:?}"
+        );
+        let after =
+            f.apply_and_undo(|| set_entry(f.path(), "p", "colors", "moon", &"white".into()));
+        assert!(
+            after["p.toml"].ends_with("sun = \"yellow\"\nmoon = \"white\"\n"),
+            "{after:?}"
+        );
+
+        // Renaming keeps the position and rewrites references.
+        let after =
+            f.apply_and_undo(|| rename_entry(f.path(), &f.project(), "p", "colors", "sun", "star"));
+        assert!(
+            after["p.toml"].ends_with("sky = \"#87ceeb\" # blue\nstar = \"yellow\"\n"),
+            "{after:?}"
+        );
+        assert!(after["t.toml"].contains("color = \"p.star\""), "{after:?}");
+        assert!(
+            rename_entry(f.path(), &f.project(), "p", "colors", "sun", "sky").is_err(),
+            "taken"
+        );
+
+        // Removing disconnects users (tint's color is then unset, which is still valid
+        // for the test node).
+        let before = f.snapshot();
+        let change = remove_entry(f.path(), &f.project(), "p", "colors", "sun").unwrap();
+        assert!(!f.read("p").contains("sun"));
+        assert!(!f.read("t").contains("p.sun"));
+        change.undo().unwrap();
+        assert_eq!(f.snapshot(), before);
     }
 }

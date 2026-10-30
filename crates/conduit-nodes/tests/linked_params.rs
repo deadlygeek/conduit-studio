@@ -101,3 +101,32 @@ fn changing_an_int_reruns_its_consumers_only() {
         "size and square"
     );
 }
+
+#[test]
+fn color_nodes_feed_color_params() {
+    let base = "type = \"color\"\n[params]\ncolor = \"red\"";
+    // A second color node takes its base from the first and lightens it.
+    let light = "type = \"color\"\n[inputs]\ncolor = \"base\"\n[params]\nlightness = 25";
+    // `color` is required on rect, but a link is enough.
+    let swatch = "type = \"rect\"\n[inputs]\ncolor = \"light\"\n[params]\nwidth = 2\nheight = 2";
+    let values = render(&[("base", base), ("light", light), ("swatch", swatch)]).unwrap();
+    let Value::Color(c) = value(&values, "light") else {
+        panic!("expected color")
+    };
+    assert_eq!(c.0, [255, 128, 128, 255]);
+    let Value::Image(img) = value(&values, "swatch") else {
+        panic!("expected image")
+    };
+    assert!(img.pixels().all(|p| p.0 == [255, 128, 128, 255]));
+}
+
+#[test]
+fn colors_and_numbers_do_not_mix() {
+    let base = "type = \"color\"\n[params]\ncolor = \"red\"";
+    let bad = "type = \"rect\"\n[inputs]\nwidth = \"base\"\n[params]\ncolor = \"white\"";
+    let err = render(&[("base", base), ("r", bad)]).unwrap_err();
+    assert!(
+        err.contains("expects number, but `base.out` is color"),
+        "{err}"
+    );
+}

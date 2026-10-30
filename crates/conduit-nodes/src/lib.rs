@@ -1,6 +1,7 @@
 //! Built-in node kinds. To add one: create a module implementing `conduit_core::Node`
 //! and register it in [`register_all`].
 
+mod color;
 mod composite;
 mod int;
 mod position;
@@ -12,6 +13,7 @@ mod test_util;
 
 use conduit_core::Registry;
 
+pub use color::ColorNode;
 pub use composite::Composite;
 pub use int::Int;
 pub use position::Position;
@@ -27,6 +29,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Composite);
     registry.register(Preview);
     registry.register(Int);
+    registry.register(ColorNode);
 }
 
 /// A registry containing every built-in node.

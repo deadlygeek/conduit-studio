@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
-use conduit_core::{NodeSpec, ParamKind, Project, Reference, ValueType, inspect};
+use conduit_core::{NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, inspect};
 
 use super::{Action, App, Mode, Row};
 use crate::edit::finder;
@@ -304,17 +304,7 @@ impl App {
             Some(p) => p.parse_input(input)?,
             None => parse_literal(input),
         };
-        // Let the node itself validate the result, but don't block fixing one param
-        // because another one is already invalid.
-        if let Some(node_impl) = node.kind.as_deref().and_then(|k| self.registry.get(k)) {
-            let mut params = node.params.clone();
-            params.insert(name.to_string(), value.clone());
-            if let Err(e) = node_impl.check_params(&params)
-                && node_impl.check_params(&node.params).is_ok()
-            {
-                return Err(e.0);
-            }
-        }
+        self.check_param(&node, name, &value)?;
         self.apply(format!("set {id}.{name} = {value}"), |dir, _| {
             ops::set_param(dir, &id, name, &value)
         })
@@ -341,7 +331,9 @@ impl App {
             Some(Row::Input { port, .. }) => port,
             Some(Row::Param { name, .. }) if self.linkable(&name) => name,
             Some(Row::Param { name, .. }) => {
-                self.message = Some(format!("`{name}` can't be linked; only numbers can"));
+                self.message = Some(format!(
+                    "`{name}` can't be linked; only numbers and colors can"
+                ));
                 return;
             }
             _ => {
@@ -466,14 +458,7 @@ impl App {
             let bound = if delta > 0 { "maximum" } else { "minimum" };
             return Err(format!("{node_id}.{name} is at its {bound}, {current}"));
         }
-        let mut params = node.params.clone();
-        params.insert(name.clone(), new.into());
-        if let Some(node_impl) = node.kind.as_deref().and_then(|k| self.registry.get(k))
-            && let Err(e) = node_impl.check_params(&params)
-            && node_impl.check_params(&node.params).is_ok()
-        {
-            return Err(e.0);
-        }
+        self.check_param(&node, &name, &new.into())?;
 
         let change =
             ops::set_param(&self.dir, &node_id, &name, &new.into()).map_err(|e| e.to_string())?;
@@ -489,6 +474,30 @@ impl App {
         self.reload_from_disk();
         self.message = Some(format!("{label} ({delta:+})"));
         Ok(())
+    }
+
+    /// Lets the node itself validate `name = value` (setting a param also unlinks it), but
+    /// doesn't block fixing one param because another one is already invalid.
+    fn check_param(
+        &self,
+        node: &ProjectNode,
+        name: &str,
+        value: &toml::Value,
+    ) -> Result<(), String> {
+        let (Some(node_impl), Some(spec)) = (
+            node.kind.as_deref().and_then(|k| self.registry.get(k)),
+            node.spec.as_ref(),
+        ) else {
+            return Ok(());
+        };
+        let links = node.inputs.keys().map(String::as_str);
+        let before = spec.params_with_links(&node.params, links.clone());
+        let mut after = spec.params_with_links(&node.params, links.filter(|l| *l != name));
+        after.insert(name.to_string(), value.clone());
+        match node_impl.check_params(&after) {
+            Err(e) if node_impl.check_params(&before).is_ok() => Err(e.0),
+            _ => Ok(()),
+        }
     }
 
     /// Whether the focused node's param `name` can be fed from another node.

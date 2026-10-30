@@ -148,6 +148,7 @@ fn print_nodes(registry: &Registry) {
         for p in &spec.params {
             let linkable = spec.input(p.name).is_some_and(|i| i.param);
             let need = match p.default {
+                _ if p.required && linkable => " (required, linkable)".to_string(),
                 _ if p.required => " (required)".to_string(),
                 Some(d) if linkable => format!(" (default {d}, linkable)"),
                 Some(d) => format!(" (default {d})"),

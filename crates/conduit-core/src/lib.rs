@@ -11,7 +11,7 @@ pub mod query;
 pub mod registry;
 pub mod value;
 
-pub use color::{Color, parse_color};
+pub use color::{Color, Hsl, adjust, from_hsl, parse_color, to_hex, to_hsl};
 pub use edit::{Change, EditError, EditResult};
 pub use eval::{EvalError, EvalStats, Evaluator, Values, evaluate};
 pub use graph::{Graph, GraphNode, LoadError, LoadErrors, Reference, load};

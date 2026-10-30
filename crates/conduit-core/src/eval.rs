@@ -91,8 +91,8 @@ impl Evaluator {
     }
 }
 
-/// The node's params with linked number inputs written over them, checked against the
-/// param's range (ints are rounded).
+/// The node's params with linked inputs written over them: colors as hex, numbers checked
+/// against the param's range (ints are rounded).
 fn linked_params(
     node: &GraphNode,
     spec: &NodeSpec,
@@ -100,13 +100,22 @@ fn linked_params(
 ) -> Result<toml::Table, String> {
     let mut params = node.params.clone();
     for port in spec.inputs.iter().filter(|p| p.param) {
-        let Some(Value::Number(n)) = inputs.get(port.name).and_then(|v| v.first()) else {
+        let Some(input) = inputs.get(port.name).and_then(|v| v.first()) else {
             continue;
         };
         let source = &node.inputs[port.name][0];
         let param = spec
             .param(port.name)
             .expect("param inputs come from params");
+        let n = match input {
+            Value::Number(n) => n,
+            Value::Color(c) => {
+                let hex = crate::color::to_hex(*c);
+                params.insert(port.name.to_string(), toml::Value::String(hex));
+                continue;
+            }
+            _ => unreachable!("param inputs are numbers or colors"),
+        };
         let value = match param.kind {
             ParamKind::Int { min, max } => {
                 let v = n.round();

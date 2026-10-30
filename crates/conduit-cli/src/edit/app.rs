@@ -1104,11 +1104,14 @@ mod tests {
         assert_eq!(link(&app, "width"), None);
         assert!(read(&app, "black_sq").contains("width = 70"));
 
-        // Non-number params can't be linked.
+        // Colors can be linked too, but this project has no color outputs to offer.
         select(&mut app, param("color"));
         press(&mut app, "c");
         assert_eq!(app.mode, Mode::Normal);
-        assert!(app.message.as_deref().unwrap().contains("only numbers"));
+        assert_eq!(
+            app.message.as_deref(),
+            Some("no compatible outputs to connect")
+        );
 
         press(&mut app, "uuuu");
         assert_eq!(read(&app, "black_sq"), original);

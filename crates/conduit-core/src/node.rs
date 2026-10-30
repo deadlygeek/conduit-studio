@@ -16,7 +16,7 @@ pub struct PortSpec {
     pub multi: bool,
     /// May be left unconnected. Inputs only.
     pub optional: bool,
-    /// Feeds the number param of the same name, overriding its value (see
+    /// Feeds the number or color param of the same name, overriding its value (see
     /// [`NodeSpec::with_param_inputs`]). Inputs only.
     pub param: bool,
 }
@@ -185,19 +185,21 @@ impl NodeSpec {
         self.params.iter().find(|p| p.name == name)
     }
 
-    /// Adds an optional `number` input for every int/float param, so any number can be
-    /// typed into the node file or fed from another node's output. The registry applies
-    /// this to every kind; number params must have a default, since a linked param is
-    /// usually absent from `[params]`.
+    /// Adds an optional input for every number and color param (a `number` or `color`
+    /// input of the same name), so the value can be typed into the node file or fed from
+    /// another node's output. The registry applies this to every kind. Number params must
+    /// have a default.
     ///
-    /// Panics if a number param has no default or its name clashes with an input.
+    /// Panics if a number param has no default or a param's name clashes with an input.
     pub fn with_param_inputs(mut self) -> Self {
         for p in &self.params {
-            if !matches!(p.kind, ParamKind::Int { .. } | ParamKind::Float { .. }) {
-                continue;
-            }
+            let ty = match p.kind {
+                ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
+                ParamKind::Color => ValueType::Color,
+                ParamKind::Text => continue,
+            };
             assert!(
-                p.default.is_some(),
+                ty != ValueType::Number || p.default.is_some(),
                 "`{}`: number param `{}` needs a default",
                 self.kind,
                 p.name
@@ -210,10 +212,32 @@ impl NodeSpec {
             );
             self.inputs.push(PortSpec {
                 param: true,
-                ..PortSpec::new(p.name, ValueType::Number).optional()
+                ..PortSpec::new(p.name, ty).optional()
             });
         }
         self
+    }
+
+    /// `params` as validation should see them when the params in `linked` are fed from
+    /// inputs: each linked param missing from the file gets its example value, so a
+    /// required param (e.g. `rect.color`) may be linked instead of typed.
+    pub fn params_with_links<'a>(
+        &self,
+        params: &toml::Table,
+        linked: impl IntoIterator<Item = &'a str>,
+    ) -> toml::Table {
+        let mut params = params.clone();
+        for name in linked {
+            let Some(p) = self.param(name) else { continue };
+            if self.input(name).is_some_and(|i| i.param) && !params.contains_key(name) {
+                let example: Option<toml::Table> =
+                    toml::from_str(&format!("v = {}", p.example)).ok();
+                if let Some(v) = example.and_then(|mut t| t.remove("v")) {
+                    params.insert(name.to_string(), v);
+                }
+            }
+        }
+        params
     }
 
     /// Contents for a new node file of this kind: required params get their example value,
@@ -441,7 +465,11 @@ mod tests {
         }
         .with_param_inputs();
         let names: Vec<_> = spec.inputs.iter().map(|p| (p.name, p.param)).collect();
-        assert_eq!(names, [("image", false), ("x", true), ("a", true)]);
+        assert_eq!(
+            names,
+            [("image", false), ("x", true), ("a", true), ("c", true)]
+        );
+        assert_eq!(spec.input("c").unwrap().ty, ValueType::Color);
         let x = spec.input("x").unwrap();
         assert!(x.optional && !x.multi && x.ty == ValueType::Number);
         assert!(

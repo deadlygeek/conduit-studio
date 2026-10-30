@@ -320,7 +320,8 @@ fn parse_node(path: &Path, text: &str, registry: &Registry) -> Result<GraphNode,
         }
     }
 
-    if let Err(e) = node_impl.check_params(&file.params) {
+    let params = spec.params_with_links(&file.params, inputs.keys().map(String::as_str));
+    if let Err(e) = node_impl.check_params(&params) {
         errors.push(LoadError::Params {
             path: path.to_path_buf(),
             message: e.0,

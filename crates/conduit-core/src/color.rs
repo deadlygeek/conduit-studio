@@ -52,9 +52,131 @@ fn parse_hex(hex: &str) -> Option<Rgba<u8>> {
     Some(Rgba([byte(0)?, byte(2)?, byte(4)?, alpha]))
 }
 
+/// Formats a color as `#rrggbb`, or `#rrggbbaa` when it isn't opaque.
+pub fn to_hex(c: Rgba<u8>) -> String {
+    let [r, g, b, a] = c.0;
+    if a == 255 {
+        format!("#{r:02x}{g:02x}{b:02x}")
+    } else {
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+    }
+}
+
+/// Hue (degrees, 0..360), saturation and lightness (0..1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hsl {
+    pub h: f64,
+    pub s: f64,
+    pub l: f64,
+}
+
+pub fn to_hsl(c: Rgba<u8>) -> Hsl {
+    let [r, g, b] = [c[0], c[1], c[2]].map(|v| f64::from(v) / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d == 0.0 {
+        return Hsl { h: 0.0, s: 0.0, l };
+    }
+    let s = d / (1.0 - (2.0 * l - 1.0).abs());
+    let h = if max == r {
+        60.0 * ((g - b) / d).rem_euclid(6.0)
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    Hsl { h, s, l }
+}
+
+/// Converts back to RGB with the given alpha.
+pub fn from_hsl(hsl: Hsl, alpha: u8) -> Rgba<u8> {
+    let Hsl { h, s, l } = hsl;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let hp = h.rem_euclid(360.0) / 60.0;
+    let x = c * (1.0 - (hp.rem_euclid(2.0) - 1.0).abs());
+    let (r, g, b) = match hp as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let byte = |v: f64| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
+    Rgba([byte(r), byte(g), byte(b), alpha])
+}
+
+/// Adjustments as found in most image editors: rotate the hue by `hue` degrees, move
+/// saturation and lightness by `saturation` / `lightness` percentage points (-100..100),
+/// and scale alpha to `alpha` percent.
+pub fn adjust(c: Rgba<u8>, hue: f64, saturation: f64, lightness: f64, alpha: f64) -> Rgba<u8> {
+    let hsl = to_hsl(c);
+    let adjusted = Hsl {
+        h: (hsl.h + hue).rem_euclid(360.0),
+        s: (hsl.s + saturation / 100.0).clamp(0.0, 1.0),
+        l: (hsl.l + lightness / 100.0).clamp(0.0, 1.0),
+    };
+    let a = (f64::from(c[3]) * (alpha / 100.0).clamp(0.0, 1.0)).round() as u8;
+    if hue == 0.0 && saturation == 0.0 && lightness == 0.0 {
+        // Avoid rounding drift through HSL when only alpha changes.
+        return Rgba([c[0], c[1], c[2], a]);
+    }
+    from_hsl(adjusted, a)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_round_trip() {
+        assert_eq!(to_hex(Rgba([255, 136, 0, 255])), "#ff8800");
+        assert_eq!(to_hex(Rgba([255, 136, 0, 128])), "#ff880080");
+        for s in ["#264653", "#2a9d8f80"] {
+            assert_eq!(to_hex(parse_color(s).unwrap()), s);
+        }
+    }
+
+    #[test]
+    fn hsl_round_trip() {
+        for hex in [
+            "#000000", "#ffffff", "#808080", "#ff0000", "#00ff00", "#0000ff", "#264653", "#e9c46a",
+            "#e76f51", "#2a9d8f",
+        ] {
+            let c = parse_color(hex).unwrap();
+            assert_eq!(from_hsl(to_hsl(c), 255), c, "{hex}");
+        }
+        let red = to_hsl(Rgba([255, 0, 0, 255]));
+        assert_eq!((red.h, red.s, red.l), (0.0, 1.0, 0.5));
+        let grey = to_hsl(Rgba([128, 128, 128, 255]));
+        assert_eq!((grey.h, grey.s), (0.0, 0.0));
+    }
+
+    #[test]
+    fn adjustments() {
+        let red = Rgba([255, 0, 0, 255]);
+        assert_eq!(adjust(red, 120.0, 0.0, 0.0, 100.0), Rgba([0, 255, 0, 255]));
+        assert_eq!(adjust(red, -120.0, 0.0, 0.0, 100.0), Rgba([0, 0, 255, 255]));
+        assert_eq!(
+            adjust(red, 0.0, 0.0, 50.0, 100.0),
+            Rgba([255, 255, 255, 255])
+        );
+        assert_eq!(adjust(red, 0.0, 0.0, -50.0, 100.0), Rgba([0, 0, 0, 255]));
+        assert_eq!(
+            adjust(red, 0.0, -100.0, 0.0, 100.0),
+            Rgba([128, 128, 128, 255])
+        );
+        assert_eq!(adjust(red, 0.0, 0.0, 0.0, 50.0), Rgba([255, 0, 0, 128]));
+        let c = Rgba([38, 70, 83, 200]);
+        assert_eq!(
+            adjust(c, 0.0, 0.0, 0.0, 100.0),
+            c,
+            "no-op keeps the color exactly"
+        );
+    }
 
     #[test]
     fn named_colors() {

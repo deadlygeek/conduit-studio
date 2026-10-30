@@ -20,7 +20,6 @@ const DEBOUNCE: Duration = Duration::from_millis(150);
 /// a node id).
 const PROBE_ID: &str = "probe";
 
-#[allow(dead_code)] // used by `conduit edit` (next phase)
 pub enum Command {
     /// Show this output in the probe window, now and after every render.
     Probe(Reference),
@@ -48,7 +47,6 @@ pub struct Options {
     pub quiet: bool,
 }
 
-#[allow(dead_code)] // used by `conduit edit` (next phase)
 enum Input {
     Files(DebounceEventResult),
     Command(Command),
@@ -63,7 +61,6 @@ pub struct RunnerHandle {
 }
 
 impl RunnerHandle {
-    #[allow(dead_code)] // used by `conduit edit` (next phase)
     pub fn send(&self, command: Command) {
         let _ = self.input.send(Input::Command(command));
     }

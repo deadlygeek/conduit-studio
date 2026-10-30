@@ -1,5 +1,6 @@
 //! `conduit` — command-line runner for Conduit Studio projects.
 
+mod edit;
 mod gui;
 mod run;
 
@@ -24,6 +25,11 @@ enum Command {
         /// Project folder containing one `<node_id>.toml` per node.
         dir: PathBuf,
     },
+    /// Explore a project in a terminal UI while it renders (keyboard-driven).
+    Edit {
+        /// Project folder containing one `<node_id>.toml` per node.
+        dir: PathBuf,
+    },
     /// Load and evaluate a project without opening any windows; report problems.
     Check {
         /// Project folder containing one `<node_id>.toml` per node.
@@ -38,6 +44,13 @@ fn main() -> ExitCode {
     let registry = conduit_nodes::registry();
     match cli.command {
         Command::Run { dir } => match run::run(&dir, Arc::new(registry)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e:#}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Edit { dir } => match edit::edit(&dir, Arc::new(registry)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{e:#}");

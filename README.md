@@ -296,6 +296,9 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
   driven by inputs (e.g. a `number` node feeding `position.x`); `rotate`, `opacity` and
   `text` nodes; a headless `save_png` node.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
-  focused node); reordering list inputs; image thumbnails in the terminal.
+  focused node); reordering list inputs; image thumbnails in the terminal; nudging number
+  params from the keyboard with the cursor on the param (e.g. `+`/`-` for ±1, `>`/`<` for
+  ±10, `}`/`{` for ±50), clamped to the param's range, written straight to the file and
+  undoable with `u`.
 - **Later:** nodes as external programs written in any language; editor GUI nodes (color
   picker, slider) that write their values back to the node's TOML file.

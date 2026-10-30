@@ -13,9 +13,11 @@ impl Registry {
         Self::default()
     }
 
-    /// Registers a node kind. Panics on duplicate kinds — that's a programming error.
+    /// Registers a node kind, adding inputs for its number params
+    /// ([`NodeSpec::with_param_inputs`]). Panics on duplicate kinds or a bad spec — those
+    /// are programming errors.
     pub fn register(&mut self, node: impl Node + 'static) {
-        let spec = node.spec();
+        let spec = node.spec().with_param_inputs();
         let kind = spec.kind;
         let prev = self.nodes.insert(kind, (Box::new(node), spec));
         assert!(prev.is_none(), "node kind `{kind}` registered twice");

@@ -16,6 +16,9 @@ pub struct PortSpec {
     pub multi: bool,
     /// May be left unconnected. Inputs only.
     pub optional: bool,
+    /// Feeds the number param of the same name, overriding its value (see
+    /// [`NodeSpec::with_param_inputs`]). Inputs only.
+    pub param: bool,
 }
 
 impl PortSpec {
@@ -25,6 +28,7 @@ impl PortSpec {
             ty,
             multi: false,
             optional: false,
+            param: false,
         }
     }
 
@@ -181,13 +185,44 @@ impl NodeSpec {
         self.params.iter().find(|p| p.name == name)
     }
 
+    /// Adds an optional `number` input for every int/float param, so any number can be
+    /// typed into the node file or fed from another node's output. The registry applies
+    /// this to every kind; number params must have a default, since a linked param is
+    /// usually absent from `[params]`.
+    ///
+    /// Panics if a number param has no default or its name clashes with an input.
+    pub fn with_param_inputs(mut self) -> Self {
+        for p in &self.params {
+            if !matches!(p.kind, ParamKind::Int { .. } | ParamKind::Float { .. }) {
+                continue;
+            }
+            assert!(
+                p.default.is_some(),
+                "`{}`: number param `{}` needs a default",
+                self.kind,
+                p.name
+            );
+            assert!(
+                self.input(p.name).is_none(),
+                "`{}`: param `{}` clashes with an input",
+                self.kind,
+                p.name
+            );
+            self.inputs.push(PortSpec {
+                param: true,
+                ..PortSpec::new(p.name, ValueType::Number).optional()
+            });
+        }
+        self
+    }
+
     /// Contents for a new node file of this kind: required params get their example value,
     /// optional ones and inputs are listed as comments.
     pub fn template(&self) -> String {
         let mut out = format!("type = \"{}\"\n", self.kind);
-        if !self.inputs.is_empty() {
+        if self.inputs.iter().any(|p| !p.param) {
             out.push_str("\n[inputs]\n");
-            for p in &self.inputs {
+            for p in self.inputs.iter().filter(|p| !p.param) {
                 let value = if p.multi { "[\"node\"]" } else { "\"node\"" };
                 out.push_str(&format!("# {} = {value}  # {}\n", p.name, p.ty));
             }
@@ -389,5 +424,43 @@ mod tests {
         );
         assert_eq!(ParamKind::Int { min: 1, max: 5 }.to_string(), "int 1..5");
         assert_eq!(ParamKind::Color.to_string(), "color");
+    }
+
+    #[test]
+    fn number_params_get_inputs() {
+        let spec = NodeSpec {
+            kind: "demo",
+            inputs: vec![PortSpec::new("image", ValueType::Image)],
+            outputs: vec![],
+            params: vec![
+                ParamSpec::int("x", 0, 9, "0").default("0"),
+                ParamSpec::float("a", 0.0, 1.0, "1.0").default("1.0"),
+                ParamSpec::color("c", "\"white\""),
+            ],
+            gui: false,
+        }
+        .with_param_inputs();
+        let names: Vec<_> = spec.inputs.iter().map(|p| (p.name, p.param)).collect();
+        assert_eq!(names, [("image", false), ("x", true), ("a", true)]);
+        let x = spec.input("x").unwrap();
+        assert!(x.optional && !x.multi && x.ty == ValueType::Number);
+        assert!(
+            !spec.template().contains("# x = \"node\""),
+            "{}",
+            spec.template()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "needs a default")]
+    fn number_params_need_defaults() {
+        let _ = NodeSpec {
+            kind: "demo",
+            inputs: vec![],
+            outputs: vec![],
+            params: vec![ParamSpec::int("x", 0, 9, "0")],
+            gui: false,
+        }
+        .with_param_inputs();
     }
 }

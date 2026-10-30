@@ -15,8 +15,14 @@ pub struct Rect;
 #[serde(deny_unknown_fields)]
 struct Params {
     color: Color,
+    #[serde(default = "default_size")]
     width: u32,
+    #[serde(default = "default_size")]
     height: u32,
+}
+
+fn default_size() -> u32 {
+    100
 }
 
 impl Params {
@@ -41,8 +47,12 @@ impl Node for Rect {
             outputs: vec![PortSpec::new("out", ValueType::Image)],
             params: vec![
                 ParamSpec::color("color", "\"white\"").doc("fill color"),
-                ParamSpec::int("width", 1, MAX_DIMENSION.into(), "100").doc("width in pixels"),
-                ParamSpec::int("height", 1, MAX_DIMENSION.into(), "100").doc("height in pixels"),
+                ParamSpec::int("width", 1, MAX_DIMENSION.into(), "100")
+                    .default("100")
+                    .doc("width in pixels"),
+                ParamSpec::int("height", 1, MAX_DIMENSION.into(), "100")
+                    .default("100")
+                    .doc("height in pixels"),
             ],
             gui: false,
         }
@@ -92,7 +102,11 @@ height = 2"##,
         assert!(check("color = \"white\"\nwidth = 99999\nheight = 5").is_err());
         assert!(check("color = \"nope\"\nwidth = 5\nheight = 5").is_err());
         assert!(check("color = \"white\"\nwidth = -1\nheight = 5").is_err());
-        assert!(check("color = \"white\"\nwidth = 5").is_err());
+        assert!(check("width = 5\nheight = 5").is_err(), "color is required");
+        assert!(
+            check("color = \"white\"\nwidth = 5").is_ok(),
+            "height defaults"
+        );
         assert!(check("color = \"white\"\nwidth = 5\nheight = 5").is_ok());
     }
 }

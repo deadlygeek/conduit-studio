@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::graph::{Graph, GraphNode, Reference};
-use crate::node::{EvalCtx, GuiHost, Inputs, NodeSpec};
+use crate::node::{EvalCtx, GuiHost, Inputs, NodeSpec, ParamKind};
 use crate::registry::Registry;
 use crate::value::Value;
 
@@ -91,6 +91,50 @@ impl Evaluator {
     }
 }
 
+/// The node's params with linked number inputs written over them, checked against the
+/// param's range (ints are rounded).
+fn linked_params(
+    node: &GraphNode,
+    spec: &NodeSpec,
+    inputs: &HashMap<String, Vec<Value>>,
+) -> Result<toml::Table, String> {
+    let mut params = node.params.clone();
+    for port in spec.inputs.iter().filter(|p| p.param) {
+        let Some(Value::Number(n)) = inputs.get(port.name).and_then(|v| v.first()) else {
+            continue;
+        };
+        let source = &node.inputs[port.name][0];
+        let param = spec
+            .param(port.name)
+            .expect("param inputs come from params");
+        let value = match param.kind {
+            ParamKind::Int { min, max } => {
+                let v = n.round();
+                // `as` saturates, so check the range on the float first.
+                if !(v >= min as f64 && v <= max as f64) {
+                    return Err(format!(
+                        "`{}` from `{source}` must be between {min} and {max}, got {n}",
+                        port.name
+                    ));
+                }
+                toml::Value::Integer(v as i64)
+            }
+            ParamKind::Float { min, max } => {
+                if !(*n >= min && *n <= max) {
+                    return Err(format!(
+                        "`{}` from `{source}` must be between {min} and {max}, got {n}",
+                        port.name
+                    ));
+                }
+                toml::Value::Float(*n)
+            }
+            _ => unreachable!("only number params get inputs"),
+        };
+        params.insert(port.name.to_string(), value);
+    }
+    Ok(params)
+}
+
 /// Identifies everything a node's outputs depend on: its kind, its params, and the
 /// fingerprints of its sources (which are computed first, in graph order).
 fn fingerprint(node: &GraphNode, fingerprints: &HashMap<&str, u64>) -> u64 {
@@ -130,16 +174,18 @@ fn eval_node(
         inputs.insert(port.clone(), port_values);
     }
 
+    let node_error = |message: String| EvalError::Node {
+        node: node.id.clone(),
+        message,
+    };
+    let params = linked_params(node, spec, &inputs).map_err(node_error)?;
     let mut ctx = EvalCtx {
         node_id: &node.id,
         gui,
     };
     let outputs = node_impl
-        .eval(&Inputs::new(inputs), &node.params, &mut ctx)
-        .map_err(|e| EvalError::Node {
-            node: node.id.clone(),
-            message: e.0,
-        })?;
+        .eval(&Inputs::new(inputs), &params, &mut ctx)
+        .map_err(|e| node_error(e.0))?;
 
     let mut outputs = outputs.values;
     spec.outputs

@@ -127,7 +127,7 @@ fn print_nodes(registry: &Registry) {
     for spec in registry.specs() {
         let gui = if spec.gui { "  (gui)" } else { "" };
         println!("{}{gui}", spec.kind);
-        for p in &spec.inputs {
+        for p in spec.inputs.iter().filter(|p| !p.param) {
             let mut flags = Vec::new();
             if p.multi {
                 flags.push("list");
@@ -146,8 +146,10 @@ fn print_nodes(registry: &Registry) {
             println!("  out  {:<10} {}", p.name, p.ty);
         }
         for p in &spec.params {
+            let linkable = spec.input(p.name).is_some_and(|i| i.param);
             let need = match p.default {
                 _ if p.required => " (required)".to_string(),
+                Some(d) if linkable => format!(" (default {d}, linkable)"),
                 Some(d) => format!(" (default {d})"),
                 None => String::new(),
             };

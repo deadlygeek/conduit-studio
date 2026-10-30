@@ -2,6 +2,7 @@
 //! and register it in [`register_all`].
 
 mod composite;
+mod int;
 mod position;
 mod preview;
 mod rect;
@@ -12,6 +13,7 @@ mod test_util;
 use conduit_core::Registry;
 
 pub use composite::Composite;
+pub use int::Int;
 pub use position::Position;
 pub use preview::Preview;
 pub use rect::Rect;
@@ -24,6 +26,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Position);
     registry.register(Composite);
     registry.register(Preview);
+    registry.register(Int);
 }
 
 /// A registry containing every built-in node.

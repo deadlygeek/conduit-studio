@@ -4,7 +4,8 @@ A text-first, node-based art generation tool written in Rust.
 
 A project is a folder of small TOML files, one per node. Each node knows only its own
 inputs, outputs and settings; nodes are wired together by naming the node whose output
-they take. GUI nodes (currently just `preview`) run as separate, keyboard-driven windows.
+they take. GUI tools (the `preview` window and the color picker) run as separate,
+keyboard-driven windows.
 Save a file and the image updates — or use `conduit edit`, a keyboard-driven terminal UI
 for following flows through the graph and editing it.
 
@@ -30,6 +31,8 @@ Edit `examples/basic/placed.toml`, save, and the square moves.
 
 `examples/linked` is the same idea with its numbers coming from `int` nodes: one `size`
 node sets both the square's width and height, and one `offset` node its x and y.
+`examples/palette` takes its colors from a palette imported from Coolors, with a `color`
+node deriving a darker accent.
 
 To explore and edit the project interactively instead (it renders alongside):
 
@@ -38,8 +41,9 @@ target/debug/conduit edit examples/basic
 ```
 
 > Build the whole workspace, not just `conduit-cli`: `conduit run` launches the
-> `conduit-preview` binary, which is looked for next to `conduit`, then on `$PATH`.
-> Set `CONDUIT_PREVIEW_BIN` to use a different program.
+> `conduit-preview` binary (and `conduit edit` the `conduit-picker` binary), looked for
+> next to `conduit`, then on `$PATH`. Set `CONDUIT_PREVIEW_BIN` / `CONDUIT_PICKER_BIN` to
+> use different programs.
 
 ## Commands
 
@@ -49,6 +53,7 @@ target/debug/conduit edit examples/basic
 | `conduit edit <dir>` | Everything `run` does, plus a terminal UI for exploring and editing the project (see [Editing projects](#editing-projects)). |
 | `conduit check <dir>` | Load and render without opening windows. Prints each node's output, or every problem found, and exits non-zero on errors. |
 | `conduit nodes` | List the available node types with their inputs, outputs and params. |
+| `conduit palette import <dir> <id> <source>` | Create the palette node `<id>` (or replace its colors) from a Coolors link, hex codes, or a palette file — see [Palettes](#palettes). |
 
 ## Writing a project
 
@@ -104,9 +109,75 @@ value = 120
 Change `size.toml` and everything linked to it follows. A linked value outside the param's
 range (e.g. a width of 0) is reported as an error on the node that uses it.
 
+### Colors: typed or linked
+
 Colors are named (`white`, `black`, `red`, `green`, `lime`, `blue`, `yellow`, `cyan`,
 `magenta`, `orange`, `purple`, `gray`/`grey`, `transparent`) or hex: `"#ff8800"`,
 `"#ff880080"` (with alpha).
+
+Like numbers, every color param can instead be **linked** to a color output — a `color`
+node, a palette color, or anything else that outputs a color. A linked color param needs
+no typed value, even when it's required:
+
+```toml
+# accent_dark.toml — a color node: a base color plus adjustments
+type = "color"
+
+[inputs]
+color = "brand.accent"   # the base comes from the palette `brand` (or type one in [params])
+
+[params]
+lightness = -15          # -100..100; also hue (-180..180°), saturation (-100..100), alpha (0..100%)
+```
+
+```toml
+# square.toml
+type = "rect"
+
+[inputs]
+color = "accent_dark"
+```
+
+Color nodes chain: a palette color → a lighter version → a semi-transparent version of
+that, and so on.
+
+### Palettes
+
+A palette is a named set of colors. **Each color is an output of its own**, referenced as
+`palette.name`:
+
+```toml
+# brand.toml
+type = "palette"
+
+[params]
+source = "https://coolors.co/264653-2a9d8f-e9c46a-f4a261-e76f51"   # optional note
+
+[params.colors]
+primary = "#264653"
+teal = "#2a9d8f"
+sand = "#e9c46a"
+orange = "#f4a261"
+accent = "#e76f51"
+```
+
+Colors keep the order they have in the file. Names follow the same rules as node ids.
+
+To bring in a palette from elsewhere, paste it — `conduit palette import <dir> <id> …`, or
+`I` in `conduit edit`. Accepted:
+
+- a **Coolors link**: `https://coolors.co/264653-2a9d8f-e9c46a-f4a261-e76f51` (also the
+  `/palette/…` form). Coolors has no public API, but its links carry the colors, so nothing
+  is downloaded;
+- **hex codes** in any list form: `#264653 #2a9d8f`, one per line (Lospec `.hex`),
+  `["264653","2a9d8f"]`;
+- Coolors' **CSS** (`--charcoal: #264653ff;`) and **JSON** (`{"Charcoal":"264653"}`)
+  exports, which keep their names (`charcoal`, `persian_green`);
+- **GIMP `.gpl`** palettes;
+- a **file** containing any of the above (CLI: pass its path).
+
+Colors without a name become `c1`, `c2`, …; rename them in the editor (`r`) and every
+link follows.
 
 Everything is validated before rendering, and all problems are reported at once, each
 with its file: syntax errors, unknown types/inputs/params, missing connections,
@@ -121,7 +192,7 @@ Connections carry typed values:
 | `image` | RGBA pixels (straight alpha) |
 | `layer` | an image placed at an x, y offset, ready to composite |
 | `number` | a number (from `int`); feeds number params |
-| `color` | reserved for future nodes |
+| `color` | an RGBA color (from `color` or a palette); feeds color params |
 
 An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
 
@@ -134,9 +205,11 @@ An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
+| `color` | — | `color` (base), `hue`, `saturation`, `lightness`, `alpha` | the base color, adjusted |
+| `palette` | — | `colors` (name = color), `source` (optional) | one color output per entry, named after it (no `out`) |
 
-Number params (`width`, `x`, …) can also be linked from a number output instead of typed;
-see above.
+Number and color params (`width`, `x`, `color`, …) can also be linked from an output of the
+same type instead of typed; see above.
 
 ## Preview window
 
@@ -172,7 +245,9 @@ focus: everything upstream of it on the left, everything that uses it on the rig
 ```
 
 The middle panel lists the node's inputs (one row per connection), params (defaults shown
-dimmed), outputs (with who uses them) and any errors. In the trees, `↺` marks a node
+dimmed), outputs (with who uses them) and any errors. Colors — typed, linked or in a
+palette — get a true-color swatch (`██ #e76f51`); a palette shows one `col` row per color,
+with who uses it. In the trees, `↺` marks a node
 already shown higher up, and broken or missing nodes are red. Below 100 columns the panes
 stack vertically.
 
@@ -200,7 +275,12 @@ edit.
 | `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
 | `c` / `d` on a number param | link it to a number output (e.g. an `int` node) / unlink it, going back to its typed or default value. A linked param shows its source and live value: `par width ← size  = 120`. |
 | `+` `-` / `>` `<` / `}` `{` on a whole-number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
-| `i` on a number param | feed it from a new node: pick a type (e.g. `int`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
+| `i` on a number or color param | feed it from a new node: pick a type (`int`, `color`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
+| `⏎` on a color | open the **color editor** (below) |
+| `C` on a color | open the **color picker** window (below) |
+| `c` / `d` on a color param | link it to a color output (a palette color or `color` node) / unlink it |
+| `r` / `o` / `x` on a palette color | rename it (links follow) / add a color (a copy of this one) / remove it (asks first if it's used) |
+| `I` on a palette | import colors: paste a Coolors link or hex codes; replaces the palette's colors. Adding a palette with `a` opens this straight away. |
 | `⏎` or `c` on an input | pick a source: only type-compatible outputs that don't create a cycle are offered. List inputs append; single inputs are replaced. |
 | `d` on an input | disconnect that connection |
 | `i` on an input | insert a new node into that connection (`source → new → this`); only node types that fit are offered |
@@ -208,6 +288,51 @@ edit.
 | `r` / `D` | rename the focused node (every reference is updated) / delete it (after confirmation; its connections are removed) |
 | `E` | open the focused node's file in `$VISUAL` / `$EDITOR` (default `vi`) |
 | `u` | undo the last edit (restores the files exactly; this session only) |
+
+### Adjusting colors
+
+**In the terminal**, `⏎` on a color opens the color editor: the new and old color, and one
+row per channel with a gradient showing where it sits.
+
+```
+┏ color  brand.accent  (HSL) ━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ████████████████  #e76f51                              ┃
+┃ ████████████████  was #e76f51 ██                       ┃
+┃ ▸ H  12°  █┃██████████████████████████████             ┃
+┃   S  76%  ███████████████████████┃████████             ┃
+┃   L  61%  ███████████████████┃████████████             ┃
+┃   A 100%  ███████████████████████████████┃             ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+| Key | Action |
+|---|---|
+| `j` / `k` | choose a channel |
+| `+` `-` / `>` `<` / `}` `{` | nudge it by 1 / 10 / 50 (degrees, percent, or 0–255) |
+| `tab` | switch between H S L A and R G B A |
+| `#` | type a hex code or color name |
+| `⏎` / `esc` | keep / put everything back as it was (including a link) |
+
+Every change is written as you go, so the preview follows; the whole session undoes in one
+`u`. Hue survives going through greys, white and black.
+
+**In a window**, `C` on a color opens `conduit-picker`: an HSV square with hue and alpha
+bars, a hex field, H S L A and R G B sliders, and every palette color in the project as a
+numbered swatch. It works with the mouse, and with the keyboard:
+
+| Key | Action |
+|---|---|
+| `h` `s` `l` `a`, `r` `g` `b` | choose a channel |
+| `←` / `→` (`shift`: ×10) | nudge it; the editor's `+ - > < } {` work too |
+| `#` | type a hex code |
+| `1`–`9` | take that palette color |
+| `⏎` / `q` | done |
+| `esc` | put the file back as it was, and close |
+
+The picker writes to the node file as you go, like any other edit. The editor remembers the
+file as it was when you pressed `C`, so `u` undoes the whole picker session.
+
+### Notes
 
 Edits are written straight to the node files, keeping your comments and formatting, and the
 renderer picks them up like any other change. Changes made in another editor show up live
@@ -223,10 +348,12 @@ crates/
                    (`inspect`), lineage/cycle/compatibility queries, and file edits with undo
   conduit-nodes    built-in nodes (one module each) and register_all()
   conduit-ipc      the runner → GUI process message format
-  conduit-cli      the `conduit` binary: run, edit (the TUI, ratatui), check, nodes
+  conduit-cli      the `conduit` binary: run, edit (the TUI, ratatui), check, nodes, palette
   conduit-preview  the `conduit-preview` window (egui/eframe)
+  conduit-picker   the `conduit-picker` color picker window (egui/eframe)
 examples/basic     the example project
 examples/linked    the same, with sizes and positions fed from `int` nodes
+examples/palette   colors from an imported palette, adjusted with a `color` node
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
@@ -242,7 +369,14 @@ examples/linked    the same, with sizes and positions fed from `int` nodes
   its stdin. Under `conduit check` the images are discarded.
 - The editor never edits files any other way than through `conduit_core::edit`, which
   uses `toml_edit` (comments survive), applies each edit all-or-nothing, and returns the
-  previous file contents for undo.
+  previous file contents for undo. The color picker is a separate process that writes
+  through the same functions; it never talks to the editor, which just sees the file change.
+- Color maths (HSL conversion, adjustments, the channel model shared by the terminal editor
+  and the picker) is in `conduit-core/src/color.rs`; palette text parsing (Coolors links,
+  hex lists, CSS/JSON exports, GIMP palettes) in `conduit-core/src/palette.rs`.
+- A palette's colors are outputs because its output port is marked `.entries()`: the
+  node's actual outputs are the keys of the `[params.colors]` table
+  (`NodeSpec::outputs_for(params)`).
 - **IPC format** (`conduit-ipc`): each message is a `u32` little-endian length followed by
   a one-byte tag: `1` frame (`u32` width, `u32` height, RGBA bytes), `2` error (UTF-8 text),
   `3` close. A preview window exits when its stdin closes, so stopping the runner closes
@@ -322,7 +456,11 @@ Things to know:
 - **Int and float params must have a default** (registration panics otherwise), because
   each one automatically gets an optional `number` input of the same name: when it's
   connected, the incoming value (rounded for ints, range-checked) replaces the param before
-  `eval` sees it. Nothing else is needed for a node's numbers to be linkable.
+  `eval` sees it. Color params get a `color` input the same way (written in as hex), and
+  may stay required. Nothing else is needed for a node's numbers and colors to be linkable.
+- For outputs that depend on the node's file, like a palette's colors, use
+  `PortSpec::new("colors", ValueType::Color).entries()` with a `ParamSpec::colors("colors", …)`
+  table param, and return one output per table key.
 - Return every declared output (`Outputs::out(..)` for the usual single `out` port);
   evaluation fails otherwise.
 - Images are `Arc<RgbaImage>`, so passing them along is cheap; clone the pixels only
@@ -348,8 +486,13 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 
 - **Next:** `rotate`, `opacity` and `text` nodes; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
+- **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
+  tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
+  a color from the preview window; optional online palette sources (e.g. Lospec's palette
+  list, Colormind's generator) behind an explicit command.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
   focused node); reordering list inputs; image thumbnails in the terminal; nudging float
   params (with steps that suit their range).
-- **Later:** nodes as external programs written in any language; editor GUI nodes (color
-  picker, slider) that write their values back to the node's TOML file.
+- **Later:** nodes as external programs written in any language; more GUI tools in the
+  picker's style (e.g. a slider window for numbers) that write values back to the node's
+  TOML file.

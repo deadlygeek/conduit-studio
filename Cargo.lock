@@ -840,6 +840,7 @@ dependencies = [
  "notify-debouncer-mini",
  "ratatui",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

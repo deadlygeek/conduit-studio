@@ -16,6 +16,7 @@ conduit-ipc = { version = "0.1.0", path = "../conduit-ipc" }
 conduit-nodes = { version = "0.1.0", path = "../conduit-nodes" }
 notify-debouncer-mini = "0.7.0"
 ratatui = "0.30.2"
+toml = "1.1.8"
 
 [dev-dependencies]
 tempfile = "3.27.0"

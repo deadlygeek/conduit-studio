@@ -14,6 +14,8 @@ use crate::run::Event;
 const DIM: Style = Style::new().fg(Color::DarkGray);
 const ERROR: Style = Style::new().fg(Color::Red);
 const ACCENT: Color = Color::Cyan;
+/// Background of the selected row; distinct from `DIM` text so dim parts stay readable.
+const SELECTED_BG: Color = Color::Indexed(237);
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [title, main, status, keys] = Layout::vertical([
@@ -33,7 +35,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_keys(frame, app, keys);
 
     match &app.mode {
-        Mode::Find { .. } => draw_find(frame, app),
+        Mode::Pick { .. } => draw_pick(frame, app),
+        Mode::Prompt { .. } => draw_prompt(frame, app),
+        Mode::Confirm { .. } => draw_confirm(frame, app),
         Mode::Help => draw_help(frame),
         Mode::Normal => {}
     }
@@ -89,9 +93,7 @@ fn pane_block(app: &App, pane: Pane, title: Line<'static>) -> Block<'static> {
 
 fn highlight(app: &App, pane: Pane) -> Style {
     if app.pane == pane {
-        Style::new()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
+        Style::new().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
     } else {
         Style::new().add_modifier(Modifier::UNDERLINED)
     }
@@ -370,10 +372,12 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
     let hints = match (&app.mode, app.pane) {
-        (Mode::Find { .. }, _) => "type to filter   ↑/↓ select   ⏎ go   esc cancel",
+        (Mode::Pick { .. }, _) => "type to filter   ↑/↓ select   ⏎ choose   esc cancel",
+        (Mode::Prompt { .. }, _) => "⏎ save   esc cancel   ctrl-u clear",
+        (Mode::Confirm { .. }, _) => "y confirm   any other key cancels",
         (Mode::Help, _) => "any key to close",
         (_, Pane::Node) => {
-            "h/l follow   j/k move   H/L trees   [ ] back/fwd   / find   p probe   P follow   ? help   q quit"
+            "h/l follow   j/k move   ⏎ edit   c/d connect   i insert   a add   r/D rename/del   u undo   / find   p probe   ? help"
         }
         (_, Pane::Up) => "h/⏎ focus   l back   j/k move   space fold   / find   p probe   ? help",
         (_, Pane::Down) => "l/⏎ focus   h back   j/k move   space fold   / find   p probe   ? help",
@@ -389,20 +393,31 @@ fn popup(frame: &mut Frame, width: u16, height: u16) -> Rect {
     area
 }
 
-fn draw_find(frame: &mut Frame, app: &App) {
-    let Mode::Find { query, selected } = &app.mode else {
-        return;
-    };
-    let matches = app.find_matches();
-    let area = popup(frame, 60, 20);
-    let block = Block::bordered()
+fn overlay_block(title: String) -> Block<'static> {
+    Block::bordered()
         .border_type(BorderType::Thick)
         .border_style(Style::new().fg(ACCENT))
-        .title(format!(
-            " find node ({} of {}) ",
-            matches.len(),
-            app.project.nodes.len()
-        ));
+        .title(title)
+}
+
+fn draw_pick(frame: &mut Frame, app: &App) {
+    let Mode::Pick {
+        purpose,
+        query,
+        selected,
+    } = &app.mode
+    else {
+        return;
+    };
+    let matches = app.pick_matches();
+    let total = app.pick_items(purpose).len();
+    let focus = app.focus.as_deref().unwrap_or_default();
+    let area = popup(frame, 64, 20);
+    let block = overlay_block(format!(
+        " {} ({} of {total}) ",
+        purpose.title(focus),
+        matches.len()
+    ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let [input, list_area] =
@@ -415,20 +430,63 @@ fn draw_find(frame: &mut Frame, app: &App) {
         ]),
         input,
     );
+    // Labels are "name  details"; dim the details.
     let items: Vec<ListItem> = matches
         .iter()
-        .map(|id| {
+        .map(|(_, label)| {
+            let (name, rest) = label.split_once("  ").unwrap_or((label, ""));
             ListItem::new(Line::from(vec![
-                Span::raw(id.clone()),
-                Span::styled(format!("  {}", kind_of(app, id)), DIM),
+                Span::raw(name.to_string()),
+                Span::styled(format!("  {rest}"), DIM),
             ]))
         })
         .collect();
     let mut state = ListState::default().with_selected((!matches.is_empty()).then_some(*selected));
     frame.render_stateful_widget(
-        List::new(items).highlight_style(highlight(app, app.pane).bg(Color::DarkGray)),
+        List::new(items).highlight_style(Style::new().bg(SELECTED_BG).add_modifier(Modifier::BOLD)),
         list_area,
         &mut state,
+    );
+}
+
+fn draw_prompt(frame: &mut Frame, app: &App) {
+    let Mode::Prompt {
+        purpose,
+        input,
+        error,
+    } = &app.mode
+    else {
+        return;
+    };
+    let focus = app.focus.as_deref().unwrap_or_default();
+    let area = popup(frame, 64, if error.is_some() { 4 } else { 3 });
+    let mut lines = vec![Line::from(vec![
+        Span::raw(input.clone()),
+        Span::styled("▏", Style::new().fg(ACCENT)),
+    ])];
+    if let Some(error) = error {
+        lines.push(Line::from(Span::styled(error.clone(), ERROR)));
+    }
+    let block = overlay_block(format!(" {} ", purpose.label(focus)));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn draw_confirm(frame: &mut Frame, app: &App) {
+    let Mode::Confirm { question, .. } = &app.mode else {
+        return;
+    };
+    let area = popup(frame, 64, 5);
+    let lines = vec![
+        Line::from(question.clone()),
+        Line::from(""),
+        Line::from(Span::styled("y to confirm, any other key to cancel", DIM)),
+    ];
+    let block = overlay_block(" confirm ".into());
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .block(block),
+        area,
     );
 }
 
@@ -439,7 +497,10 @@ const HELP: &[(&str, &str)] = &[
     ),
     ("j / k", "move the cursor (g / G: top / bottom)"),
     ("H / L", "move into the inputs / used-by tree"),
-    ("⏎", "in a tree: focus that node"),
+    (
+        "⏎",
+        "edit the param or input under the cursor; in a tree: focus that node",
+    ),
     ("space", "in a tree: fold / unfold"),
     ("tab", "cycle panes (esc: back to the node)"),
     (
@@ -447,6 +508,15 @@ const HELP: &[(&str, &str)] = &[
         "back / forward through focused nodes (also ctrl-o, backspace)",
     ),
     ("/", "find a node by name or type"),
+    ("c / d", "connect / disconnect the input under the cursor"),
+    (
+        "i",
+        "insert a new node into the connection under the cursor",
+    ),
+    ("a", "add a new node"),
+    ("r / D", "rename / delete the focused node"),
+    ("E", "open the focused node's file in $EDITOR"),
+    ("u", "undo the last edit"),
     (
         "p",
         "probe: show the output under the cursor in a probe window",
@@ -476,6 +546,7 @@ fn draw_help(frame: &mut Frame) {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use conduit_core::inspect;
@@ -501,8 +572,9 @@ mod tests {
 
     fn example() -> App {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
-        let project = inspect(&dir, &conduit_nodes::registry()).unwrap();
-        App::new(Path::new("examples/basic").to_path_buf(), project)
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(&dir, &registry).unwrap();
+        App::new(Path::new("examples/basic").to_path_buf(), project, registry)
     }
 
     #[test]
@@ -557,8 +629,9 @@ mod tests {
     fn errors_are_visible() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("a.toml"), "type = \"position\"\n").unwrap();
-        let project = inspect(tmp.path(), &conduit_nodes::registry()).unwrap();
-        let mut app = App::new(tmp.path().to_path_buf(), project);
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(tmp.path(), &registry).unwrap();
+        let mut app = App::new(tmp.path().to_path_buf(), project, registry);
         app.on_runner_event(Event::Failed(
             "a.toml: required input `image` is not connected".into(),
         ));
@@ -592,6 +665,31 @@ mod tests {
             .expect(&screen);
         assert!(status.contains("● rendered 5 nodes in 18 ms"), "{status}");
         assert!(status.contains("probe: comp.out"), "{status}");
+    }
+
+    #[test]
+    fn prompt_and_confirm_overlays() {
+        let mut app = example();
+        app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // comp
+        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // layers[0]
+        app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // placed, on `out`
+        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // y
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.handle_key(KeyEvent::from(KeyCode::Char('x')));
+        app.handle_key(KeyEvent::from(KeyCode::Enter)); // "300x" is rejected
+        let screen = render(&mut app, 120, 30);
+        assert!(screen.contains("placed.y (empty = default)"), "{screen}");
+        assert!(screen.contains("300x▏"), "{screen}");
+        assert!(screen.contains("`300x` is not a whole number"), "{screen}");
+
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
+        app.handle_key(KeyEvent::from(KeyCode::Char('D')));
+        let screen = render(&mut app, 120, 30);
+        assert!(
+            screen.contains("Delete `placed`? This disconnects comp.layers."),
+            "{screen}"
+        );
+        assert!(screen.contains("y to confirm"), "{screen}");
     }
 
     #[test]

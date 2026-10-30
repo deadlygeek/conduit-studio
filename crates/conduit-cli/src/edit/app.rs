@@ -1,14 +1,17 @@
 //! Editor state and key handling, independent of the terminal (see `view.rs` for drawing).
 
+mod edits;
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use conduit_core::{Project, ProjectNode, Reference, TreeItem};
+use conduit_core::{Change, Project, ProjectNode, Reference, Registry, TreeItem};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
-use super::finder;
 use crate::run::Event;
+pub use edits::{Confirm, Pick, Prompt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -44,7 +47,23 @@ pub enum Row {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Normal,
-    Find { query: String, selected: usize },
+    /// Choosing from a filtered list (find, connect, node types).
+    Pick {
+        purpose: Pick,
+        query: String,
+        selected: usize,
+    },
+    /// Typing a value; `error` is shown when the last submission was rejected.
+    Prompt {
+        purpose: Prompt,
+        input: String,
+        error: Option<String>,
+    },
+    /// Waiting for `y` to go ahead.
+    Confirm {
+        question: String,
+        purpose: Confirm,
+    },
     Help,
 }
 
@@ -54,11 +73,16 @@ pub enum Action {
     Quit,
     Probe(Reference),
     ProbeOff,
+    /// Suspend the TUI and open this file in `$EDITOR`.
+    OpenEditor(PathBuf),
 }
 
 pub struct App {
     pub dir: PathBuf,
     pub project: Project,
+    registry: Arc<Registry>,
+    /// Edits made in this session, most recent last.
+    undo: Vec<(String, Change)>,
     pub focus: Option<String>,
     pub pane: Pane,
     pub mode: Mode,
@@ -81,10 +105,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(dir: PathBuf, project: Project) -> Self {
+    pub fn new(dir: PathBuf, project: Project, registry: Arc<Registry>) -> Self {
         let mut app = Self {
             dir,
             project,
+            registry,
+            undo: Vec::new(),
             focus: None,
             pane: Pane::Node,
             mode: Mode::Normal,
@@ -120,12 +146,15 @@ impl App {
     }
 
     /// Replaces the project after files changed, keeping focus and history where possible.
+    /// History entries for nodes that no longer exist are skipped when navigating, so a
+    /// rename can re-point them and an undo can bring them back.
     pub fn reload(&mut self, project: Project) {
         self.project = project;
-        let exists = |id: &String| self.project.nodes.contains_key(id);
-        self.back.retain(exists);
-        self.forward.retain(exists);
-        if !self.focus.as_ref().is_some_and(exists) {
+        if !self
+            .focus
+            .as_ref()
+            .is_some_and(|id| self.project.nodes.contains_key(id))
+        {
             self.focus = self.default_focus();
         }
         self.refresh();
@@ -244,7 +273,7 @@ impl App {
     }
 
     fn go_back(&mut self) -> Option<Action> {
-        let id = self.back.pop()?;
+        let id = pop_existing(&mut self.back, &self.project)?;
         if let Some(cur) = self.focus.take() {
             self.forward.push(cur);
         }
@@ -252,7 +281,7 @@ impl App {
     }
 
     fn go_forward(&mut self) -> Option<Action> {
-        let id = self.forward.pop()?;
+        let id = pop_existing(&mut self.forward, &self.project)?;
         if let Some(cur) = self.focus.take() {
             self.back.push(cur);
         }
@@ -368,30 +397,6 @@ impl App {
 
     // --- find --------------------------------------------------------------------------
 
-    /// Node ids matching the find query, best first.
-    pub fn find_matches(&self) -> Vec<String> {
-        let Mode::Find { query, .. } = &self.mode else {
-            return Vec::new();
-        };
-        let haystacks: Vec<(String, String)> = self
-            .project
-            .nodes
-            .values()
-            .map(|n| {
-                (
-                    n.id.clone(),
-                    format!("{} {}", n.id, n.kind.as_deref().unwrap_or("")),
-                )
-            })
-            .collect();
-        finder::rank(
-            query,
-            haystacks
-                .iter()
-                .map(|(id, text)| (id.clone(), text.as_str())),
-        )
-    }
-
     // --- keys --------------------------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<Action> {
@@ -399,32 +404,50 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(Action::Quit);
         }
-        match self.mode.clone() {
-            Mode::Help => {
-                self.mode = Mode::Normal;
+        match std::mem::replace(&mut self.mode, Mode::Normal) {
+            Mode::Normal => self.normal_key(key),
+            Mode::Help => None,
+            Mode::Pick {
+                purpose,
+                query,
+                selected,
+            } => self.pick_key(key, purpose, query, selected),
+            Mode::Prompt {
+                purpose,
+                input,
+                error,
+            } => self.prompt_key(key, purpose, input, error),
+            Mode::Confirm { question, purpose } => {
+                if key.code == KeyCode::Char('y') {
+                    self.confirmed(purpose);
+                } else {
+                    self.message = Some(format!("cancelled: {question}"));
+                }
                 None
             }
-            Mode::Find { query, selected } => self.find_key(key, query, selected),
-            Mode::Normal => self.normal_key(key),
         }
     }
 
-    fn find_key(
+    /// Keys while a picker is open (mode has been reset to `Normal`; restore to stay open).
+    fn pick_key(
         &mut self,
         key: KeyEvent,
+        purpose: Pick,
         mut query: String,
         mut selected: usize,
     ) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Esc => {
-                self.mode = Mode::Normal;
-                return None;
-            }
+            KeyCode::Esc => return None,
             KeyCode::Enter => {
-                let id = self.find_matches().into_iter().nth(selected);
+                self.mode = Mode::Pick {
+                    purpose: purpose.clone(),
+                    query,
+                    selected,
+                };
+                let chosen = self.pick_matches().into_iter().nth(selected);
                 self.mode = Mode::Normal;
-                return id.and_then(|id| self.focus_on(&id));
+                return chosen.and_then(|(key, _)| self.choose(purpose, key));
             }
             KeyCode::Down => selected += 1,
             KeyCode::Char('n') if ctrl => selected += 1,
@@ -440,11 +463,45 @@ impl App {
             }
             _ => {}
         }
-        self.mode = Mode::Find { query, selected };
-        let count = self.find_matches().len();
-        if let Mode::Find { selected, .. } = &mut self.mode {
+        self.mode = Mode::Pick {
+            purpose,
+            query,
+            selected,
+        };
+        let count = self.pick_matches().len();
+        if let Mode::Pick { selected, .. } = &mut self.mode {
             *selected = (*selected).min(count.saturating_sub(1));
         }
+        None
+    }
+
+    /// Keys while a prompt is open.
+    fn prompt_key(
+        &mut self,
+        key: KeyEvent,
+        purpose: Prompt,
+        mut input: String,
+        mut error: Option<String>,
+    ) -> Option<Action> {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Esc => return None,
+            KeyCode::Enter => match self.submit_prompt(purpose.clone(), &input) {
+                Ok(action) => return action,
+                Err(e) => error = Some(e),
+            },
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char('u') if ctrl => input.clear(),
+            KeyCode::Char(c) if !ctrl => input.push(c),
+            _ => {}
+        }
+        self.mode = Mode::Prompt {
+            purpose,
+            input,
+            error,
+        };
         None
     }
 
@@ -453,11 +510,19 @@ impl App {
         match (self.pane, key.code) {
             (_, KeyCode::Char('q')) => return Some(Action::Quit),
             (_, KeyCode::Char('?')) => self.mode = Mode::Help,
-            (_, KeyCode::Char('/')) => {
-                self.mode = Mode::Find {
-                    query: String::new(),
-                    selected: 0,
-                }
+            (_, KeyCode::Char('/')) => self.open_pick(Pick::FindNode),
+
+            // Editing.
+            (Pane::Node, KeyCode::Enter) => self.edit_row(),
+            (Pane::Node, KeyCode::Char('c')) => self.connect_row(),
+            (Pane::Node, KeyCode::Char('d')) => self.disconnect_row(),
+            (Pane::Node, KeyCode::Char('i')) => self.insert_row(),
+            (_, KeyCode::Char('a')) => self.open_pick(Pick::AddType),
+            (_, KeyCode::Char('r')) => self.start_rename(),
+            (_, KeyCode::Char('D')) => self.start_delete(),
+            (_, KeyCode::Char('u')) => self.undo(),
+            (_, KeyCode::Char('E')) => {
+                return self.focused().map(|n| Action::OpenEditor(n.path.clone()));
             }
 
             (_, KeyCode::Char('o')) if ctrl => return self.go_back(),
@@ -532,6 +597,16 @@ impl App {
     }
 }
 
+/// Pops history entries until one names a node that exists.
+fn pop_existing(history: &mut Vec<String>, project: &Project) -> Option<String> {
+    while let Some(id) = history.pop() {
+        if project.nodes.contains_key(&id) {
+            return Some(id);
+        }
+    }
+    None
+}
+
 /// Inputs (one row per connection), params, outputs, then errors.
 fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
     let mut rows = Vec::new();
@@ -599,8 +674,9 @@ mod tests {
 
     fn example() -> App {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
-        let project = inspect(&dir, &conduit_nodes::registry()).unwrap();
-        App::new(dir, project)
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(&dir, &registry).unwrap();
+        App::new(dir, project, registry)
     }
 
     fn press(app: &mut App, keys: &str) -> Option<Action> {
@@ -713,13 +789,13 @@ mod tests {
     fn find_jumps_to_node() {
         let mut app = example();
         press(&mut app, "/wbg");
-        assert_eq!(app.find_matches()[0], "white_bg");
+        assert_eq!(app.pick_matches()[0].0, "white_bg");
         key(&mut app, KeyCode::Enter);
         assert_eq!(focus(&app), "white_bg");
         assert_eq!(app.mode, Mode::Normal);
 
         press(&mut app, "/zzz");
-        assert!(app.find_matches().is_empty());
+        assert!(app.pick_matches().is_empty());
         key(&mut app, KeyCode::Enter);
         assert_eq!(focus(&app), "white_bg");
     }
@@ -770,11 +846,231 @@ mod tests {
             "type = \"rect\"\n[params]\ncolor = \"nope\"\nwidth = 1\nheight = 1\n",
         )
         .unwrap();
-        let project = inspect(tmp.path(), &conduit_nodes::registry()).unwrap();
-        let app = App::new(tmp.path().to_path_buf(), project);
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(tmp.path(), &registry).unwrap();
+        let app = App::new(tmp.path().to_path_buf(), project, registry);
         assert_eq!(
             app.rows.last(),
             Some(&Row::Error("params: unknown color `nope`".into()))
         );
+    }
+
+    // --- editing ---------------------------------------------------------------------
+
+    /// The example copied to a temp folder, so edits can change it.
+    fn temp_example() -> (tempfile::TempDir, App) {
+        let tmp = tempfile::tempdir().unwrap();
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
+        for entry in std::fs::read_dir(example).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                std::fs::copy(&path, tmp.path().join(path.file_name().unwrap())).unwrap();
+            }
+        }
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(tmp.path(), &registry).unwrap();
+        let app = App::new(tmp.path().to_path_buf(), project, registry);
+        (tmp, app)
+    }
+
+    fn read(app: &App, id: &str) -> String {
+        std::fs::read_to_string(app.dir.join(format!("{id}.toml"))).unwrap_or_default()
+    }
+
+    fn goto(app: &mut App, id: &str) {
+        press(app, &format!("/{id}"));
+        key(app, KeyCode::Enter);
+        assert_eq!(focus(app), id);
+    }
+
+    fn select(app: &mut App, pred: impl Fn(&Row) -> bool) {
+        let i = app.rows.iter().position(pred).expect("row exists");
+        app.set_cursor(Pane::Node, i);
+    }
+
+    fn param(name: &str) -> impl Fn(&Row) -> bool + '_ {
+        move |r| matches!(r, Row::Param { name: n } if n == name)
+    }
+
+    fn input(port: &str, index: Option<usize>) -> impl Fn(&Row) -> bool + '_ {
+        move |r| matches!(r, Row::Input { port: p, index: i, .. } if p == port && *i == index)
+    }
+
+    fn clear(app: &mut App) {
+        app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    }
+
+    fn prompt_error(app: &App) -> Option<&str> {
+        match &app.mode {
+            Mode::Prompt { error, .. } => error.as_deref(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn edit_param_validate_reset_and_undo() {
+        let (_tmp, mut app) = temp_example();
+        let original = read(&app, "placed");
+        goto(&mut app, "placed");
+        select(&mut app, param("x"));
+
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "300"));
+        clear(&mut app);
+        press(&mut app, "120");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(read(&app, "placed").contains("x = 120"));
+        assert_eq!(app.message.as_deref(), Some("set placed.x = 120"));
+
+        // Invalid input keeps the prompt open and changes nothing.
+        key(&mut app, KeyCode::Enter);
+        clear(&mut app);
+        press(&mut app, "abc");
+        key(&mut app, KeyCode::Enter);
+        assert!(prompt_error(&app).unwrap().contains("not a whole number"));
+        key(&mut app, KeyCode::Esc);
+        assert!(read(&app, "placed").contains("x = 120"));
+
+        // Empty input resets to the default.
+        key(&mut app, KeyCode::Enter);
+        clear(&mut app);
+        key(&mut app, KeyCode::Enter);
+        assert!(!read(&app, "placed").contains("x ="));
+
+        press(&mut app, "uu");
+        assert_eq!(read(&app, "placed"), original);
+        assert_eq!(app.message.as_deref(), Some("undid: set placed.x = 120"));
+        press(&mut app, "u");
+        assert_eq!(app.message.as_deref(), Some("nothing to undo"));
+    }
+
+    #[test]
+    fn param_range_is_checked() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "black_sq");
+        select(&mut app, param("width"));
+        key(&mut app, KeyCode::Enter);
+        clear(&mut app);
+        press(&mut app, "0");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(prompt_error(&app), Some("must be between 1 and 16384"));
+    }
+
+    #[test]
+    fn connect_and_disconnect() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "comp");
+        select(&mut app, input("layers", Some(0)));
+        press(&mut app, "c");
+        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(keys.len(), 3, "{keys:?}"); // black_sq, placed, white_bg: not comp or preview
+        press(&mut app, "white");
+        key(&mut app, KeyCode::Enter);
+        assert!(
+            read(&app, "comp").contains("layers = [\"placed\", \"white_bg\"]"),
+            "{}",
+            read(&app, "comp")
+        );
+        assert_eq!(
+            app.message.as_deref(),
+            Some("connected comp.layers ← white_bg")
+        );
+
+        select(&mut app, input("layers", Some(1)));
+        press(&mut app, "d");
+        assert!(read(&app, "comp").contains("layers = [\"placed\"]"));
+
+        // A single input is replaced.
+        select(&mut app, input("base", None));
+        press(&mut app, "cblack");
+        key(&mut app, KeyCode::Enter);
+        assert!(read(&app, "comp").contains("base = \"black_sq\""));
+        assert!(app.project.is_valid());
+    }
+
+    #[test]
+    fn add_node() {
+        let (_tmp, mut app) = temp_example();
+        press(&mut app, "arect");
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "rect_1"));
+        clear(&mut app);
+        press(&mut app, "bad id");
+        key(&mut app, KeyCode::Enter);
+        assert!(prompt_error(&app).unwrap().contains("not a valid node id"));
+        clear(&mut app);
+        press(&mut app, "red_box");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(focus(&app), "red_box");
+        assert!(read(&app, "red_box").starts_with("type = \"rect\""));
+        assert!(app.project.is_valid());
+    }
+
+    #[test]
+    fn insert_node_into_connection() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "comp");
+        select(&mut app, input("base", None));
+        press(&mut app, "i");
+        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kinds, ["composite"], "image → image: only composite fits");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter); // accept `composite_1`
+        assert_eq!(focus(&app), "composite_1");
+        assert!(read(&app, "comp").contains("base = \"composite_1\""));
+        assert!(read(&app, "composite_1").contains("base = \"white_bg\""));
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+    }
+
+    #[test]
+    fn rename_node() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "comp");
+        goto(&mut app, "white_bg");
+        press(&mut app, "r");
+        clear(&mut app);
+        press(&mut app, "bg");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(focus(&app), "bg");
+        assert!(read(&app, "white_bg").is_empty());
+        assert!(read(&app, "comp").contains("base = \"bg\""));
+        press(&mut app, "[");
+        assert_eq!(focus(&app), "comp");
+        press(&mut app, "]");
+        assert_eq!(focus(&app), "bg", "history follows the rename");
+    }
+
+    #[test]
+    fn delete_node_with_confirmation() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "comp");
+        goto(&mut app, "placed");
+        press(&mut app, "Dn");
+        assert!(!read(&app, "placed").is_empty());
+        assert!(app.message.as_deref().unwrap().starts_with("cancelled"));
+
+        press(&mut app, "D");
+        assert!(
+            matches!(&app.mode, Mode::Confirm { question, .. } if question.contains("disconnects comp.layers"))
+        );
+        press(&mut app, "y");
+        assert!(read(&app, "placed").is_empty());
+        assert!(
+            !read(&app, "comp").contains("layers"),
+            "emptied list removed"
+        );
+        assert_eq!(focus(&app), "comp", "focus returns to the previous node");
+
+        press(&mut app, "u");
+        assert!(!read(&app, "placed").is_empty());
+        assert!(read(&app, "comp").contains("layers = [\"placed\"]"));
+    }
+
+    #[test]
+    fn open_in_editor() {
+        let (_tmp, mut app) = temp_example();
+        let path = app.focused().unwrap().path.clone();
+        assert_eq!(press(&mut app, "E"), Some(Action::OpenEditor(path)));
     }
 }

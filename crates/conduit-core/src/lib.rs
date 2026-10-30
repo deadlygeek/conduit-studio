@@ -2,6 +2,7 @@
 //! the node registry, and loading/evaluating a graph from a folder of TOML files.
 
 pub mod color;
+pub mod edit;
 pub mod eval;
 pub mod graph;
 pub mod node;
@@ -11,6 +12,7 @@ pub mod registry;
 pub mod value;
 
 pub use color::{Color, parse_color};
+pub use edit::{Change, EditError, EditResult};
 pub use eval::{EvalError, Values, evaluate};
 pub use graph::{Graph, GraphNode, LoadError, LoadErrors, Reference, load};
 pub use node::{

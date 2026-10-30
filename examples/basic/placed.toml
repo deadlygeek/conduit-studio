@@ -1,0 +1,9 @@
+# Put the black square at (300, 300)
+type = "position"
+
+[inputs]
+image = "black_sq"
+
+[params]
+x = 300
+y = 300

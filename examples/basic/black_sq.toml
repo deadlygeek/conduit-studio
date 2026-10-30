@@ -1,0 +1,7 @@
+# 50x50 black square
+type = "rect"
+
+[params]
+color = "black"
+width = 50
+height = 50

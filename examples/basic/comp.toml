@@ -1,0 +1,6 @@
+# Draw the placed square over the white background
+type = "composite"
+
+[inputs]
+base = "white_bg"
+layers = ["placed"]

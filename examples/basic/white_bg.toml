@@ -1,0 +1,7 @@
+# 800x600 white background
+type = "rect"
+
+[params]
+color = "white"
+width = 800
+height = 600

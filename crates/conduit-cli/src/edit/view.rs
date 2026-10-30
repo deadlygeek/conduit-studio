@@ -533,6 +533,10 @@ const HELP: &[(&str, &str)] = &[
         "i",
         "insert a node into the connection; on a number: feed it from an int",
     ),
+    (
+        "+ / -",
+        "nudge a whole number by 1 (< / > by 10, { / } by 50)",
+    ),
     ("a", "add a new node"),
     ("r / D", "rename / delete the focused node"),
     ("E", "open the focused node's file in $EDITOR"),

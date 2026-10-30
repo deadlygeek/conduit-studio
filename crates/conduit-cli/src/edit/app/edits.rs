@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
-use conduit_core::{NodeSpec, Project, Reference, ValueType, inspect};
+use conduit_core::{NodeSpec, ParamKind, Project, Reference, ValueType, inspect};
 
 use super::{Action, App, Mode, Row};
 use crate::edit::finder;
@@ -418,6 +418,79 @@ impl App {
         }
     }
 
+    /// Nudge keys: add `delta` to the whole-number param under the cursor, clamped to its
+    /// range. On a linked param, nudges the number of the node feeding it (e.g. its `int`).
+    pub(super) fn nudge_row(&mut self, delta: i64) {
+        if let Err(e) = self.try_nudge(delta) {
+            self.message = Some(e);
+        }
+    }
+
+    fn try_nudge(&mut self, delta: i64) -> Result<(), String> {
+        let (node_id, name) = match self.current_row().cloned() {
+            Some(Row::Param { name, link: None }) => (self.focus.clone().unwrap_or_default(), name),
+            Some(Row::Param {
+                name,
+                link: Some(link),
+            }) => {
+                let source = self.project.get(&link.node).ok_or("the link is broken")?;
+                let mut ints = source.spec.iter().flat_map(|s| &s.params).filter(|p| {
+                    matches!(p.kind, ParamKind::Int { .. }) && !source.inputs.contains_key(p.name)
+                });
+                match (ints.next(), ints.next()) {
+                    (Some(p), None) => (link.node.clone(), p.name.to_string()),
+                    _ => {
+                        return Err(format!(
+                            "`{name}` is linked to {}; nudge it there",
+                            short(&link)
+                        ));
+                    }
+                }
+            }
+            _ => return Err("move the cursor to a whole-number param to nudge it".into()),
+        };
+        let node = self.project.get(&node_id).cloned().ok_or("no such node")?;
+        let spec = node.spec.as_ref().and_then(|s| s.param(&name)).cloned();
+        let Some(ParamKind::Int { min, max }) = spec.as_ref().map(|p| p.kind.clone()) else {
+            return Err(format!("only whole numbers can be nudged, not `{name}`"));
+        };
+        let current = node
+            .params
+            .get(&name)
+            .cloned()
+            .or_else(|| spec.as_ref().and_then(|p| p.default).map(parse_literal))
+            .and_then(|v| v.as_integer())
+            .ok_or_else(|| format!("`{name}` has no whole-number value to nudge"))?;
+        let new = current.saturating_add(delta).clamp(min, max);
+        if new == current {
+            let bound = if delta > 0 { "maximum" } else { "minimum" };
+            return Err(format!("{node_id}.{name} is at its {bound}, {current}"));
+        }
+        let mut params = node.params.clone();
+        params.insert(name.clone(), new.into());
+        if let Some(node_impl) = node.kind.as_deref().and_then(|k| self.registry.get(k))
+            && let Err(e) = node_impl.check_params(&params)
+            && node_impl.check_params(&node.params).is_ok()
+        {
+            return Err(e.0);
+        }
+
+        let change =
+            ops::set_param(&self.dir, &node_id, &name, &new.into()).map_err(|e| e.to_string())?;
+        let key = format!("{node_id}.{name}");
+        let label = format!("nudged {key} to {new}");
+        // Repeated nudges of one param undo together: keep the first change, which holds
+        // the contents from before the first nudge.
+        match self.undo.last_mut() {
+            Some(last) if self.nudging.as_ref() == Some(&key) => last.0 = label.clone(),
+            _ => self.undo.push((label.clone(), change)),
+        }
+        self.nudging = Some(key);
+        self.reload_from_disk();
+        self.message = Some(format!("{label} ({delta:+})"));
+        Ok(())
+    }
+
     /// Whether the focused node's param `name` can be fed from another node.
     fn linkable(&self, name: &str) -> bool {
         self.focused()
@@ -469,6 +542,7 @@ impl App {
 
     /// `u`: undo the most recent edit.
     pub(super) fn undo(&mut self) {
+        self.nudging = None;
         let Some((label, change)) = self.undo.pop() else {
             self.message = Some("nothing to undo".into());
             return;
@@ -492,6 +566,7 @@ impl App {
     ) -> Result<(), String> {
         let change = edit(&self.dir, &self.project).map_err(|e| e.to_string())?;
         self.undo.push((label.clone(), change));
+        self.nudging = None;
         self.reload_from_disk();
         self.message = Some(label);
         Ok(())

@@ -199,6 +199,7 @@ edit.
 |---|---|
 | `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
 | `c` / `d` on a number param | link it to a number output (e.g. an `int` node) / unlink it, going back to its typed or default value. A linked param shows its source and live value: `par width ← size  = 120`. |
+| `+` `-` / `>` `<` / `}` `{` on a whole-number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
 | `i` on a number param | feed it from a new node: pick a type (e.g. `int`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
 | `⏎` or `c` on an input | pick a source: only type-compatible outputs that don't create a cycle are offered. List inputs append; single inputs are replaced. |
 | `d` on an input | disconnect that connection |
@@ -348,9 +349,7 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 - **Next:** `rotate`, `opacity` and `text` nodes; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
-  focused node); reordering list inputs; image thumbnails in the terminal; nudging number
-  params from the keyboard with the cursor on the param (e.g. `+`/`-` for ±1, `>`/`<` for
-  ±10, `}`/`{` for ±50), clamped to the param's range, written straight to the file and
-  undoable with `u`.
+  focused node); reordering list inputs; image thumbnails in the terminal; nudging float
+  params (with steps that suit their range).
 - **Later:** nodes as external programs written in any language; editor GUI nodes (color
   picker, slider) that write their values back to the node's TOML file.

@@ -85,6 +85,8 @@ pub struct App {
     registry: Arc<Registry>,
     /// Edits made in this session, most recent last.
     undo: Vec<(String, Change)>,
+    /// `node.param` being nudged, while the last undo entry is its nudges (they undo as one).
+    nudging: Option<String>,
     pub focus: Option<String>,
     pub pane: Pane,
     pub mode: Mode,
@@ -113,6 +115,7 @@ impl App {
             project,
             registry,
             undo: Vec::new(),
+            nudging: None,
             focus: None,
             pane: Pane::Node,
             mode: Mode::Normal,
@@ -521,6 +524,9 @@ impl App {
             (Pane::Node, KeyCode::Char('c')) => self.connect_row(),
             (Pane::Node, KeyCode::Char('d')) => self.disconnect_row(),
             (Pane::Node, KeyCode::Char('i')) => self.insert_row(),
+            (Pane::Node, KeyCode::Char(c)) if nudge_step(c).is_some() => {
+                self.nudge_row(nudge_step(c).expect("checked"))
+            }
             (_, KeyCode::Char('a')) => self.open_pick(Pick::AddType),
             (_, KeyCode::Char('r')) => self.start_rename(),
             (_, KeyCode::Char('D')) => self.start_delete(),
@@ -598,6 +604,20 @@ impl App {
             set.insert(node);
         }
         self.set_cursor(pane, self.cursor(pane));
+    }
+}
+
+/// How much a nudge key changes a number: `+`/`-` 1, `>`/`<` 10, `}`/`{` 50
+/// (`=` and `_` also work, so ±1 needs no shift on US layouts).
+fn nudge_step(c: char) -> Option<i64> {
+    match c {
+        '+' | '=' => Some(1),
+        '-' | '_' => Some(-1),
+        '>' => Some(10),
+        '<' => Some(-10),
+        '}' => Some(50),
+        '{' => Some(-50),
+        _ => None,
     }
 }
 
@@ -1093,6 +1113,71 @@ mod tests {
         press(&mut app, "uuuu");
         assert_eq!(read(&app, "black_sq"), original);
         assert_eq!(read(&app, "black_sq_width"), "", "new node removed by undo");
+    }
+
+    fn int_param(app: &App, id: &str, name: &str) -> Option<i64> {
+        app.project.get(id)?.params.get(name)?.as_integer()
+    }
+
+    #[test]
+    fn nudge_whole_numbers() {
+        let (_tmp, mut app) = temp_example();
+        let original = read(&app, "placed");
+        goto(&mut app, "placed");
+        select(&mut app, param("x"));
+        press(&mut app, "+>}-=_");
+        assert_eq!(
+            int_param(&app, "placed", "x"),
+            Some(300 + 1 + 10 + 50 - 1 + 1 - 1)
+        );
+        assert_eq!(app.message.as_deref(), Some("nudged placed.x to 360 (-1)"));
+        // Optional params start from their default; position.x can go negative.
+        select(&mut app, param("y"));
+        press(&mut app, "{{{{{{{");
+        assert_eq!(int_param(&app, "placed", "y"), Some(300 - 350));
+
+        // Each param's run of nudges undoes in one step.
+        press(&mut app, "u");
+        assert_eq!(int_param(&app, "placed", "y"), Some(300));
+        assert_eq!(int_param(&app, "placed", "x"), Some(360));
+        press(&mut app, "u");
+        assert_eq!(read(&app, "placed"), original);
+
+        // Clamped to the range.
+        goto(&mut app, "black_sq");
+        select(&mut app, param("width"));
+        press(&mut app, "{");
+        assert_eq!(int_param(&app, "black_sq", "width"), Some(1));
+        press(&mut app, "-");
+        assert_eq!(
+            app.message.as_deref(),
+            Some("black_sq.width is at its minimum, 1")
+        );
+
+        // Not a number.
+        select(&mut app, param("color"));
+        press(&mut app, "+");
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap()
+                .contains("only whole numbers")
+        );
+    }
+
+    #[test]
+    fn nudge_through_a_link() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "black_sq");
+        select(&mut app, param("height"));
+        press(&mut app, "i");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter); // int `black_sq_height`, value 50
+        select(&mut app, param("height"));
+        press(&mut app, "}>");
+        assert_eq!(int_param(&app, "black_sq_height", "value"), Some(110));
+        assert_eq!(focus(&app), "black_sq");
+        assert_eq!(link(&app, "height"), Some(reference("black_sq_height")));
     }
 
     #[test]

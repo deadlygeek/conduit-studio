@@ -118,7 +118,7 @@ impl App {
             Pick::AddType => self
                 .registry
                 .specs()
-                .map(|s| (s.kind.to_string(), type_label(&s)))
+                .map(|s| (s.kind.to_string(), type_label(s)))
                 .collect(),
             Pick::InsertType { port, index } => {
                 let Some((source_ty, target_ty)) = self.insert_types(port, *index) else {
@@ -127,7 +127,7 @@ impl App {
                 self.registry
                     .specs()
                     .filter(|s| insertable(s, source_ty, target_ty))
-                    .map(|s| (s.kind.to_string(), type_label(&s)))
+                    .map(|s| (s.kind.to_string(), type_label(s)))
                     .collect()
             }
         }
@@ -445,8 +445,8 @@ impl App {
 
     fn spec(&self, kind: &str) -> Result<NodeSpec, String> {
         self.registry
-            .get(kind)
-            .map(|n| n.spec())
+            .spec(kind)
+            .cloned()
             .ok_or_else(|| format!("unknown node type `{kind}`"))
     }
 

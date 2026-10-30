@@ -5,7 +5,7 @@ use crate::node::{Node, NodeSpec};
 /// Maps node kind names (the `type` field in node files) to implementations.
 #[derive(Default)]
 pub struct Registry {
-    nodes: BTreeMap<&'static str, Box<dyn Node>>,
+    nodes: BTreeMap<&'static str, (Box<dyn Node>, NodeSpec)>,
 }
 
 impl Registry {
@@ -15,17 +15,23 @@ impl Registry {
 
     /// Registers a node kind. Panics on duplicate kinds — that's a programming error.
     pub fn register(&mut self, node: impl Node + 'static) {
-        let kind = node.spec().kind;
-        let prev = self.nodes.insert(kind, Box::new(node));
+        let spec = node.spec();
+        let kind = spec.kind;
+        let prev = self.nodes.insert(kind, (Box::new(node), spec));
         assert!(prev.is_none(), "node kind `{kind}` registered twice");
     }
 
     pub fn get(&self, kind: &str) -> Option<&dyn Node> {
-        self.nodes.get(kind).map(|n| n.as_ref())
+        self.nodes.get(kind).map(|(n, _)| n.as_ref())
+    }
+
+    /// The spec of `kind`, computed once at registration.
+    pub fn spec(&self, kind: &str) -> Option<&NodeSpec> {
+        self.nodes.get(kind).map(|(_, s)| s)
     }
 
     /// All registered specs, sorted by kind.
-    pub fn specs(&self) -> impl Iterator<Item = NodeSpec> + '_ {
-        self.nodes.values().map(|n| n.spec())
+    pub fn specs(&self) -> impl Iterator<Item = &NodeSpec> + '_ {
+        self.nodes.values().map(|(_, s)| s)
     }
 }

@@ -124,7 +124,7 @@ pub fn inspect_sources(sources: Sources, registry: &Registry) -> Project {
         let node = match toml::from_str::<NodeFile>(&text) {
             Ok(file) => ProjectNode {
                 id: id.clone(),
-                spec: registry.get(&file.kind).map(|n| n.spec()),
+                spec: registry.spec(&file.kind).cloned(),
                 kind: Some(file.kind),
                 inputs: lenient_inputs(&file.inputs),
                 params: file.params,

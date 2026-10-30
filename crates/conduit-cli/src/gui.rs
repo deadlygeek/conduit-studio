@@ -79,7 +79,7 @@ impl GuiProcesses {
         self.titles = graph
             .nodes
             .iter()
-            .filter(|n| registry.get(&n.kind).is_some_and(|k| k.spec().gui))
+            .filter(|n| registry.spec(&n.kind).is_some_and(|s| s.gui))
             .map(|n| {
                 let title = n
                     .params

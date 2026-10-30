@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
-use conduit_core::{GuiHost, Reference, Registry, Value, Values, evaluate, load};
+use conduit_core::{EvalStats, Evaluator, GuiHost, Reference, Registry, Value, Values, load};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
@@ -32,7 +32,7 @@ pub enum Event {
     /// re-render.
     FilesChanged,
     Rendered {
-        nodes: usize,
+        stats: EvalStats,
         elapsed: Duration,
     },
     /// The project failed to load or render.
@@ -105,6 +105,7 @@ pub fn spawn(
             .quiet(options.quiet),
         probe_gui: GuiProcesses::new(options.preview_program, save_dir).quiet(options.quiet),
         probe: None,
+        evaluator: Evaluator::default(),
         values: None,
         last: snapshot(dir),
         events: event_tx,
@@ -116,6 +117,21 @@ pub fn spawn(
         thread: Some(thread),
         _watcher: watcher,
     })
+}
+
+/// One-line summary of a render, e.g. `rendered 5 nodes (3 unchanged) in 2 ms`.
+pub fn describe_render(stats: &EvalStats, elapsed: Duration) -> String {
+    let unchanged = stats.nodes - stats.evaluated;
+    let unchanged = if unchanged > 0 {
+        format!(" ({unchanged} unchanged)")
+    } else {
+        String::new()
+    };
+    format!(
+        "rendered {} nodes{unchanged} in {} ms",
+        stats.nodes,
+        elapsed.as_millis()
+    )
 }
 
 /// `conduit run`: render, watch, and print what happens until killed.
@@ -132,9 +148,7 @@ pub fn run(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
     for event in handle.events().iter() {
         match event {
             Event::FilesChanged => {}
-            Event::Rendered { nodes, elapsed } => {
-                println!("rendered {nodes} node(s) in {} ms", elapsed.as_millis());
-            }
+            Event::Rendered { stats, elapsed } => println!("{}", describe_render(&stats, elapsed)),
             Event::Failed(message) | Event::Warning(message) => eprintln!("{message}"),
         }
     }
@@ -147,6 +161,8 @@ struct Runner {
     gui: GuiProcesses,
     probe_gui: GuiProcesses,
     probe: Option<Reference>,
+    /// Remembers outputs between renders so unchanged nodes aren't re-run.
+    evaluator: Evaluator,
     /// Outputs of the last successful render.
     values: Option<Values>,
     last: Snapshot,
@@ -190,15 +206,15 @@ impl Runner {
             .map_err(|errors| errors.to_string())
             .and_then(|graph| {
                 self.gui.sync(&graph, &self.registry);
-                let values =
-                    evaluate(&graph, &self.registry, &mut self.gui).map_err(|e| e.to_string())?;
-                Ok((graph.nodes.len(), values))
+                self.evaluator
+                    .evaluate(&graph, &self.registry, &mut self.gui)
+                    .map_err(|e| e.to_string())
             });
         match result {
-            Ok((nodes, values)) => {
+            Ok((values, stats)) => {
                 self.values = Some(values);
                 self.emit(Event::Rendered {
-                    nodes,
+                    stats,
                     elapsed: start.elapsed(),
                 });
                 self.show_probe();
@@ -351,9 +367,11 @@ mod tests {
             quiet: true,
         };
         let handle = spawn(&project, Arc::new(conduit_nodes::registry()), options).unwrap();
-        expect_event(&handle, "first render", |e| {
-            matches!(e, Event::Rendered { nodes: 5, .. })
-        });
+        expect_event(
+            &handle,
+            "first render",
+            |e| matches!(e, Event::Rendered { stats, .. } if stats.nodes == 5),
+        );
         expect_window(
             &tmp.path().join("preview.bin"),
             "preview frame",

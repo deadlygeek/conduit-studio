@@ -90,9 +90,8 @@ fn check(dir: &Path, registry: &Registry) -> ExitCode {
 fn print_outputs(graph: &Graph, registry: &Registry, values: &conduit_core::Values) {
     for node in &graph.nodes {
         let spec = registry
-            .get(&node.kind)
-            .expect("loaded with this registry")
-            .spec();
+            .spec(&node.kind)
+            .expect("loaded with this registry");
         if spec.outputs.is_empty() {
             println!("{:<24} {}", node.id, node.kind);
         }

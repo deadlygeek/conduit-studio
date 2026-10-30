@@ -269,7 +269,7 @@ fn parse_node(path: &Path, text: &str, registry: &Registry) -> Result<GraphNode,
             kind: file.kind,
         }]);
     };
-    let spec = node_impl.spec();
+    let spec = registry.spec(&file.kind).expect("registered");
 
     let mut errors = Vec::new();
     let mut inputs = BTreeMap::new();
@@ -348,9 +348,8 @@ fn check_connections(
     errors: &mut Vec<LoadError>,
 ) {
     let spec = registry
-        .get(&node.kind)
-        .expect("kind validated in parse_node")
-        .spec();
+        .spec(&node.kind)
+        .expect("kind validated in parse_node");
     for (port, refs) in &node.inputs {
         let expected = spec.input(port).expect("port validated in parse_node").ty;
         for r in refs {
@@ -365,7 +364,7 @@ fn check_connections(
                 });
                 continue;
             };
-            let source_spec = registry.get(&source.kind).expect("kind validated").spec();
+            let source_spec = registry.spec(&source.kind).expect("kind validated");
             let Some(out) = source_spec.output(&r.port) else {
                 errors.push(LoadError::UnknownOutput {
                     path: node.path.clone(),

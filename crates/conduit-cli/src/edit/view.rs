@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
 use super::app::{App, Mode, Pane, Row};
-use crate::run::Event;
+use crate::run::{self, Event};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
 const ERROR: Style = Style::new().fg(Color::Red);
@@ -340,8 +340,8 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![Span::raw(" ")];
     match &app.status {
         None => spans.push(Span::styled("starting…", DIM)),
-        Some(Event::Rendered { nodes, elapsed }) => spans.push(Span::styled(
-            format!("● rendered {nodes} nodes in {} ms", elapsed.as_millis()),
+        Some(Event::Rendered { stats, elapsed }) => spans.push(Span::styled(
+            format!("● {}", run::describe_render(stats, *elapsed)),
             Style::new().fg(Color::Green),
         )),
         Some(Event::Failed(message)) => {
@@ -549,7 +549,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use conduit_core::inspect;
+    use conduit_core::{EvalStats, inspect};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -582,7 +582,10 @@ mod tests {
         let mut app = example();
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // focus comp
         app.on_runner_event(Event::Rendered {
-            nodes: 5,
+            stats: EvalStats {
+                nodes: 5,
+                evaluated: 5,
+            },
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 120, 16);
@@ -648,7 +651,10 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // focus comp
         app.handle_key(KeyEvent::from(KeyCode::Char('p'))); // probe comp.out
         app.on_runner_event(Event::Rendered {
-            nodes: 5,
+            stats: EvalStats {
+                nodes: 5,
+                evaluated: 5,
+            },
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 60, 30);

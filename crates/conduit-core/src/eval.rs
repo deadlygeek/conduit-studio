@@ -1,9 +1,10 @@
-//! Evaluating a loaded graph.
+//! Evaluating a loaded graph, skipping nodes whose inputs and params haven't changed.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::graph::{Graph, Reference};
-use crate::node::{EvalCtx, GuiHost, Inputs};
+use crate::graph::{Graph, GraphNode, Reference};
+use crate::node::{EvalCtx, GuiHost, Inputs, NodeSpec};
 use crate::registry::Registry;
 use crate::value::Value;
 
@@ -22,66 +23,142 @@ pub enum EvalError {
     },
 }
 
-/// Evaluates every node in order. The graph must have been loaded with the same registry.
+/// What an evaluation did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EvalStats {
+    pub nodes: usize,
+    /// Nodes that actually ran; the rest reused their previous outputs.
+    pub evaluated: usize,
+}
+
+/// Evaluates every node in order, once. The graph must have been loaded with the same
+/// registry.
 pub fn evaluate(
     graph: &Graph,
     registry: &Registry,
     gui: &mut dyn GuiHost,
 ) -> Result<Values, EvalError> {
-    let mut values = Values::new();
-    for node in &graph.nodes {
-        let node_impl = registry
-            .get(&node.kind)
-            .expect("graph loaded with this registry");
-        let spec = node_impl.spec();
+    Evaluator::default()
+        .evaluate(graph, registry, gui)
+        .map(|(values, _)| values)
+}
 
-        let mut inputs = HashMap::new();
-        for (port, refs) in &node.inputs {
-            let ty = spec.input(port).expect("port validated at load").ty;
-            let port_values = refs
-                .iter()
-                .map(|r| {
-                    let v = values.get(r).cloned().expect("sources evaluated first");
-                    v.coerce(ty).expect("types validated at load")
-                })
-                .collect();
-            inputs.insert(port.clone(), port_values);
-        }
+/// Evaluates graphs repeatedly, remembering each node's outputs. A node only runs again
+/// when its kind, params or (transitively) anything upstream of it changed. GUI nodes
+/// always run, so their windows get a fresh frame (e.g. after showing an error).
+#[derive(Default)]
+pub struct Evaluator {
+    /// Node id → fingerprint of what produced its outputs, and the outputs.
+    cache: HashMap<String, (u64, Vec<(Reference, Value)>)>,
+}
 
-        let mut ctx = EvalCtx {
-            node_id: &node.id,
-            gui: &mut *gui,
+impl Evaluator {
+    pub fn evaluate(
+        &mut self,
+        graph: &Graph,
+        registry: &Registry,
+        gui: &mut dyn GuiHost,
+    ) -> Result<(Values, EvalStats), EvalError> {
+        let mut values = Values::new();
+        let mut fingerprints: HashMap<&str, u64> = HashMap::new();
+        let mut cache = HashMap::with_capacity(graph.nodes.len());
+        let mut stats = EvalStats {
+            nodes: graph.nodes.len(),
+            evaluated: 0,
         };
-        let outputs = node_impl
-            .eval(&Inputs::new(inputs), &node.params, &mut ctx)
-            .map_err(|e| EvalError::Node {
-                node: node.id.clone(),
-                message: e.0,
-            })?;
+        for node in &graph.nodes {
+            let spec = registry
+                .spec(&node.kind)
+                .expect("graph loaded with this registry");
+            let fingerprint = fingerprint(node, &fingerprints);
+            fingerprints.insert(&node.id, fingerprint);
 
-        let mut outputs = outputs.values;
-        for out in &spec.outputs {
-            match outputs.remove(out.name) {
-                Some(v) if v.ty() == out.ty => {
-                    values.insert(
-                        Reference {
-                            node: node.id.clone(),
-                            port: out.name.to_string(),
-                        },
-                        v,
-                    );
-                }
+            let outputs = match self.cache.remove(&node.id) {
+                Some((fp, outputs)) if fp == fingerprint && !spec.gui => outputs,
                 _ => {
-                    return Err(EvalError::BadOutput {
-                        node: node.id.clone(),
-                        port: out.name.to_string(),
-                        expected: out.ty.to_string(),
-                    });
+                    stats.evaluated += 1;
+                    eval_node(node, spec, registry, &values, gui)?
                 }
+            };
+            for (r, v) in &outputs {
+                values.insert(r.clone(), v.clone());
             }
+            cache.insert(node.id.clone(), (fingerprint, outputs));
+        }
+        // Nodes that are gone (or failed) are dropped from the cache.
+        self.cache = cache;
+        Ok((values, stats))
+    }
+}
+
+/// Identifies everything a node's outputs depend on: its kind, its params, and the
+/// fingerprints of its sources (which are computed first, in graph order).
+fn fingerprint(node: &GraphNode, fingerprints: &HashMap<&str, u64>) -> u64 {
+    let mut h = DefaultHasher::new();
+    node.kind.hash(&mut h);
+    node.params.to_string().hash(&mut h);
+    for (port, refs) in &node.inputs {
+        port.hash(&mut h);
+        for r in refs {
+            fingerprints.get(r.node.as_str()).hash(&mut h);
+            r.port.hash(&mut h);
         }
     }
-    Ok(values)
+    h.finish()
+}
+
+fn eval_node(
+    node: &GraphNode,
+    spec: &NodeSpec,
+    registry: &Registry,
+    values: &Values,
+    gui: &mut dyn GuiHost,
+) -> Result<Vec<(Reference, Value)>, EvalError> {
+    let node_impl = registry
+        .get(&node.kind)
+        .expect("graph loaded with this registry");
+    let mut inputs = HashMap::new();
+    for (port, refs) in &node.inputs {
+        let ty = spec.input(port).expect("port validated at load").ty;
+        let port_values = refs
+            .iter()
+            .map(|r| {
+                let v = values.get(r).cloned().expect("sources evaluated first");
+                v.coerce(ty).expect("types validated at load")
+            })
+            .collect();
+        inputs.insert(port.clone(), port_values);
+    }
+
+    let mut ctx = EvalCtx {
+        node_id: &node.id,
+        gui,
+    };
+    let outputs = node_impl
+        .eval(&Inputs::new(inputs), &node.params, &mut ctx)
+        .map_err(|e| EvalError::Node {
+            node: node.id.clone(),
+            message: e.0,
+        })?;
+
+    let mut outputs = outputs.values;
+    spec.outputs
+        .iter()
+        .map(|out| match outputs.remove(out.name) {
+            Some(v) if v.ty() == out.ty => Ok((
+                Reference {
+                    node: node.id.clone(),
+                    port: out.name.to_string(),
+                },
+                v,
+            )),
+            _ => Err(EvalError::BadOutput {
+                node: node.id.clone(),
+                port: out.name.to_string(),
+                expected: out.ty.to_string(),
+            }),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -126,5 +203,43 @@ mod tests {
         let w_out = Reference::parse("w").unwrap();
         assert!(matches!(&values[&w_out], Value::Layer(l) if l.image.width() == 7));
         assert_eq!(gui.0, [("s".to_string(), 7), ("s".to_string(), 7)]);
+    }
+
+    fn graph(files: &[(&str, &str)]) -> Graph {
+        from_sources(
+            files
+                .iter()
+                .map(|(id, t)| (PathBuf::from(format!("{id}.toml")), t.to_string())),
+            &registry(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn reruns_only_changed_nodes() {
+        let reg = registry();
+        let mut files = vec![
+            ("a", "type = \"source\"\n[params]\nsize = 2"),
+            ("b", "type = \"source\"\n[params]\nsize = 3"),
+            ("wa", "type = \"wrap\"\n[inputs]\nimage = \"a\""),
+            ("wb", "type = \"wrap\"\n[inputs]\nimage = \"b\""),
+            ("s", "type = \"sink\"\n[inputs]\nitems = [\"wa\", \"wb\"]"),
+        ];
+        let mut evaluator = Evaluator::default();
+        let mut run = |files: &[(&str, &str)]| {
+            let mut gui = Recorder::default();
+            let (_, stats) = evaluator.evaluate(&graph(files), &reg, &mut gui).unwrap();
+            (stats.evaluated, gui.0)
+        };
+
+        assert_eq!(run(&files).0, 5);
+        // Nothing changed: only the GUI sink runs, and it still shows both layers.
+        assert_eq!(run(&files), (1, vec![("s".into(), 2), ("s".into(), 3)]));
+        // Changing `a` re-runs a, wa and the sink; b and wb are reused.
+        files[0].1 = "type = \"source\"\n[params]\nsize = 4";
+        assert_eq!(run(&files), (3, vec![("s".into(), 4), ("s".into(), 3)]));
+        // Rewiring wb to `a` re-runs wb (its source changed) and the sink.
+        files[3].1 = "type = \"wrap\"\n[inputs]\nimage = \"a\"";
+        assert_eq!(run(&files), (2, vec![("s".into(), 4), ("s".into(), 4)]));
     }
 }

@@ -13,7 +13,7 @@ pub mod value;
 
 pub use color::{Color, parse_color};
 pub use edit::{Change, EditError, EditResult};
-pub use eval::{EvalError, Values, evaluate};
+pub use eval::{EvalError, EvalStats, Evaluator, Values, evaluate};
 pub use graph::{Graph, GraphNode, LoadError, LoadErrors, Reference, load};
 pub use node::{
     EvalCtx, GuiHost, Inputs, Node, NodeError, NodeResult, NodeSpec, NullHost, Outputs, ParamKind,

@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn add_node_from_template() {
         let f = fixture();
-        let spec = registry().get("source").unwrap().spec();
+        let spec = registry().spec("source").unwrap().clone();
         let after = f.apply_and_undo(|| add_node(f.path(), "src2", &spec));
         assert_eq!(after["src2.toml"], spec.template());
 
@@ -708,7 +708,7 @@ mod tests {
     fn insert_between_rewires() {
         let f = fixture();
         let project = f.project();
-        let pass = registry().get("pass").unwrap().spec();
+        let pass = registry().spec("pass").unwrap().clone();
         // Insert into the list input `s.items[1]` (currently `src.out`).
         f.apply_and_undo(|| insert_between(f.path(), &project, "s", "items", 1, "p", &pass));
 
@@ -736,10 +736,10 @@ mod tests {
         let f = fixture();
         let project = f.project();
         // `source` has no inputs.
-        let source = registry().get("source").unwrap().spec();
+        let source = registry().spec("source").unwrap().clone();
         assert!(insert_between(f.path(), &project, "w", "image", 0, "x", &source).is_err());
         // `wrap` outputs a layer, but `w.image` needs an image.
-        let wrap = registry().get("wrap").unwrap().spec();
+        let wrap = registry().spec("wrap").unwrap().clone();
         assert!(insert_between(f.path(), &project, "w", "image", 0, "x", &wrap).is_err());
         assert!(!f.path().join("x.toml").exists());
     }

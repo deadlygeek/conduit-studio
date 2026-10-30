@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn param_specs_match_validation() {
         for spec in registry().specs() {
-            let node = registry().get(spec.kind).unwrap().spec();
+            let node = spec;
             let check = |params: toml::Table| {
                 registry()
                     .get(spec.kind)

@@ -2,10 +2,10 @@
 //! typed hex) and palette color actions.
 
 use conduit_core::edit::{self as ops, Change};
-use conduit_core::{Hsl, ParamKind, Rgba, from_hsl, parse_color, to_hex, to_hsl};
+use conduit_core::{Channel, ColorModel, ParamKind, Rgba, parse_color, to_hex};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::{App, Confirm, Mode, Prompt, Row, nudge_step};
+use super::{Action, App, Confirm, Mode, Prompt, Row, nudge_step};
 use crate::run::Shown;
 
 /// What the color editor writes to.
@@ -35,9 +35,7 @@ impl ColorTarget {
 pub struct ColorEdit {
     pub target: ColorTarget,
     pub original: Rgba<u8>,
-    pub color: Rgba<u8>,
-    /// Kept alongside `color` so the hue survives passing through greys.
-    pub hsl: Hsl,
+    pub model: ColorModel,
     /// 0..=3: H, S, L, A (or R, G, B, A).
     pub channel: usize,
     pub rgb: bool,
@@ -52,8 +50,7 @@ impl ColorEdit {
         Self {
             target,
             original: color,
-            color,
-            hsl: to_hsl(color),
+            model: ColorModel::new(color),
             channel: 0,
             rgb: false,
             hex: None,
@@ -61,88 +58,23 @@ impl ColorEdit {
         }
     }
 
-    /// Channel names and values as shown: degrees / percents, or 0–255.
-    pub fn channels(&self) -> [(&'static str, String); 4] {
-        let alpha = format!("{:>3}%", alpha_percent(self.color));
+    pub fn color(&self) -> Rgba<u8> {
+        self.model.color
+    }
+
+    /// The four channels on show: H S L A, or R G B A.
+    pub fn channels(&self) -> [Channel; 4] {
         if self.rgb {
-            let [r, g, b, _] = self.color.0;
-            [
-                ("R", format!("{r:>4}")),
-                ("G", format!("{g:>4}")),
-                ("B", format!("{b:>4}")),
-                ("A", alpha),
-            ]
+            Channel::RGBA
         } else {
-            let Hsl { h, s, l } = self.hsl;
-            [
-                ("H", format!("{:>3}°", h.round() as i64)),
-                ("S", format!("{:>3}%", (s * 100.0).round() as i64)),
-                ("L", format!("{:>3}%", (l * 100.0).round() as i64)),
-                ("A", alpha),
-            ]
+            Channel::HSLA
         }
     }
 
-    /// Where a channel sits in its range (0..=1), and the color it would give at `t`.
-    pub fn channel_at(&self, channel: usize, t: f64) -> Rgba<u8> {
-        let mut c = self.clone();
-        c.set_channel(channel, t);
-        c.color
-    }
-
-    pub fn channel_position(&self, channel: usize) -> f64 {
-        match (self.rgb, channel) {
-            (_, 3) => f64::from(self.color[3]) / 255.0,
-            (true, i) => f64::from(self.color[i]) / 255.0,
-            (false, 0) => self.hsl.h / 360.0,
-            (false, 1) => self.hsl.s,
-            (false, _) => self.hsl.l,
-        }
-    }
-
-    /// Sets a channel from its position in its range (0..=1).
-    fn set_channel(&mut self, channel: usize, t: f64) {
-        let t = t.clamp(0.0, 1.0);
-        match (self.rgb, channel) {
-            (_, 3) => self.color[3] = (t * 255.0).round() as u8,
-            (true, i) => self.color[i] = (t * 255.0).round() as u8,
-            (false, 0) => self.hsl.h = t * 360.0,
-            (false, 1) => self.hsl.s = t,
-            (false, _) => self.hsl.l = t,
-        }
-        if self.rgb {
-            self.hsl = to_hsl(self.color);
-        } else {
-            self.color = from_hsl(self.hsl, self.color[3]);
-        }
-    }
-
-    /// Moves the current channel by `delta` of its display units (degrees, percent, or
-    /// 0–255 steps). Hue wraps around; everything else stops at its ends.
     fn nudge(&mut self, delta: i64) {
-        let delta = delta as f64;
-        let t = self.channel_position(self.channel);
-        let t = match (self.rgb, self.channel) {
-            (false, 0) => {
-                self.hsl.h = (self.hsl.h + delta).rem_euclid(360.0);
-                self.color = from_hsl(self.hsl, self.color[3]);
-                return;
-            }
-            (_, 3) => (alpha_percent(self.color) as f64 + delta) / 100.0,
-            (true, _) => t + delta / 255.0,
-            (false, _) => ((t * 100.0).round() + delta) / 100.0,
-        };
-        self.set_channel(self.channel, t);
+        let ch = self.channels()[self.channel];
+        self.model.nudge(ch, delta);
     }
-
-    fn set_color(&mut self, color: Rgba<u8>) {
-        self.color = color;
-        self.hsl = to_hsl(color);
-    }
-}
-
-fn alpha_percent(c: Rgba<u8>) -> i64 {
-    (f64::from(c[3]) / 255.0 * 100.0).round() as i64
 }
 
 impl App {
@@ -201,7 +133,7 @@ impl App {
                 KeyCode::Esc => {}
                 KeyCode::Enter => match parse_color(&hex) {
                     Ok(c) => {
-                        edit.set_color(c);
+                        edit.model.set(c);
                         self.write_color(&mut edit);
                     }
                     Err(e) => {
@@ -224,7 +156,11 @@ impl App {
         }
         match key.code {
             KeyCode::Enter => {
-                self.message = Some(format!("{} = {}", edit.target.label(), to_hex(edit.color)));
+                self.message = Some(format!(
+                    "{} = {}",
+                    edit.target.label(),
+                    to_hex(edit.color())
+                ));
                 return;
             }
             KeyCode::Esc => {
@@ -248,7 +184,7 @@ impl App {
 
     /// Writes the editor's color; all writes of one session undo as one step.
     fn write_color(&mut self, edit: &mut ColorEdit) {
-        let hex = toml::Value::String(to_hex(edit.color));
+        let hex = toml::Value::String(to_hex(edit.color()));
         let result = match &edit.target {
             ColorTarget::Param { node, name } => ops::set_param(&self.dir, node, name, &hex),
             ColorTarget::Entry { node, param, key } => {
@@ -292,6 +228,46 @@ impl App {
         self.nudging = Some(key);
         self.reload_from_disk();
         self.message = Some(label);
+    }
+
+    /// `C` on a color param or palette color: open the GUI picker for it. The node file is
+    /// snapshotted first, so `u` undoes whatever the picker does.
+    pub(super) fn open_picker(&mut self) -> Option<Action> {
+        let node = self.focused()?;
+        let (name, table) = match self.current_row() {
+            Some(Row::Param { name, .. })
+                if node
+                    .spec
+                    .as_ref()
+                    .and_then(|s| s.param(name))
+                    .is_some_and(|p| p.kind == ParamKind::Color) =>
+            {
+                (name.clone(), None)
+            }
+            Some(Row::Entry { param, key }) => (key.clone(), Some(param.clone())),
+            _ => {
+                self.message = Some("move the cursor to a color to open the picker".into());
+                return None;
+            }
+        };
+        let label = format!("{}.{name}", node.id);
+        let mut args = vec![
+            self.dir.to_string_lossy().into_owned(),
+            node.id.clone(),
+            name,
+        ];
+        if let Some(table) = table {
+            args.extend(["--table".to_string(), table]);
+        }
+        match ops::snapshot(std::slice::from_ref(&node.path)) {
+            Ok(change) => {
+                self.undo.push((format!("color picker on {label}"), change));
+                self.nudging = None;
+            }
+            Err(e) => self.message = Some(format!("error: {e}")),
+        }
+        self.message = Some(format!("opened the color picker for {label}"));
+        Some(Action::OpenPicker(args))
     }
 
     // --- palette colors ----------------------------------------------------------------
@@ -374,45 +350,21 @@ fn color_of(v: &toml::Value) -> Option<Rgba<u8>> {
 mod tests {
     use super::*;
 
-    fn edit(hex: &str) -> ColorEdit {
+    #[test]
+    fn channels_follow_the_mode() {
         let target = ColorTarget::Param {
             node: "n".into(),
             name: "color".into(),
         };
-        ColorEdit::new(target, parse_color(hex).unwrap())
-    }
-
-    #[test]
-    fn hsl_channels() {
-        let mut e = edit("#ff0000");
-        e.nudge(120); // hue
-        assert_eq!(to_hex(e.color), "#00ff00");
-        e.nudge(-180);
-        assert_eq!(e.hsl.h, 300.0, "wraps");
-        e.channel = 2; // lightness 50% → 100%
-        e.nudge(50);
-        e.nudge(50);
-        assert_eq!(to_hex(e.color), "#ffffff");
-        // Through white and back: the hue (magenta) survives.
-        e.nudge(-50);
-        assert_eq!(to_hex(e.color), "#ff00ff");
-        e.channel = 3;
-        e.nudge(-50);
-        assert_eq!(e.color[3], 128);
-        assert_eq!(e.channels()[3].1, " 50%");
-    }
-
-    #[test]
-    fn rgb_channels() {
-        let mut e = edit("#102030");
+        let mut e = ColorEdit::new(target, parse_color("#ff0000").unwrap());
+        e.nudge(120);
+        assert_eq!(to_hex(e.color()), "#00ff00", "hue first");
         e.rgb = true;
-        e.nudge(10);
         e.channel = 2;
-        e.nudge(-50);
-        assert_eq!(to_hex(e.color), "#1a2000");
-        e.channel = 1;
-        e.nudge(500);
-        assert_eq!(e.color[1], 255, "clamped");
-        assert_eq!(e.channels()[1], ("G", " 255".into()));
+        e.nudge(-255);
+        assert_eq!(to_hex(e.color()), "#00ff00", "blue already 0");
+        e.channel = 0;
+        e.nudge(50);
+        assert_eq!(to_hex(e.color()), "#32ff00");
     }
 }

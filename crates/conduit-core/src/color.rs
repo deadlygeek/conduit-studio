@@ -127,6 +127,140 @@ pub fn adjust(c: Rgba<u8>, hue: f64, saturation: f64, lightness: f64, alpha: f64
     from_hsl(adjusted, a)
 }
 
+/// One adjustable part of a color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    Hue,
+    Saturation,
+    Lightness,
+    Red,
+    Green,
+    Blue,
+    Alpha,
+}
+
+impl Channel {
+    pub const HSLA: [Channel; 4] = [
+        Channel::Hue,
+        Channel::Saturation,
+        Channel::Lightness,
+        Channel::Alpha,
+    ];
+    pub const RGBA: [Channel; 4] = [Channel::Red, Channel::Green, Channel::Blue, Channel::Alpha];
+
+    pub fn letter(self) -> &'static str {
+        match self {
+            Channel::Hue => "H",
+            Channel::Saturation => "S",
+            Channel::Lightness => "L",
+            Channel::Red => "R",
+            Channel::Green => "G",
+            Channel::Blue => "B",
+            Channel::Alpha => "A",
+        }
+    }
+}
+
+/// A color being adjusted channel by channel, as color editors do. HSL is kept alongside
+/// RGB so the hue and saturation survive passing through greys, white and black.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColorModel {
+    pub color: Rgba<u8>,
+    pub hsl: Hsl,
+}
+
+impl ColorModel {
+    pub fn new(color: Rgba<u8>) -> Self {
+        Self {
+            color,
+            hsl: to_hsl(color),
+        }
+    }
+
+    pub fn set(&mut self, color: Rgba<u8>) {
+        *self = Self::new(color);
+    }
+
+    /// Where `ch` sits in its range, 0..=1.
+    pub fn position(&self, ch: Channel) -> f64 {
+        match ch {
+            Channel::Hue => self.hsl.h / 360.0,
+            Channel::Saturation => self.hsl.s,
+            Channel::Lightness => self.hsl.l,
+            Channel::Red => f64::from(self.color[0]) / 255.0,
+            Channel::Green => f64::from(self.color[1]) / 255.0,
+            Channel::Blue => f64::from(self.color[2]) / 255.0,
+            Channel::Alpha => f64::from(self.color[3]) / 255.0,
+        }
+    }
+
+    /// Sets `ch` from a position in its range (clamped to 0..=1).
+    pub fn set_position(&mut self, ch: Channel, t: f64) {
+        let t = t.clamp(0.0, 1.0);
+        let byte = (t * 255.0).round() as u8;
+        match ch {
+            Channel::Hue => self.hsl.h = t * 360.0,
+            Channel::Saturation => self.hsl.s = t,
+            Channel::Lightness => self.hsl.l = t,
+            Channel::Red => self.color[0] = byte,
+            Channel::Green => self.color[1] = byte,
+            Channel::Blue => self.color[2] = byte,
+            Channel::Alpha => {
+                self.color[3] = byte;
+                return;
+            }
+        }
+        match ch {
+            Channel::Hue | Channel::Saturation | Channel::Lightness => {
+                self.color = from_hsl(self.hsl, self.color[3]);
+            }
+            _ => self.hsl = to_hsl(self.color),
+        }
+    }
+
+    /// The channel in display units: degrees, percent, or 0–255.
+    pub fn value(&self, ch: Channel) -> i64 {
+        let t = self.position(ch);
+        match ch {
+            Channel::Hue => (t * 360.0).round() as i64,
+            Channel::Red | Channel::Green | Channel::Blue => (t * 255.0).round() as i64,
+            _ => (t * 100.0).round() as i64,
+        }
+    }
+
+    /// The channel formatted for display: `12°`, `76%`, `231`.
+    pub fn value_text(&self, ch: Channel) -> String {
+        let v = self.value(ch);
+        match ch {
+            Channel::Hue => format!("{v}°"),
+            Channel::Red | Channel::Green | Channel::Blue => v.to_string(),
+            _ => format!("{v}%"),
+        }
+    }
+
+    /// Moves `ch` by `delta` display units. Hue wraps around; the rest stop at their ends.
+    pub fn nudge(&mut self, ch: Channel, delta: i64) {
+        let v = self.value(ch) + delta;
+        match ch {
+            Channel::Hue => {
+                self.hsl.h = (self.hsl.h + delta as f64).rem_euclid(360.0);
+                self.color = from_hsl(self.hsl, self.color[3]);
+            }
+            Channel::Red | Channel::Green | Channel::Blue => {
+                self.set_position(ch, v as f64 / 255.0)
+            }
+            _ => self.set_position(ch, v as f64 / 100.0),
+        }
+    }
+
+    /// The color this one would be with `ch` at position `t` (for drawing gradients).
+    pub fn with(&self, ch: Channel, t: f64) -> Rgba<u8> {
+        let mut m = *self;
+        m.set_position(ch, t);
+        m.color
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +331,31 @@ mod tests {
         assert!(parse_color("#fff").is_err());
         assert!(parse_color("#gg0000").is_err());
         assert!(parse_color("#ééé").is_err());
+    }
+
+    #[test]
+    fn model_channels() {
+        let mut m = ColorModel::new(Rgba([255, 0, 0, 255]));
+        m.nudge(Channel::Hue, 120);
+        assert_eq!(to_hex(m.color), "#00ff00");
+        m.nudge(Channel::Hue, -180);
+        assert_eq!(m.value(Channel::Hue), 300, "wraps");
+        m.nudge(Channel::Lightness, 100);
+        assert_eq!(to_hex(m.color), "#ffffff");
+        m.nudge(Channel::Lightness, -50);
+        assert_eq!(to_hex(m.color), "#ff00ff", "hue survives white");
+        m.nudge(Channel::Alpha, -50);
+        assert_eq!(
+            (m.color[3], m.value_text(Channel::Alpha)),
+            (128, "50%".into())
+        );
+
+        let mut m = ColorModel::new(Rgba([16, 32, 48, 255]));
+        m.nudge(Channel::Red, 10);
+        m.nudge(Channel::Blue, -50);
+        m.nudge(Channel::Green, 500);
+        assert_eq!(to_hex(m.color), "#1aff00");
+        assert_eq!(m.value_text(Channel::Green), "255");
+        assert_eq!(m.with(Channel::Red, 0.0), Rgba([0, 255, 0, 255]));
     }
 }

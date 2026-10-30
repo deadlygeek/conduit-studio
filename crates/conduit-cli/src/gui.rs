@@ -11,16 +11,28 @@ use conduit_core::{Graph, GuiHost, Registry, RgbaImage};
 /// Overrides the GUI program; used by tests and handy for trying alternative previewers.
 pub const PROGRAM_ENV: &str = "CONDUIT_PREVIEW_BIN";
 
+/// Overrides the color picker program.
+pub const PICKER_ENV: &str = "CONDUIT_PICKER_BIN";
+
 /// Finds `conduit-preview`: `$CONDUIT_PREVIEW_BIN`, else next to this executable, else `$PATH`.
 pub fn preview_program() -> PathBuf {
-    if let Some(p) = std::env::var_os(PROGRAM_ENV) {
+    find_program(PROGRAM_ENV, "conduit-preview")
+}
+
+/// Finds `conduit-picker`, the same way as [`preview_program`] (`$CONDUIT_PICKER_BIN`).
+pub fn picker_program() -> PathBuf {
+    find_program(PICKER_ENV, "conduit-picker")
+}
+
+fn find_program(env: &str, name: &str) -> PathBuf {
+    if let Some(p) = std::env::var_os(env) {
         return p.into();
     }
     let sibling = std::env::current_exe()
         .ok()
-        .and_then(|exe| Some(exe.parent()?.join("conduit-preview")))
+        .and_then(|exe| Some(exe.parent()?.join(name)))
         .filter(|p| p.is_file());
-    sibling.unwrap_or_else(|| PathBuf::from("conduit-preview"))
+    sibling.unwrap_or_else(|| PathBuf::from(name))
 }
 
 struct GuiChild {

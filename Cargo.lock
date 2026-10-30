@@ -869,6 +869,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "conduit-picker"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "conduit-core",
+ "conduit-nodes",
+ "eframe",
+ "egui",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "conduit-preview"
 version = "0.1.0"
 dependencies = [

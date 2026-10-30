@@ -6,13 +6,14 @@ mod finder;
 mod view;
 
 use std::path::Path;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
 use conduit_core::{Registry, inspect};
 use ratatui::crossterm::event::{self, Event as TermEvent, KeyEventKind};
 
-use crate::gui::preview_program;
+use crate::gui::{picker_program, preview_program};
 use crate::run::{self, Command, Event, Options};
 use app::{Action, App};
 
@@ -30,6 +31,8 @@ pub fn edit(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
         },
     )?;
     let mut app = App::new(dir.to_path_buf(), project, registry.clone());
+    // Color pickers opened with `C`; closed when the editor quits.
+    let mut pickers: Vec<std::process::Child> = Vec::new();
 
     let mut terminal = ratatui::init();
     let result = (|| -> anyhow::Result<()> {
@@ -46,6 +49,7 @@ pub fn edit(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
                 app.on_runner_event(event);
             }
 
+            pickers.retain_mut(|p| matches!(p.try_wait(), Ok(None)));
             if !event::poll(TICK)? {
                 continue;
             }
@@ -68,10 +72,29 @@ pub fn edit(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
                         app.message = Some(e);
                     }
                 }
+                Some(Action::OpenPicker(args)) => {
+                    let program = picker_program();
+                    match std::process::Command::new(&program)
+                        .args(&args)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                    {
+                        Ok(child) => pickers.push(child),
+                        Err(e) => {
+                            app.message = Some(format!("cannot start {}: {e}", program.display()))
+                        }
+                    }
+                }
                 None => {}
             }
         }
     })();
+    for mut picker in pickers {
+        let _ = picker.kill();
+        let _ = picker.wait();
+    }
     ratatui::restore();
     result
 }

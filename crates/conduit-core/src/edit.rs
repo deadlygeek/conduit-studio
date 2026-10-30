@@ -50,6 +50,16 @@ impl Change {
     }
 }
 
+/// A [`Change`] that puts `paths` back to their current contents: for edits made by another
+/// program (e.g. the GUI color picker) that should still be undoable.
+pub fn snapshot(paths: &[PathBuf]) -> EditResult<Change> {
+    let mut tx = Tx::default();
+    for path in paths {
+        tx.record(path)?;
+    }
+    Ok(Change { before: tx.before })
+}
+
 fn ignore_not_found(e: io::Error) -> io::Result<()> {
     if e.kind() == io::ErrorKind::NotFound {
         Ok(())
@@ -1108,5 +1118,14 @@ mod tests {
         assert!(!f.read("t").contains("p.sun"));
         change.undo().unwrap();
         assert_eq!(f.snapshot(), before);
+    }
+
+    #[test]
+    fn snapshot_restores_outside_edits() {
+        let f = Fixture::new(&[("src", SRC)]);
+        let change = snapshot(&[f.path().join("src.toml")]).unwrap();
+        std::fs::write(f.path().join("src.toml"), "changed elsewhere").unwrap();
+        change.undo().unwrap();
+        assert_eq!(f.read("src"), SRC);
     }
 }

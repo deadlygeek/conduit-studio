@@ -86,6 +86,8 @@ pub enum Action {
     ProbeOff,
     /// Suspend the TUI and open this file in `$EDITOR`.
     OpenEditor(PathBuf),
+    /// Launch the GUI color picker with these arguments (it runs alongside the TUI).
+    OpenPicker(Vec<String>),
 }
 
 pub struct App {
@@ -545,6 +547,7 @@ impl App {
             (_, KeyCode::Char('a')) => self.open_pick(Pick::AddType),
             (Pane::Node, KeyCode::Char('o')) if !ctrl => self.start_add_entry(),
             (Pane::Node, KeyCode::Char('x')) => self.start_remove_entry(),
+            (Pane::Node, KeyCode::Char('C')) => return self.open_picker(),
             (_, KeyCode::Char('I')) => match self.entries_param() {
                 Some(param) => self.open_prompt(Prompt::Import { param }, String::new()),
                 None => self.message = Some("I imports colors into a palette".into()),
@@ -1353,7 +1356,7 @@ mod tests {
         select(&mut app, entry("accent"));
 
         key(&mut app, KeyCode::Enter);
-        assert_eq!(conduit_core::to_hex(color_edit(&app).color), "#e76f51");
+        assert_eq!(conduit_core::to_hex(color_edit(&app).color()), "#e76f51");
         // Saturation down 50 points, written live; esc puts everything back.
         press(&mut app, "j{");
         assert_ne!(read(&app, "brand"), original);
@@ -1387,6 +1390,39 @@ mod tests {
         key(&mut app, KeyCode::Enter);
         assert_eq!(link(&app, "color"), None);
         assert!(read(&app, "square").contains("color = \"#123456\""));
+    }
+
+    #[test]
+    fn open_the_picker() {
+        let (_tmp, mut app) = temp_project("palette");
+        goto(&mut app, "brand");
+        select(&mut app, entry("accent"));
+        let Some(Action::OpenPicker(args)) = press(&mut app, "C") else {
+            panic!("expected the picker to open: {:?}", app.message);
+        };
+        let dir = app.dir.to_string_lossy().into_owned();
+        assert_eq!(args, [dir.as_str(), "brand", "accent", "--table", "colors"]);
+
+        // What the picker writes undoes in one step.
+        let original = read(&app, "brand");
+        std::fs::write(app.dir.join("brand.toml"), "type = \"palette\"").unwrap();
+        press(&mut app, "u");
+        assert_eq!(read(&app, "brand"), original);
+
+        goto(&mut app, "square");
+        select(&mut app, param("color"));
+        let Some(Action::OpenPicker(args)) = press(&mut app, "C") else {
+            panic!("expected the picker to open");
+        };
+        assert_eq!(&args[1..], ["square", "color"]);
+        select(&mut app, param("width"));
+        assert_eq!(press(&mut app, "C"), None);
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap()
+                .contains("move the cursor to a color")
+        );
     }
 
     #[test]

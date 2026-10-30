@@ -602,6 +602,10 @@ const HELP: &[(&str, &str)] = &[
         "I",
         "import colors into a palette (Coolors link or hex codes)",
     ),
+    (
+        "C",
+        "open the color under the cursor in the GUI color picker",
+    ),
     ("r / D", "rename / delete the focused node"),
     ("E", "open the focused node's file in $EDITOR"),
     ("u", "undo the last edit"),
@@ -618,23 +622,23 @@ const BAR: usize = 32;
 
 fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
     let area = popup(frame, 58, 11);
-    let hex = to_hex(edit.color);
+    let color = edit.color();
     let mut lines = vec![
         Line::from(vec![
             Span::raw(" "),
-            Span::styled("█".repeat(16), Style::new().fg(rgb(edit.color))),
-            Span::raw(format!("  {hex}")),
+            Span::styled("█".repeat(16), Style::new().fg(rgb(color))),
+            Span::raw(format!("  {}", to_hex(color))),
         ]),
         Line::from(vec![
             Span::raw(" "),
-            Span::styled("█".repeat(16), Style::new().fg(rgb(edit.color))),
+            Span::styled("█".repeat(16), Style::new().fg(rgb(color))),
             Span::styled(format!("  was {}", to_hex(edit.original)), DIM),
             Span::raw(" "),
             swatch(edit.original),
         ]),
         Line::raw(""),
     ];
-    for (i, (name, value)) in edit.channels().into_iter().enumerate() {
+    for (i, ch) in edit.channels().into_iter().enumerate() {
         let selected = i == edit.channel;
         let marker = if selected { "▸ " } else { "  " };
         let name_style = if selected {
@@ -643,13 +647,13 @@ fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
             Style::new()
         };
         let mut spans = vec![
-            Span::styled(format!(" {marker}{name} "), name_style),
-            Span::raw(format!("{value}  ")),
+            Span::styled(format!(" {marker}{} ", ch.letter()), name_style),
+            Span::raw(format!("{:>4}  ", edit.model.value_text(ch))),
         ];
         // The channel's range as a gradient, with the current position marked.
-        let at = (edit.channel_position(i) * (BAR - 1) as f64).round() as usize;
+        let at = (edit.model.position(ch) * (BAR - 1) as f64).round() as usize;
         for cell in 0..BAR {
-            let c = rgb(edit.channel_at(i, cell as f64 / (BAR - 1) as f64));
+            let c = rgb(edit.model.with(ch, cell as f64 / (BAR - 1) as f64));
             spans.push(if cell == at {
                 Span::styled("┃", Style::new().fg(Color::White).bg(c).bold())
             } else {

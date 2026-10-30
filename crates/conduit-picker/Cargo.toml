@@ -1,0 +1,16 @@
+[package]
+name = "conduit-picker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+conduit-core = { version = "0.1.0", path = "../conduit-core" }
+conduit-nodes = { version = "0.1.0", path = "../conduit-nodes" }
+eframe = "0.37.0"
+egui = "0.37.0"
+toml = "1.1.8"
+
+[dev-dependencies]
+tempfile = "3.27.0"

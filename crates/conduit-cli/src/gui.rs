@@ -36,6 +36,10 @@ pub struct GuiProcesses {
     /// Window title for each GUI node in the current graph.
     titles: HashMap<String, String>,
     children: HashMap<String, GuiChild>,
+    /// Discard the windows' stderr (needed when a TUI owns the terminal).
+    quiet: bool,
+    /// Problems starting windows, for the caller to report.
+    warnings: Vec<String>,
 }
 
 impl GuiProcesses {
@@ -45,7 +49,29 @@ impl GuiProcesses {
             save_dir,
             titles: HashMap::new(),
             children: HashMap::new(),
+            quiet: false,
+            warnings: Vec::new(),
         }
+    }
+
+    pub fn quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
+    }
+
+    /// Sets the title used when the window for `id` is (re)opened.
+    pub fn set_title(&mut self, id: &str, title: String) {
+        self.titles.insert(id.to_string(), title);
+    }
+
+    /// Problems since the last call (e.g. the preview program couldn't be started).
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
+    }
+
+    /// Closes every window.
+    pub fn close_all(&mut self) {
+        self.children.clear();
     }
 
     /// Records the GUI nodes in a freshly loaded graph and closes windows whose node is gone.
@@ -64,6 +90,14 @@ impl GuiProcesses {
             })
             .collect();
         self.children.retain(|id, _| self.titles.contains_key(id));
+    }
+
+    /// Shows an error in the window for `id`, opening it if needed.
+    pub fn show_error_in(&mut self, id: &str, message: &str) {
+        let Some(gui) = self.ensure(id) else { return };
+        if conduit_ipc::write_error(&mut gui.stdin, message).is_err() {
+            self.children.remove(id);
+        }
     }
 
     /// Shows an error in every open window (they keep their last good image).
@@ -93,7 +127,7 @@ impl GuiProcesses {
         self.children.get_mut(node_id)
     }
 
-    fn spawn(&self, node_id: &str) -> Option<GuiChild> {
+    fn spawn(&mut self, node_id: &str) -> Option<GuiChild> {
         let title = self.titles.get(node_id).map_or(node_id, String::as_str);
         let args: [OsString; 6] = [
             "--node-id".into(),
@@ -106,14 +140,19 @@ impl GuiProcesses {
         let mut child = match Command::new(&self.program)
             .args(&args)
             .stdin(Stdio::piped())
+            .stderr(if self.quiet {
+                Stdio::null()
+            } else {
+                Stdio::inherit()
+            })
             .spawn()
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!(
+                self.warnings.push(format!(
                     "cannot start {}: {e}\n  (build it with `cargo build --workspace`, or set {PROGRAM_ENV})",
                     self.program.display()
-                );
+                ));
                 return None;
             }
         };

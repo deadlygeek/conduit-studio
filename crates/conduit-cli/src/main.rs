@@ -5,6 +5,7 @@ mod run;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use conduit_core::{Graph, NullHost, Registry, Value, evaluate, load};
@@ -36,7 +37,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let registry = conduit_nodes::registry();
     match cli.command {
-        Command::Run { dir } => match run::run(&dir, &registry) {
+        Command::Run { dir } => match run::run(&dir, Arc::new(registry)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{e:#}");

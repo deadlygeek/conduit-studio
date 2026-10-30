@@ -1,16 +1,18 @@
 //! Editor state and key handling, independent of the terminal (see `view.rs` for drawing).
 
+mod colors;
 mod edits;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use conduit_core::{Change, Project, ProjectNode, Reference, Registry, TreeItem};
+use conduit_core::{Change, ParamKind, Project, ProjectNode, Reference, Registry, TreeItem};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
-use crate::run::Event;
+use crate::run::{Event, Shown};
+pub use colors::ColorEdit;
 pub use edits::{Confirm, Pick, Prompt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +42,11 @@ pub enum Row {
         name: String,
         link: Option<Reference>,
     },
+    /// One entry of a table param (a palette color), which is also an output of its own.
+    Entry {
+        param: String,
+        key: String,
+    },
     Output {
         port: String,
     },
@@ -67,6 +74,8 @@ pub enum Mode {
         purpose: Confirm,
     },
     Help,
+    /// The color editor overlay.
+    Color(Box<ColorEdit>),
 }
 
 /// What the event loop should do after a key.
@@ -171,10 +180,10 @@ impl App {
         }
     }
 
-    /// The value of a number output from the last successful render, if any.
-    pub fn linked_value(&self, source: &Reference) -> Option<f64> {
+    /// The value of a number or color output from the last successful render, if any.
+    pub fn linked_value(&self, source: &Reference) -> Option<Shown> {
         match &self.status {
-            Some(Event::Rendered { numbers, .. }) => numbers.get(source).copied(),
+            Some(Event::Rendered { shown, .. }) => shown.get(source).copied(),
             _ => None,
         }
     }
@@ -312,7 +321,7 @@ impl App {
             return None;
         };
         let action = self.focus_on(&source.node);
-        self.select_row(|r| matches!(r, Row::Output { port } if *port == source.port));
+        self.select_row(|r| row_output(r) == Some(source.port.as_str()));
         action
     }
 
@@ -322,8 +331,10 @@ impl App {
         let id = self.focus.clone()?;
         let consumers = self.project.consumers(&id);
         let consumer = match self.current_row() {
-            Some(Row::Output { port }) => consumers.iter().find(|c| c.output == *port),
-            _ => None,
+            Some(row) => {
+                row_output(row).and_then(|port| consumers.iter().find(|c| c.output == port))
+            }
+            None => None,
         }
         .or(consumers.first())
         .cloned();
@@ -363,10 +374,10 @@ impl App {
         if let Some(source) = row_source(self.current_row()) {
             return Some(source.clone());
         }
-        match self.current_row() {
-            Some(Row::Output { port }) => Some(Reference {
+        match self.current_row().and_then(row_output) {
+            Some(port) => Some(Reference {
                 node: self.focus.clone()?,
-                port: port.clone(),
+                port: port.to_string(),
             }),
             _ => self.default_probe(self.focus.as_deref()?),
         }
@@ -424,6 +435,10 @@ impl App {
                 input,
                 error,
             } => self.prompt_key(key, purpose, input, error),
+            Mode::Color(edit) => {
+                self.color_key(key, edit);
+                None
+            }
             Mode::Confirm { question, purpose } => {
                 if key.code == KeyCode::Char('y') {
                     self.confirmed(purpose);
@@ -528,6 +543,12 @@ impl App {
                 self.nudge_row(nudge_step(c).expect("checked"))
             }
             (_, KeyCode::Char('a')) => self.open_pick(Pick::AddType),
+            (Pane::Node, KeyCode::Char('o')) if !ctrl => self.start_add_entry(),
+            (Pane::Node, KeyCode::Char('x')) => self.start_remove_entry(),
+            (_, KeyCode::Char('I')) => match self.entries_param() {
+                Some(param) => self.open_prompt(Prompt::Import { param }, String::new()),
+                None => self.message = Some("I imports colors into a palette".into()),
+            },
             (_, KeyCode::Char('r')) => self.start_rename(),
             (_, KeyCode::Char('D')) => self.start_delete(),
             (_, KeyCode::Char('u')) => self.undo(),
@@ -621,6 +642,14 @@ fn nudge_step(c: char) -> Option<i64> {
     }
 }
 
+/// The output a row stands for: an output, or a palette color.
+fn row_output(row: &Row) -> Option<&str> {
+    match row {
+        Row::Output { port } | Row::Entry { key: port, .. } => Some(port),
+        _ => None,
+    }
+}
+
 /// What feeds a row: an input's source or a linked param's link.
 fn row_source(row: Option<&Row>) -> Option<&Reference> {
     match row? {
@@ -672,6 +701,7 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
         .spec
         .iter()
         .flat_map(|s| &s.params)
+        .filter(|p| p.kind != ParamKind::Colors)
         .map(|p| p.name.to_string());
     let extra_params = node
         .params
@@ -682,10 +712,29 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
         link: node.inputs.get(&name).and_then(|r| r.first()).cloned(),
         name,
     }));
+    // Palette colors: one row each, which also stands for the output it provides.
+    for p in node.spec.iter().flat_map(|s| &s.params) {
+        if p.kind != ParamKind::Colors {
+            continue;
+        }
+        let keys = node.params.get(p.name).and_then(|v| v.as_table());
+        rows.extend(
+            keys.into_iter()
+                .flat_map(|t| t.keys())
+                .map(|key| Row::Entry {
+                    param: p.name.to_string(),
+                    key: key.clone(),
+                }),
+        );
+    }
     rows.extend(
-        node.outputs()
-            .into_iter()
-            .map(|(port, _)| Row::Output { port }),
+        node.spec
+            .iter()
+            .flat_map(|s| &s.outputs)
+            .filter(|o| !o.entries)
+            .map(|o| Row::Output {
+                port: o.name.to_string(),
+            }),
     );
     let prefix = format!("{}: ", node.path.display());
     rows.extend(project.errors_for(&node.id).into_iter().map(|e| {
@@ -889,10 +938,17 @@ mod tests {
 
     // --- editing ---------------------------------------------------------------------
 
-    /// The example copied to a temp folder, so edits can change it.
+    /// The basic example copied to a temp folder, so edits can change it.
     fn temp_example() -> (tempfile::TempDir, App) {
+        temp_project("basic")
+    }
+
+    /// An example project copied to a temp folder.
+    fn temp_project(name: &str) -> (tempfile::TempDir, App) {
         let tmp = tempfile::tempdir().unwrap();
-        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
+        let example = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples")
+            .join(name);
         for entry in std::fs::read_dir(example).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|e| e == "toml") {
@@ -1154,14 +1210,12 @@ mod tests {
             Some("black_sq.width is at its minimum, 1")
         );
 
-        // Not a number.
+        // Colors are adjusted in the color editor instead.
         select(&mut app, param("color"));
         press(&mut app, "+");
-        assert!(
-            app.message
-                .as_deref()
-                .unwrap()
-                .contains("only whole numbers")
+        assert_eq!(
+            app.message.as_deref(),
+            Some("press ⏎ to adjust `color` in the color editor")
         );
     }
 
@@ -1178,6 +1232,176 @@ mod tests {
         assert_eq!(int_param(&app, "black_sq_height", "value"), Some(110));
         assert_eq!(focus(&app), "black_sq");
         assert_eq!(link(&app, "height"), Some(reference("black_sq_height")));
+    }
+
+    fn entry(key: &str) -> impl Fn(&Row) -> bool + '_ {
+        move |r| matches!(r, Row::Entry { key: k, .. } if k == key)
+    }
+
+    fn entry_keys(app: &App) -> Vec<String> {
+        app.rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Entry { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn color_edit(app: &App) -> &ColorEdit {
+        match &app.mode {
+            Mode::Color(edit) => edit,
+            other => panic!("expected the color editor, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn palette_rows() {
+        let (_tmp, mut app) = temp_project("palette");
+        let original = read(&app, "brand");
+        goto(&mut app, "brand");
+        assert_eq!(
+            entry_keys(&app),
+            ["primary", "teal", "sand", "orange", "accent"]
+        );
+        assert!(
+            !app.rows.iter().any(|r| matches!(r, Row::Output { .. })
+                || matches!(r, Row::Param { name, .. } if name == "colors")),
+            "colors are shown as entries, not as a param or outputs: {:?}",
+            app.rows
+        );
+
+        // `l` follows a color to what uses it; `h` comes back to that color.
+        select(&mut app, entry("accent"));
+        press(&mut app, "l");
+        assert_eq!(focus(&app), "accent_dark");
+        press(&mut app, "h");
+        assert_eq!(focus(&app), "brand");
+        assert!(matches!(app.current_row(), Some(Row::Entry { key, .. }) if key == "accent"));
+
+        // Rename: references follow.
+        press(&mut app, "r");
+        clear(&mut app);
+        press(&mut app, "coral");
+        key(&mut app, KeyCode::Enter);
+        assert!(read(&app, "accent_dark").contains("color = \"brand.coral\""));
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+
+        // Add a color (a copy of the one under the cursor), then remove it.
+        press(&mut app, "o");
+        key(&mut app, KeyCode::Enter); // accept `c1`
+        assert!(read(&app, "brand").contains("c1 = \"#e76f51\""));
+        assert!(matches!(app.current_row(), Some(Row::Entry { key, .. }) if key == "c1"));
+        press(&mut app, "x");
+        assert!(
+            !read(&app, "brand").contains("c1 ="),
+            "unused: removed at once"
+        );
+
+        // Removing a used color asks first and disconnects its users.
+        select(&mut app, entry("primary"));
+        press(&mut app, "x");
+        assert!(
+            matches!(&app.mode, Mode::Confirm { question, .. } if question.contains("stripe.color"))
+        );
+        press(&mut app, "y");
+        assert!(!read(&app, "stripe").contains("brand.primary"));
+
+        press(&mut app, "uuuu");
+        assert_eq!(read(&app, "brand"), original);
+        assert!(read(&app, "stripe").contains("brand.primary"));
+    }
+
+    #[test]
+    fn import_into_palette() {
+        let (_tmp, mut app) = temp_project("palette");
+        goto(&mut app, "brand");
+        press(&mut app, "I");
+        press(&mut app, "https://coolors.co/000000-ffffff");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(entry_keys(&app), ["c1", "c2"]);
+        assert!(read(&app, "brand").contains("source = \"https://coolors.co/000000-ffffff\""));
+        // The old names are gone, so their users are now broken until relinked.
+        assert!(!app.project.is_valid());
+        press(&mut app, "u");
+        assert_eq!(entry_keys(&app).len(), 5);
+
+        // Adding a palette goes straight to the import prompt.
+        press(&mut app, "apalette");
+        key(&mut app, KeyCode::Enter);
+        clear(&mut app);
+        press(&mut app, "greys");
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(
+            &app.mode,
+            Mode::Prompt {
+                purpose: Prompt::Import { .. },
+                ..
+            }
+        ));
+        press(&mut app, "--light: #eeeeee; --dark: #222222;");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(focus(&app), "greys");
+        assert_eq!(entry_keys(&app), ["light", "dark"]);
+    }
+
+    #[test]
+    fn color_editor() {
+        let (_tmp, mut app) = temp_project("palette");
+        let original = read(&app, "brand");
+        goto(&mut app, "brand");
+        select(&mut app, entry("accent"));
+
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(conduit_core::to_hex(color_edit(&app).color), "#e76f51");
+        // Saturation down 50 points, written live; esc puts everything back.
+        press(&mut app, "j{");
+        assert_ne!(read(&app, "brand"), original);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(read(&app, "brand"), original);
+
+        // RGB: red down 50; a typed hex; ⏎ keeps. One undo step for the whole session.
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "{");
+        assert!(
+            read(&app, "brand").contains("accent = \"#b56f51\""),
+            "{}",
+            read(&app, "brand")
+        );
+        press(&mut app, "#00ff00");
+        key(&mut app, KeyCode::Enter);
+        assert!(read(&app, "brand").contains("accent = \"#00ff00\""));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.mode, Mode::Normal);
+        press(&mut app, "u");
+        assert_eq!(read(&app, "brand"), original);
+
+        // On a linked color param, typing replaces the link.
+        goto(&mut app, "square");
+        select(&mut app, param("color"));
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "#123456");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(link(&app, "color"), None);
+        assert!(read(&app, "square").contains("color = \"#123456\""));
+    }
+
+    #[test]
+    fn feed_a_color_param_from_a_color_node() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "black_sq");
+        select(&mut app, param("color"));
+        press(&mut app, "i");
+        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kinds, ["color"], "palettes only have named outputs");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter); // `black_sq_color`
+        assert!(read(&app, "black_sq_color").contains("color = \"black\""));
+        assert_eq!(link(&app, "color"), Some(reference("black_sq_color")));
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
     }
 
     #[test]

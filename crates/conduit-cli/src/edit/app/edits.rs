@@ -62,6 +62,18 @@ pub enum Prompt {
         param: String,
     },
     Rename,
+    /// Name for a new palette color.
+    AddEntry {
+        param: String,
+    },
+    RenameEntry {
+        param: String,
+        key: String,
+    },
+    /// Pasted palette text (Coolors link, hex codes, …) replacing a palette's colors.
+    Import {
+        param: String,
+    },
 }
 
 impl Prompt {
@@ -73,6 +85,9 @@ impl Prompt {
                 format!("id for new {kind}")
             }
             Prompt::Rename => format!("rename {focus} to"),
+            Prompt::AddEntry { .. } => format!("name for the new color in {focus}"),
+            Prompt::RenameEntry { key, .. } => format!("rename {focus}.{key} to"),
+            Prompt::Import { .. } => "paste a Coolors link or hex codes (empty: keep)".into(),
         }
     }
 }
@@ -80,6 +95,7 @@ impl Prompt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Confirm {
     Delete(String),
+    RemoveEntry { param: String, key: String },
 }
 
 impl App {
@@ -141,12 +157,16 @@ impl App {
                     .map(|s| (s.kind.to_string(), type_label(s)))
                     .collect()
             }
-            Pick::FeedType { .. } => self
-                .registry
-                .specs()
-                .filter(|s| number_output(s).is_some())
-                .map(|s| (s.kind.to_string(), type_label(s)))
-                .collect(),
+            Pick::FeedType { param } => {
+                let Some(ty) = self.param_input_type(param) else {
+                    return Vec::new();
+                };
+                self.registry
+                    .specs()
+                    .filter(|s| output_of(s, ty).is_some())
+                    .map(|s| (s.kind.to_string(), type_label(s)))
+                    .collect()
+            }
         }
     }
 
@@ -200,7 +220,7 @@ impl App {
 
     // --- prompts -----------------------------------------------------------------------
 
-    fn open_prompt(&mut self, purpose: Prompt, input: String) {
+    pub(super) fn open_prompt(&mut self, purpose: Prompt, input: String) {
         self.mode = Mode::Prompt {
             purpose,
             input,
@@ -223,7 +243,12 @@ impl App {
                 self.apply(format!("added {input} ({kind})"), |dir, _| {
                     ops::add_node(dir, input, &spec)
                 })?;
-                Ok(self.focus_on(input))
+                let action = self.focus_on(input);
+                // A new palette: offer to fill it straight away.
+                if let Some(param) = self.entries_param() {
+                    self.open_prompt(Prompt::Import { param }, String::new());
+                }
+                Ok(action)
             }
             Prompt::InsertId { kind, port, index } => {
                 let spec = self.spec(&kind)?;
@@ -235,9 +260,14 @@ impl App {
             }
             Prompt::FeedId { kind, param } => {
                 let spec = self.spec(&kind)?;
-                let output = number_output(&spec).ok_or("no number output")?.to_string();
+                let ty = self
+                    .param_input_type(&param)
+                    .ok_or("not a linkable param")?;
+                let output = output_of(&spec, ty)
+                    .ok_or("no matching output")?
+                    .to_string();
                 // Start the new node at the param's current value.
-                let params = match (self.current_value(&param), first_number_param(&spec)) {
+                let params = match (self.current_value(&param), param_input_of(&spec, ty)) {
                     (Some(value), Some(name)) => {
                         toml::Table::from_iter([(name.to_string(), value)])
                     }
@@ -246,6 +276,48 @@ impl App {
                 let label = format!("added {input} ({kind}) feeding {focus}.{param}");
                 self.apply(label, |dir, _| {
                     ops::add_feeding(dir, input, &spec, &params, &output, &focus, &param)
+                })?;
+                Ok(None)
+            }
+            Prompt::AddEntry { param } => {
+                let color = self.entry_color().unwrap_or_else(|| "#808080".into());
+                self.apply(format!("added {focus}.{input}"), |dir, _| {
+                    ops::set_entry(dir, &focus, &param, input, &color.into())
+                })?;
+                self.select_row(|r| matches!(r, Row::Entry { key, .. } if key == input));
+                Ok(None)
+            }
+            Prompt::RenameEntry { param, key } => {
+                if input == key {
+                    return Ok(None);
+                }
+                self.apply(
+                    format!("renamed {focus}.{key} to {input}"),
+                    |dir, project| ops::rename_entry(dir, project, &focus, &param, &key, input),
+                )?;
+                self.select_row(|r| matches!(r, Row::Entry { key, .. } if key == input));
+                Ok(None)
+            }
+            Prompt::Import { param } => {
+                if input.is_empty() {
+                    return Ok(None);
+                }
+                let colors = conduit_core::parse_palette(input)?;
+                let kind = self
+                    .focused()
+                    .and_then(|n| n.kind.clone())
+                    .unwrap_or_default();
+                let spec = self.spec(&kind)?;
+                let entries: Vec<(String, toml::Value)> = colors
+                    .iter()
+                    .map(|(name, c)| (name.clone(), conduit_core::to_hex(*c).into()))
+                    .collect();
+                let link = input.contains("://") || input.contains("coolors.co/");
+                let extra: Vec<(&str, toml::Value)> =
+                    link.then(|| ("source", input.into())).into_iter().collect();
+                let label = format!("imported {} colors into {focus}", entries.len());
+                self.apply(label, |dir, _| {
+                    ops::set_entries(dir, &focus, &spec, &param, &entries, &extra)
                 })?;
                 Ok(None)
             }
@@ -269,7 +341,7 @@ impl App {
     }
 
     /// The focused node's typed value for a param, else its default.
-    fn current_value(&self, name: &str) -> Option<toml::Value> {
+    pub(super) fn current_value(&self, name: &str) -> Option<toml::Value> {
         let node = self.focused()?;
         if let Some(value) = node.params.get(name) {
             return Some(value.clone());
@@ -315,6 +387,9 @@ impl App {
     /// `⏎` in the node panel: edit a param (typing a value replaces a link), or pick a
     /// source for an input.
     pub(super) fn edit_row(&mut self) {
+        if self.open_color_editor() {
+            return;
+        }
         match self.current_row().cloned() {
             Some(Row::Param { name, .. }) => {
                 let input = self.param_input(&name);
@@ -444,6 +519,9 @@ impl App {
         let node = self.project.get(&node_id).cloned().ok_or("no such node")?;
         let spec = node.spec.as_ref().and_then(|s| s.param(&name)).cloned();
         let Some(ParamKind::Int { min, max }) = spec.as_ref().map(|p| p.kind.clone()) else {
+            if spec.is_some_and(|p| p.kind == ParamKind::Color) {
+                return Err(format!("press ⏎ to adjust `{name}` in the color editor"));
+            }
             return Err(format!("only whole numbers can be nudged, not `{name}`"));
         };
         let current = node
@@ -462,16 +540,10 @@ impl App {
 
         let change =
             ops::set_param(&self.dir, &node_id, &name, &new.into()).map_err(|e| e.to_string())?;
+        // Repeated nudges of one param undo together.
         let key = format!("{node_id}.{name}");
         let label = format!("nudged {key} to {new}");
-        // Repeated nudges of one param undo together: keep the first change, which holds
-        // the contents from before the first nudge.
-        match self.undo.last_mut() {
-            Some(last) if self.nudging.as_ref() == Some(&key) => last.0 = label.clone(),
-            _ => self.undo.push((label.clone(), change)),
-        }
-        self.nudging = Some(key);
-        self.reload_from_disk();
+        self.record_coalesced(key, label.clone(), change);
         self.message = Some(format!("{label} ({delta:+})"));
         Ok(())
     }
@@ -500,6 +572,12 @@ impl App {
         }
     }
 
+    /// The type of the input that feeds the focused node's param `name`, if linkable.
+    fn param_input_type(&self, name: &str) -> Option<ValueType> {
+        let input = self.focused()?.spec.as_ref()?.input(name)?;
+        input.param.then_some(input.ty)
+    }
+
     /// Whether the focused node's param `name` can be fed from another node.
     fn linkable(&self, name: &str) -> bool {
         self.focused()
@@ -509,6 +587,18 @@ impl App {
     }
 
     pub(super) fn start_rename(&mut self) {
+        if self.pane == super::Pane::Node
+            && let Some(Row::Entry { param, key }) = self.current_row().cloned()
+        {
+            self.open_prompt(
+                Prompt::RenameEntry {
+                    param,
+                    key: key.clone(),
+                },
+                key,
+            );
+            return;
+        }
         if let Some(id) = self.focus.clone() {
             self.open_prompt(Prompt::Rename, id);
         }
@@ -535,6 +625,7 @@ impl App {
 
     pub(super) fn confirmed(&mut self, purpose: Confirm) {
         match purpose {
+            Confirm::RemoveEntry { param, key } => self.remove_entry(&param, &key),
             Confirm::Delete(id) => {
                 let previous = self.back.iter().rev().find(|b| **b != id).cloned();
                 if self.apply_or_report(format!("deleted {id}"), |dir, project| {
@@ -582,7 +673,7 @@ impl App {
     }
 
     /// Like [`Self::apply`], reporting failure in the message line. Returns whether it worked.
-    fn apply_or_report(
+    pub(super) fn apply_or_report(
         &mut self,
         label: String,
         edit: impl FnOnce(&Path, &Project) -> EditResult<Change>,
@@ -667,17 +758,20 @@ fn type_label(spec: &NodeSpec) -> String {
     )
 }
 
-/// The first output that can feed a number param.
-fn number_output(spec: &NodeSpec) -> Option<&'static str> {
+/// The first (fixed) output that can feed a `ty` param.
+fn output_of(spec: &NodeSpec, ty: ValueType) -> Option<&'static str> {
     spec.outputs
         .iter()
-        .find(|o| o.ty.coerces_to(ValueType::Number))
+        .find(|o| !o.entries && o.ty.coerces_to(ty))
         .map(|o| o.name)
 }
 
-/// The param a new feeding node is seeded with (e.g. `int`'s `value`).
-fn first_number_param(spec: &NodeSpec) -> Option<&'static str> {
-    spec.inputs.iter().find(|p| p.param).map(|p| p.name)
+/// The param a new feeding node is seeded with (e.g. `int`'s `value`, `color`'s `color`).
+fn param_input_of(spec: &NodeSpec, ty: ValueType) -> Option<&'static str> {
+    spec.inputs
+        .iter()
+        .find(|p| p.param && p.ty == ty)
+        .map(|p| p.name)
 }
 
 /// Whether a node of this kind can sit between a `source_ty` output and a `target_ty` input.

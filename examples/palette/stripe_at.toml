@@ -1,0 +1,7 @@
+type = "position"
+
+[inputs]
+image = "stripe"
+
+[params]
+y = 520

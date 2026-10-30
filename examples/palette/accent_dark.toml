@@ -1,0 +1,8 @@
+# The palette's accent, a bit darker.
+type = "color"
+
+[inputs]
+color = "brand.accent"
+
+[params]
+lightness = -15

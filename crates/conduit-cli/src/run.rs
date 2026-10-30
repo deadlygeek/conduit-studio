@@ -9,7 +9,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
-use conduit_core::{EvalStats, Evaluator, GuiHost, Reference, Registry, Value, Values, load};
+use conduit_core::{
+    EvalStats, Evaluator, GuiHost, Reference, Registry, Rgba, RgbaImage, Value, Values, load,
+};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
@@ -34,13 +36,20 @@ pub enum Event {
     Rendered {
         stats: EvalStats,
         elapsed: Duration,
-        /// Every number output, so editors can show linked values.
-        numbers: HashMap<Reference, f64>,
+        /// Every number and color output, so editors can show linked values.
+        shown: HashMap<Reference, Shown>,
     },
     /// The project failed to load or render.
     Failed(String),
     /// Something went wrong that isn't the project's fault (e.g. a window couldn't open).
     Warning(String),
+}
+
+/// A small output value an editor can show inline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Shown {
+    Number(f64),
+    Color(Rgba<u8>),
 }
 
 pub struct Options {
@@ -216,10 +225,11 @@ impl Runner {
             });
         match result {
             Ok((values, stats)) => {
-                let numbers = values
+                let shown = values
                     .iter()
                     .filter_map(|(r, v)| match v {
-                        Value::Number(n) => Some((r.clone(), *n)),
+                        Value::Number(n) => Some((r.clone(), Shown::Number(*n))),
+                        Value::Color(c) => Some((r.clone(), Shown::Color(*c))),
                         _ => None,
                     })
                     .collect();
@@ -227,7 +237,7 @@ impl Runner {
                 self.emit(Event::Rendered {
                     stats,
                     elapsed: start.elapsed(),
-                    numbers,
+                    shown,
                 });
                 self.show_probe();
             }
@@ -241,7 +251,8 @@ impl Runner {
         self.flush_warnings();
     }
 
-    /// Sends the probed output to the probe window: images as-is, layers as their image.
+    /// Sends the probed output to the probe window: images as-is, layers as their image,
+    /// colors as a solid swatch.
     fn show_probe(&mut self) {
         let Some(target) = &self.probe else { return };
         self.probe_gui
@@ -249,6 +260,7 @@ impl Runner {
         let image = match self.values.as_ref().and_then(|v| v.get(target)) {
             Some(Value::Image(image)) => Ok(image.clone()),
             Some(Value::Layer(layer)) => Ok(layer.image.clone()),
+            Some(Value::Color(c)) => Ok(Arc::new(RgbaImage::from_pixel(256, 256, *c))),
             Some(other) => Err(format!(
                 "`{target}` is a {}, which can't be shown as an image",
                 other.ty()

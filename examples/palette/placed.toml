@@ -1,0 +1,8 @@
+type = "position"
+
+[inputs]
+image = "square"
+
+[params]
+x = 300
+y = 200

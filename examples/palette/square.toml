@@ -1,0 +1,8 @@
+type = "rect"
+
+[inputs]
+color = "accent_dark"
+
+[params]
+width = 200
+height = 200

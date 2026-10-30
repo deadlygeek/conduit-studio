@@ -1,0 +1,8 @@
+type = "rect"
+
+[inputs]
+color = "brand.sand"
+
+[params]
+width = 800
+height = 600

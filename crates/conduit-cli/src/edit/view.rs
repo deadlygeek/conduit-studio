@@ -1,15 +1,15 @@
 //! Draws the editor: title, lineage view (inputs | node | used by), status and key hints,
 //! plus the find and help overlays.
 
-use conduit_core::{ParamSpec, ProjectNode, Reference, TreeItem};
+use conduit_core::{ParamSpec, ProjectNode, Reference, Rgba, TreeItem, parse_color, to_hex};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-use super::app::{App, Mode, Pane, Row};
-use crate::run::{self, Event};
+use super::app::{App, ColorEdit, Mode, Pane, Row};
+use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
 const ERROR: Style = Style::new().fg(Color::Red);
@@ -39,8 +39,25 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Mode::Prompt { .. } => draw_prompt(frame, app),
         Mode::Confirm { .. } => draw_confirm(frame, app),
         Mode::Help => draw_help(frame),
+        Mode::Color(edit) => draw_color(frame, edit),
         Mode::Normal => {}
     }
+}
+
+/// A two-cell block of `c` (blended over the background by its alpha).
+fn swatch(c: Rgba<u8>) -> Span<'static> {
+    Span::styled("██", Style::new().fg(rgb(c)))
+}
+
+/// Terminal color for `c`, with transparency shown by blending over dark grey.
+fn rgb(c: Rgba<u8>) -> Color {
+    let a = u16::from(c[3]);
+    let mix = |v: u8| ((u16::from(v) * a + 40 * (255 - a)) / 255) as u8;
+    Color::Rgb(mix(c[0]), mix(c[1]), mix(c[2]))
+}
+
+fn color_value(v: &toml::Value) -> Option<Rgba<u8>> {
+    v.as_str().and_then(|s| parse_color(s).ok())
 }
 
 /// Below this width the three panes are stacked (inputs, node, used by) instead of
@@ -291,8 +308,14 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
             };
             spans.push(Span::styled("← ", DIM));
             spans.push(Span::styled(short(link), style));
-            if let Some(value) = app.linked_value(link) {
-                spans.push(Span::styled(format!("  = {value}"), DIM));
+            match app.linked_value(link) {
+                Some(Shown::Number(n)) => spans.push(Span::styled(format!("  = {n}"), DIM)),
+                Some(Shown::Color(c)) => {
+                    spans.push(Span::raw("  "));
+                    spans.push(swatch(c));
+                    spans.push(Span::styled(format!(" {}", to_hex(c)), DIM));
+                }
+                None => {}
             }
             Line::from(spans)
         }
@@ -300,7 +323,13 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
             let mut spans = label("par", name.clone());
             let spec: Option<&ParamSpec> = node.spec.as_ref().and_then(|s| s.param(name));
             match (node.params.get(name), spec) {
-                (Some(value), Some(_)) => spans.push(Span::raw(format!("= {value}"))),
+                (Some(value), Some(_)) => {
+                    spans.push(Span::raw(format!("= {value}")));
+                    if let Some(c) = color_value(value) {
+                        spans.push(Span::raw(" "));
+                        spans.push(swatch(c));
+                    }
+                }
                 (Some(value), None) => spans.push(Span::styled(
                     format!("= {value}  (unknown param)"),
                     Style::new().fg(Color::Yellow),
@@ -317,24 +346,48 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
             }
             Line::from(spans)
         }
+        Row::Entry { param, key } => {
+            let mut spans = label("col", key.clone());
+            let value = node.params.get(param).and_then(|t| t.get(key));
+            match value.and_then(color_value) {
+                Some(c) => {
+                    spans.push(swatch(c));
+                    spans.push(Span::raw(format!(" {}", to_hex(c))));
+                }
+                None => spans.push(Span::styled(
+                    format!(
+                        "{}  (not a color)",
+                        value.map(|v| v.to_string()).unwrap_or_default()
+                    ),
+                    ERROR,
+                )),
+            }
+            spans.extend(users_spans(app, &node.id, key, true));
+            Line::from(spans)
+        }
         Row::Output { port } => {
             let mut spans = label("out", port.clone());
-            let users: Vec<String> = app
-                .project
-                .consumers(&node.id)
-                .iter()
-                .filter(|c| c.output == *port)
-                .map(|c| format!("{}.{}", c.node, c.port))
-                .collect();
-            if users.is_empty() {
-                spans.push(Span::styled("→ (unused)", DIM));
-            } else {
-                spans.push(Span::styled("→ ", DIM));
-                spans.push(Span::raw(users.join(", ")));
-            }
+            spans.extend(users_spans(app, &node.id, port, false));
             Line::from(spans)
         }
         Row::Error(message) => Line::from(Span::styled(format!("!   {message}"), ERROR)),
+    }
+}
+
+/// `→ a.color, b.color` for the users of `node.port` (`→ (unused)` unless `quiet`).
+fn users_spans(app: &App, node: &str, port: &str, quiet: bool) -> Vec<Span<'static>> {
+    let users: Vec<String> = app
+        .project
+        .consumers(node)
+        .iter()
+        .filter(|c| c.output == port)
+        .map(|c| format!("{}.{}", c.node, c.port))
+        .collect();
+    match (users.is_empty(), quiet) {
+        (true, true) => vec![],
+        (true, false) => vec![Span::styled("→ (unused)", DIM)],
+        (false, true) => vec![Span::styled("  → ", DIM), Span::raw(users.join(", "))],
+        (false, false) => vec![Span::styled("→ ", DIM), Span::raw(users.join(", "))],
     }
 }
 
@@ -393,6 +446,9 @@ fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
         (Mode::Prompt { .. }, _) => "⏎ save   esc cancel   ctrl-u clear",
         (Mode::Confirm { .. }, _) => "y confirm   any other key cancels",
         (Mode::Help, _) => "any key to close",
+        (Mode::Color(_), _) => {
+            "j/k channel  +/- 1  >/< 10  }/{ 50  tab HSL/RGB  # hex  ⏎ keep  esc revert"
+        }
         (_, Pane::Node) => {
             "h/l follow   j/k move   ⏎ edit   c/d connect   i insert   a add   r/D rename/del   u undo   / find   p probe   ? help"
         }
@@ -516,7 +572,7 @@ const HELP: &[(&str, &str)] = &[
     ("H / L", "move into the inputs / used-by tree"),
     (
         "⏎",
-        "edit the param or input under the cursor; in a tree: focus that node",
+        "edit what's under the cursor (colors: color editor); tree: focus it",
     ),
     ("space", "in a tree: fold / unfold"),
     ("tab", "cycle panes (esc: back to the node)"),
@@ -538,6 +594,14 @@ const HELP: &[(&str, &str)] = &[
         "nudge a whole number by 1 (< / > by 10, { / } by 50)",
     ),
     ("a", "add a new node"),
+    (
+        "o / x",
+        "add / remove a palette color (r on a color renames it)",
+    ),
+    (
+        "I",
+        "import colors into a palette (Coolors link or hex codes)",
+    ),
     ("r / D", "rename / delete the focused node"),
     ("E", "open the focused node's file in $EDITOR"),
     ("u", "undo the last edit"),
@@ -548,6 +612,63 @@ const HELP: &[(&str, &str)] = &[
     ("P", "probe follows focus on / off"),
     ("q", "quit"),
 ];
+
+/// Width of a channel's gradient bar in the color editor.
+const BAR: usize = 32;
+
+fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
+    let area = popup(frame, 58, 11);
+    let hex = to_hex(edit.color);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("█".repeat(16), Style::new().fg(rgb(edit.color))),
+            Span::raw(format!("  {hex}")),
+        ]),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("█".repeat(16), Style::new().fg(rgb(edit.color))),
+            Span::styled(format!("  was {}", to_hex(edit.original)), DIM),
+            Span::raw(" "),
+            swatch(edit.original),
+        ]),
+        Line::raw(""),
+    ];
+    for (i, (name, value)) in edit.channels().into_iter().enumerate() {
+        let selected = i == edit.channel;
+        let marker = if selected { "▸ " } else { "  " };
+        let name_style = if selected {
+            Style::new().fg(ACCENT).bold()
+        } else {
+            Style::new()
+        };
+        let mut spans = vec![
+            Span::styled(format!(" {marker}{name} "), name_style),
+            Span::raw(format!("{value}  ")),
+        ];
+        // The channel's range as a gradient, with the current position marked.
+        let at = (edit.channel_position(i) * (BAR - 1) as f64).round() as usize;
+        for cell in 0..BAR {
+            let c = rgb(edit.channel_at(i, cell as f64 / (BAR - 1) as f64));
+            spans.push(if cell == at {
+                Span::styled("┃", Style::new().fg(Color::White).bg(c).bold())
+            } else {
+                Span::styled("█", Style::new().fg(c))
+            });
+        }
+        lines.push(Line::from(spans));
+    }
+    if let Some(input) = &edit.hex {
+        lines.push(Line::from(vec![
+            Span::raw(format!("   {input}")),
+            Span::styled("▏", Style::new().fg(ACCENT)),
+            Span::styled("  ⏎ apply  esc cancel", DIM),
+        ]));
+    }
+    let mode = if edit.rgb { "RGB" } else { "HSL" };
+    let block = overlay_block(format!(" color  {}  ({mode}) ", edit.target.label()));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
 
 fn draw_help(frame: &mut Frame) {
     let area = popup(frame, 78, HELP.len() as u16 + 4);
@@ -610,7 +731,7 @@ mod tests {
                 nodes: 5,
                 evaluated: 5,
             },
-            numbers: Default::default(),
+            shown: Default::default(),
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 120, 16);
@@ -649,7 +770,7 @@ mod tests {
                 nodes: 7,
                 evaluated: 1,
             },
-            numbers: [(Reference::parse("size").unwrap(), 120.0)].into(),
+            shown: [(Reference::parse("size").unwrap(), Shown::Number(120.0))].into(),
             elapsed: Duration::from_millis(3),
         });
         let screen = render(&mut app, 120, 16);
@@ -714,7 +835,7 @@ mod tests {
                 nodes: 5,
                 evaluated: 5,
             },
-            numbers: Default::default(),
+            shown: Default::default(),
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 60, 30);
@@ -763,5 +884,117 @@ mod tests {
         let mut app = example();
         render(&mut app, 10, 4);
         render(&mut app, 1, 1);
+    }
+
+    fn palette_example() -> App {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/palette");
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(&dir, &registry).unwrap();
+        App::new(dir, project, registry)
+    }
+
+    /// Foreground color of the first cell of `text` on screen.
+    fn color_at(app: &mut App, text: &str, offset: u16) -> Color {
+        let (width, height) = (120, 24);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| draw(f, app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        for y in 0..height {
+            let line: String = (0..width).map(|x| buffer[(x, y)].symbol()).collect();
+            if let Some(i) = line.find(text) {
+                let x = line[..i].chars().count() as u16 + offset;
+                return buffer[(x, y)].fg;
+            }
+        }
+        panic!("{text:?} not on screen");
+    }
+
+    fn go(app: &mut App, keys: &str) {
+        for c in keys.chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+    }
+
+    #[test]
+    fn palette_colors_have_swatches() {
+        let mut app = palette_example();
+        go(&mut app, "/brand");
+        let screen = render(&mut app, 120, 24);
+        for expected in [
+            "col primary    ██ #264653  → stripe.color",
+            "col teal       ██ #2a9d8f",
+            "col accent     ██ #e76f51  → accent_dark.color",
+        ] {
+            assert!(
+                screen.contains(expected),
+                "missing {expected:?} in:\n{screen}"
+            );
+        }
+        assert!(!screen.contains("out "), "{screen}");
+        assert_eq!(
+            color_at(&mut app, "██ #264653", 0),
+            Color::Rgb(0x26, 0x46, 0x53)
+        );
+    }
+
+    #[test]
+    fn linked_colors_show_their_value() {
+        let mut app = palette_example();
+        go(&mut app, "/square");
+        app.on_runner_event(Event::Rendered {
+            stats: EvalStats {
+                nodes: 9,
+                evaluated: 9,
+            },
+            shown: [(
+                Reference::parse("accent_dark").unwrap(),
+                Shown::Color(Rgba([0xcf, 0x40, 0x1d, 255])),
+            )]
+            .into(),
+            elapsed: Duration::from_millis(3),
+        });
+        let screen = render(&mut app, 120, 24);
+        assert!(
+            screen.contains("par color      ← accent_dark  ██ #cf401d"),
+            "{screen}"
+        );
+        assert_eq!(
+            color_at(&mut app, "██ #cf401d", 0),
+            Color::Rgb(0xcf, 0x40, 0x1d)
+        );
+    }
+
+    #[test]
+    fn color_editor_overlay() {
+        let mut app = palette_example();
+        go(&mut app, "/brand");
+        for _ in 0..5 {
+            app.handle_key(KeyEvent::from(KeyCode::Char('j'))); // past `source` to accent
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        let screen = render(&mut app, 120, 24);
+        for expected in [
+            "color  brand.accent  (HSL)",
+            "#e76f51",
+            "was #e76f51",
+            "▸ H  12°",
+            "  S  76%",
+            "  L  61%",
+            "  A 100%",
+            "j/k channel",
+        ] {
+            assert!(
+                screen.contains(expected),
+                "missing {expected:?} in:\n{screen}"
+            );
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Tab));
+        let screen = render(&mut app, 120, 24);
+        assert!(
+            screen.contains("(RGB)") && screen.contains("▸ R  231"),
+            "{screen}"
+        );
+        app.handle_key(KeyEvent::from(KeyCode::Esc));
     }
 }

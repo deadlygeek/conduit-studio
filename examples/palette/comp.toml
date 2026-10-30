@@ -1,0 +1,5 @@
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["stripe_at", "placed"]

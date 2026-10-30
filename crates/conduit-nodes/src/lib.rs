@@ -3,6 +3,7 @@
 
 mod composite;
 mod position;
+mod preview;
 mod rect;
 
 #[cfg(test)]
@@ -12,6 +13,7 @@ use conduit_core::Registry;
 
 pub use composite::Composite;
 pub use position::Position;
+pub use preview::Preview;
 pub use rect::Rect;
 
 /// Largest width/height a node may create, to catch typos before allocating gigabytes.
@@ -21,6 +23,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Rect);
     registry.register(Position);
     registry.register(Composite);
+    registry.register(Preview);
 }
 
 /// A registry containing every built-in node.

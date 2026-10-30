@@ -1,5 +1,8 @@
 //! `conduit` — command-line runner for Conduit Studio projects.
 
+mod gui;
+mod run;
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -15,6 +18,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Render a project, show its preview windows, and re-render on every file change.
+    Run {
+        /// Project folder containing one `<node_id>.toml` per node.
+        dir: PathBuf,
+    },
     /// Load and evaluate a project without opening any windows; report problems.
     Check {
         /// Project folder containing one `<node_id>.toml` per node.
@@ -28,6 +36,13 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let registry = conduit_nodes::registry();
     match cli.command {
+        Command::Run { dir } => match run::run(&dir, &registry) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e:#}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Check { dir } => check(&dir, &registry),
         Command::Nodes => {
             print_nodes(&registry);

@@ -18,7 +18,7 @@ const TAG_FRAME: u8 = 1;
 const TAG_ERROR: u8 = 2;
 const TAG_CLOSE: u8 = 3;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Msg {
     Frame {
         width: u32,
@@ -27,6 +27,17 @@ pub enum Msg {
     },
     Error(String),
     Close,
+}
+
+// Manual impl: deriving would dump every pixel.
+impl std::fmt::Debug for Msg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Msg::Frame { width, height, .. } => write!(f, "Frame({width}x{height})"),
+            Msg::Error(e) => f.debug_tuple("Error").field(e).finish(),
+            Msg::Close => f.write_str("Close"),
+        }
+    }
 }
 
 pub fn write_frame(w: &mut impl Write, width: u32, height: u32, rgba: &[u8]) -> io::Result<()> {

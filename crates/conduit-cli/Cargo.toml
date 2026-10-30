@@ -9,9 +9,12 @@ name = "conduit"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 conduit-core = { version = "0.1.0", path = "../conduit-core" }
+conduit-ipc = { version = "0.1.0", path = "../conduit-ipc" }
 conduit-nodes = { version = "0.1.0", path = "../conduit-nodes" }
+notify-debouncer-mini = "0.7.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

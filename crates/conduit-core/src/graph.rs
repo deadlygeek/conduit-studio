@@ -38,7 +38,7 @@ impl fmt::Display for Reference {
     }
 }
 
-fn is_ident(s: &str) -> bool {
+pub(crate) fn is_ident(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
@@ -47,13 +47,13 @@ fn is_ident(s: &str) -> bool {
 /// On-disk shape of a node file.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct NodeFile {
+pub(crate) struct NodeFile {
     #[serde(rename = "type")]
-    kind: String,
+    pub(crate) kind: String,
     #[serde(default)]
-    inputs: toml::Table,
+    pub(crate) inputs: toml::Table,
     #[serde(default)]
-    params: toml::Table,
+    pub(crate) params: toml::Table,
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +135,27 @@ pub enum LoadError {
     Cycle { nodes: Vec<String> },
 }
 
+impl LoadError {
+    /// The node file this error is about, if it is about a single file.
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            LoadError::Io { path, .. }
+            | LoadError::Parse { path, .. }
+            | LoadError::InvalidId { path }
+            | LoadError::UnknownType { path, .. }
+            | LoadError::UnknownInput { path, .. }
+            | LoadError::MissingInput { path, .. }
+            | LoadError::NotMulti { path, .. }
+            | LoadError::BadReference { path, .. }
+            | LoadError::MissingNode { path, .. }
+            | LoadError::UnknownOutput { path, .. }
+            | LoadError::TypeMismatch { path, .. }
+            | LoadError::Params { path, .. } => Some(path),
+            LoadError::Cycle { .. } => None,
+        }
+    }
+}
+
 /// All problems found while loading, so users can fix several at once.
 #[derive(Debug, thiserror::Error)]
 pub struct LoadErrors(pub Vec<LoadError>);
@@ -153,14 +174,28 @@ impl fmt::Display for LoadErrors {
 
 /// Loads every `*.toml` file directly inside `dir` as a node.
 pub fn load(dir: &Path, registry: &Registry) -> Result<Graph, LoadErrors> {
-    let io_err = |source| {
-        LoadErrors(vec![LoadError::Io {
+    let (sources, mut errors) = read_sources(dir).map_err(|e| LoadErrors(vec![e]))?;
+    match from_sources(sources, registry) {
+        Ok(graph) if errors.is_empty() => Ok(graph),
+        Ok(_) => Err(LoadErrors(errors)),
+        Err(LoadErrors(more)) => {
+            errors.extend(more);
+            Err(LoadErrors(errors))
+        }
+    }
+}
+
+/// `(path, file contents)` for each node file.
+pub type Sources = Vec<(PathBuf, String)>;
+
+/// Reads every `*.toml` file directly inside `dir`, sorted by path. Files that can't be
+/// read are returned as errors; failing to list `dir` at all is the outer error.
+pub(crate) fn read_sources(dir: &Path) -> Result<(Sources, Vec<LoadError>), LoadError> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|source| LoadError::Io {
             path: dir.to_path_buf(),
             source,
-        }])
-    };
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(io_err)?
+        })?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|p| p.is_file() && p.extension().is_some_and(|ext| ext == "toml"))
         .collect();
@@ -174,14 +209,7 @@ pub fn load(dir: &Path, registry: &Registry) -> Result<Graph, LoadErrors> {
             Err(source) => errors.push(LoadError::Io { path, source }),
         }
     }
-    match from_sources(sources, registry) {
-        Ok(graph) if errors.is_empty() => Ok(graph),
-        Ok(_) => Err(LoadErrors(errors)),
-        Err(LoadErrors(more)) => {
-            errors.extend(more);
-            Err(LoadErrors(errors))
-        }
-    }
+    Ok((sources, errors))
 }
 
 /// Builds a graph from `(path, file contents)` pairs; the node id is the file stem.
@@ -191,18 +219,25 @@ pub fn from_sources(
 ) -> Result<Graph, LoadErrors> {
     let mut errors = Vec::new();
     let mut nodes = BTreeMap::new();
+    // Nodes whose file exists but has errors; references to them aren't "missing".
+    let mut broken = BTreeSet::new();
 
     for (path, text) in sources {
         match parse_node(&path, &text, registry) {
             Ok(node) => {
                 nodes.insert(node.id.clone(), node);
             }
-            Err(e) => errors.extend(e),
+            Err(e) => {
+                if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
+                    broken.insert(id.to_string());
+                }
+                errors.extend(e);
+            }
         }
     }
 
     for node in nodes.values() {
-        check_connections(node, &nodes, registry, &mut errors);
+        check_connections(node, &nodes, &broken, registry, &mut errors);
     }
     if !errors.is_empty() {
         return Err(LoadErrors(errors));
@@ -308,6 +343,7 @@ fn parse_node(path: &Path, text: &str, registry: &Registry) -> Result<GraphNode,
 fn check_connections(
     node: &GraphNode,
     nodes: &BTreeMap<String, GraphNode>,
+    broken: &BTreeSet<String>,
     registry: &Registry,
     errors: &mut Vec<LoadError>,
 ) {
@@ -319,6 +355,9 @@ fn check_connections(
         let expected = spec.input(port).expect("port validated in parse_node").ty;
         for r in refs {
             let Some(source) = nodes.get(&r.node) else {
+                if broken.contains(&r.node) {
+                    continue; // its own errors are already reported
+                }
                 errors.push(LoadError::MissingNode {
                     path: node.path.clone(),
                     port: port.clone(),
@@ -538,6 +577,15 @@ mod tests {
         assert!(matches!(errs[..], [LoadError::Params { .. }]));
         let errs = errors(&[("src", "type = \"source\"\n[params]\nunknown = 1")]);
         assert!(matches!(errs[..], [LoadError::Params { .. }]));
+    }
+
+    #[test]
+    fn broken_node_is_not_reported_as_missing() {
+        let errs = errors(&[
+            ("src", "type = \"source\"\n[params]\nsize = \"big\""),
+            ("w", "type = \"wrap\"\n[inputs]\nimage = \"src\""),
+        ]);
+        assert!(matches!(errs[..], [LoadError::Params { .. }]), "{errs:?}");
     }
 
     #[test]

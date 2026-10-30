@@ -1,0 +1,5 @@
+# Where the square goes: used for both x and y.
+type = "int"
+
+[params]
+value = 200

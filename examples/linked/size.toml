@@ -1,0 +1,5 @@
+# Side length of the square, shared by its width and height.
+type = "int"
+
+[params]
+value = 120

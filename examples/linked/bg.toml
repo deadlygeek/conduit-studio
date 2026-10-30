@@ -1,0 +1,6 @@
+type = "rect"
+
+[params]
+color = "white"
+width = 800
+height = 600

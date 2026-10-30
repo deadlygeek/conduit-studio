@@ -2,7 +2,7 @@
 //! when node files change, feeds GUI windows, and can "probe" any node's output into a
 //! window of its own. Runs on a background thread; talk to it through a [`RunnerHandle`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -34,6 +34,8 @@ pub enum Event {
     Rendered {
         stats: EvalStats,
         elapsed: Duration,
+        /// Every number output, so editors can show linked values.
+        numbers: HashMap<Reference, f64>,
     },
     /// The project failed to load or render.
     Failed(String),
@@ -148,7 +150,9 @@ pub fn run(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
     for event in handle.events().iter() {
         match event {
             Event::FilesChanged => {}
-            Event::Rendered { stats, elapsed } => println!("{}", describe_render(&stats, elapsed)),
+            Event::Rendered { stats, elapsed, .. } => {
+                println!("{}", describe_render(&stats, elapsed))
+            }
             Event::Failed(message) | Event::Warning(message) => eprintln!("{message}"),
         }
     }
@@ -212,10 +216,18 @@ impl Runner {
             });
         match result {
             Ok((values, stats)) => {
+                let numbers = values
+                    .iter()
+                    .filter_map(|(r, v)| match v {
+                        Value::Number(n) => Some((r.clone(), *n)),
+                        _ => None,
+                    })
+                    .collect();
                 self.values = Some(values);
                 self.emit(Event::Rendered {
                     stats,
                     elapsed: start.elapsed(),
+                    numbers,
                 });
                 self.show_probe();
             }

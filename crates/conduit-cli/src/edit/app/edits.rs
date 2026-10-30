@@ -25,6 +25,10 @@ pub enum Pick {
         port: String,
         index: usize,
     },
+    /// The type of a new node to feed the focused node's number param.
+    FeedType {
+        param: String,
+    },
 }
 
 impl Pick {
@@ -34,6 +38,7 @@ impl Pick {
             Pick::Connect { port, .. } => format!("connect {focus}.{port} to"),
             Pick::AddType => "add node of type".into(),
             Pick::InsertType { port, .. } => format!("insert before {focus}.{port}: type"),
+            Pick::FeedType { param } => format!("feed {focus}.{param} from a new"),
         }
     }
 }
@@ -52,6 +57,10 @@ pub enum Prompt {
         port: String,
         index: usize,
     },
+    FeedId {
+        kind: String,
+        param: String,
+    },
     Rename,
 }
 
@@ -60,7 +69,9 @@ impl Prompt {
         match self {
             Prompt::Param { name } => format!("{focus}.{name} (empty = default)"),
             Prompt::AddId { kind } => format!("id for new {kind}"),
-            Prompt::InsertId { kind, .. } => format!("id for new {kind}"),
+            Prompt::InsertId { kind, .. } | Prompt::FeedId { kind, .. } => {
+                format!("id for new {kind}")
+            }
             Prompt::Rename => format!("rename {focus} to"),
         }
     }
@@ -78,7 +89,7 @@ impl App {
         if self.pick_items(&purpose).is_empty() && purpose != Pick::FindNode {
             self.message = Some(match purpose {
                 Pick::Connect { .. } => "no compatible outputs to connect".into(),
-                Pick::InsertType { .. } => "no node type fits here".into(),
+                Pick::InsertType { .. } | Pick::FeedType { .. } => "no node type fits here".into(),
                 _ => "nothing to choose from".into(),
             });
             return;
@@ -130,6 +141,12 @@ impl App {
                     .map(|s| (s.kind.to_string(), type_label(s)))
                     .collect()
             }
+            Pick::FeedType { .. } => self
+                .registry
+                .specs()
+                .filter(|s| number_output(s).is_some())
+                .map(|s| (s.kind.to_string(), type_label(s)))
+                .collect(),
         }
     }
 
@@ -172,6 +189,11 @@ impl App {
                     id,
                 );
             }
+            Pick::FeedType { param } => {
+                let focus = self.focus.clone().unwrap_or_default();
+                let id = self.free_id_like(&format!("{focus}_{param}"));
+                self.open_prompt(Prompt::FeedId { kind: key, param }, id);
+            }
         }
         None
     }
@@ -211,6 +233,22 @@ impl App {
                 })?;
                 Ok(self.focus_on(input))
             }
+            Prompt::FeedId { kind, param } => {
+                let spec = self.spec(&kind)?;
+                let output = number_output(&spec).ok_or("no number output")?.to_string();
+                // Start the new node at the param's current value.
+                let params = match (self.current_value(&param), first_number_param(&spec)) {
+                    (Some(value), Some(name)) => {
+                        toml::Table::from_iter([(name.to_string(), value)])
+                    }
+                    _ => toml::Table::new(),
+                };
+                let label = format!("added {input} ({kind}) feeding {focus}.{param}");
+                self.apply(label, |dir, _| {
+                    ops::add_feeding(dir, input, &spec, &params, &output, &focus, &param)
+                })?;
+                Ok(None)
+            }
             Prompt::Rename => {
                 if input == focus {
                     return Ok(None);
@@ -230,27 +268,23 @@ impl App {
         }
     }
 
+    /// The focused node's typed value for a param, else its default.
+    fn current_value(&self, name: &str) -> Option<toml::Value> {
+        let node = self.focused()?;
+        if let Some(value) = node.params.get(name) {
+            return Some(value.clone());
+        }
+        let spec = node.spec.as_ref()?.param(name)?;
+        spec.default.map(parse_literal)
+    }
+
     /// Initial text for editing a param: its current value, else its default.
     fn param_input(&self, name: &str) -> String {
-        let Some(node) = self.focused() else {
-            return String::new();
-        };
-        let show = |v: &toml::Value| match v {
-            toml::Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        if let Some(value) = node.params.get(name) {
-            return show(value);
+        match self.current_value(name) {
+            Some(toml::Value::String(s)) => s,
+            Some(other) => other.to_string(),
+            None => String::new(),
         }
-        let default = node
-            .spec
-            .as_ref()
-            .and_then(|s| s.param(name))
-            .and_then(|p| p.default);
-        default
-            .map(parse_literal)
-            .map(|v| show(&v))
-            .unwrap_or_default()
     }
 
     /// Validates and writes a param. Empty input removes it (so its default applies).
@@ -288,10 +322,11 @@ impl App {
 
     // --- direct edits ------------------------------------------------------------------
 
-    /// `⏎` in the node panel: edit a param, or pick a source for an input.
+    /// `⏎` in the node panel: edit a param (typing a value replaces a link), or pick a
+    /// source for an input.
     pub(super) fn edit_row(&mut self) {
         match self.current_row().cloned() {
-            Some(Row::Param { name }) => {
+            Some(Row::Param { name, .. }) => {
                 let input = self.param_input(&name);
                 self.open_prompt(Prompt::Param { name }, input);
             }
@@ -300,11 +335,19 @@ impl App {
         }
     }
 
-    /// `c`: pick a source for the input under the cursor.
+    /// `c`: pick a source for the input (or number param) under the cursor.
     pub(super) fn connect_row(&mut self) {
-        let Some(Row::Input { port, .. }) = self.current_row().cloned() else {
-            self.message = Some("move the cursor to an input to connect it".into());
-            return;
+        let port = match self.current_row().cloned() {
+            Some(Row::Input { port, .. }) => port,
+            Some(Row::Param { name, .. }) if self.linkable(&name) => name,
+            Some(Row::Param { name, .. }) => {
+                self.message = Some(format!("`{name}` can't be linked; only numbers can"));
+                return;
+            }
+            _ => {
+                self.message = Some("move the cursor to an input to connect it".into());
+                return;
+            }
         };
         let multi = self
             .focused()
@@ -314,8 +357,21 @@ impl App {
         self.open_pick(Pick::Connect { port, multi });
     }
 
-    /// `d`: disconnect the connection under the cursor.
+    /// `d`: disconnect the connection under the cursor; on a linked param, go back to
+    /// its typed (or default) value.
     pub(super) fn disconnect_row(&mut self) {
+        if let (
+            Some(Row::Param {
+                name,
+                link: Some(link),
+            }),
+            Some(focus),
+        ) = (self.current_row().cloned(), self.focus.clone())
+        {
+            let label = format!("unlinked {focus}.{name} from {}", short(&link));
+            self.apply_or_report(label, |dir, _| ops::disconnect(dir, &focus, &name, None));
+            return;
+        }
         let (
             Some(Row::Input {
                 port,
@@ -332,22 +388,42 @@ impl App {
         self.apply_or_report(label, |dir, _| ops::disconnect(dir, &focus, &port, index));
     }
 
-    /// `i`: insert a new node into the connection under the cursor.
+    /// `i`: insert a new node into the connection under the cursor. On an unlinked number
+    /// param, add a node (e.g. `int`) that feeds it, starting at the param's value.
     pub(super) fn insert_row(&mut self) {
-        let Some(Row::Input {
-            port,
-            index,
-            source: Some(_),
-        }) = self.current_row().cloned()
-        else {
-            self.message =
-                Some("move the cursor to a connected input to insert a node there".into());
-            return;
-        };
-        self.open_pick(Pick::InsertType {
-            port,
-            index: index.unwrap_or(0),
-        });
+        match self.current_row().cloned() {
+            Some(Row::Input {
+                port,
+                index,
+                source: Some(_),
+            }) => self.open_pick(Pick::InsertType {
+                port,
+                index: index.unwrap_or(0),
+            }),
+            Some(Row::Param {
+                name,
+                link: Some(_),
+            }) => self.open_pick(Pick::InsertType {
+                port: name,
+                index: 0,
+            }),
+            Some(Row::Param { name, link: None }) if self.linkable(&name) => {
+                self.open_pick(Pick::FeedType { param: name })
+            }
+            _ => {
+                self.message = Some(
+                    "move the cursor to a connection or number param to insert a node there".into(),
+                )
+            }
+        }
+    }
+
+    /// Whether the focused node's param `name` can be fed from another node.
+    fn linkable(&self, name: &str) -> bool {
+        self.focused()
+            .and_then(|n| n.spec.as_ref())
+            .and_then(|s| s.input(name))
+            .is_some_and(|p| p.param)
     }
 
     pub(super) fn start_rename(&mut self) {
@@ -450,6 +526,14 @@ impl App {
             .ok_or_else(|| format!("unknown node type `{kind}`"))
     }
 
+    /// `base` if it's free, else `base_<n>` with the smallest free `n`.
+    fn free_id_like(&self, base: &str) -> String {
+        if !self.project.nodes.contains_key(base) {
+            return base.to_string();
+        }
+        self.free_id(base)
+    }
+
     /// `<kind>_<n>` with the smallest `n` not already taken.
     fn free_id(&self, kind: &str) -> String {
         (1..)
@@ -491,12 +575,27 @@ fn type_label(spec: &NodeSpec) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     };
+    // Inputs that only feed params are left out: every number param has one.
+    let inputs: Vec<_> = spec.inputs.iter().filter(|p| !p.param).cloned().collect();
     format!(
         "{}  ({}) → ({})",
         spec.kind,
-        ports(&spec.inputs),
+        ports(&inputs),
         ports(&spec.outputs)
     )
+}
+
+/// The first output that can feed a number param.
+fn number_output(spec: &NodeSpec) -> Option<&'static str> {
+    spec.outputs
+        .iter()
+        .find(|o| o.ty.coerces_to(ValueType::Number))
+        .map(|o| o.name)
+}
+
+/// The param a new feeding node is seeded with (e.g. `int`'s `value`).
+fn first_number_param(spec: &NodeSpec) -> Option<&'static str> {
+    spec.inputs.iter().find(|p| p.param).map(|p| p.name)
 }
 
 /// Whether a node of this kind can sit between a `source_ty` output and a `target_ty` input.

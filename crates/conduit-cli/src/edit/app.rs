@@ -35,8 +35,10 @@ pub enum Row {
         index: Option<usize>,
         source: Option<Reference>,
     },
+    /// A param; number params may instead be linked to another node's output.
     Param {
         name: String,
+        link: Option<Reference>,
     },
     Output {
         port: String,
@@ -166,6 +168,14 @@ impl App {
         }
     }
 
+    /// The value of a number output from the last successful render, if any.
+    pub fn linked_value(&self, source: &Reference) -> Option<f64> {
+        match &self.status {
+            Some(Event::Rendered { numbers, .. }) => numbers.get(source).copied(),
+            _ => None,
+        }
+    }
+
     /// Rebuilds rows and trees for the focused node and keeps cursors in range.
     fn refresh(&mut self) {
         let (rows, up, down) = match self.focused() {
@@ -291,17 +301,9 @@ impl App {
     /// `h` in the node panel: go to the source of the input under the cursor (or the first
     /// connected input), landing on the output we came through.
     fn follow_upstream(&mut self) -> Option<Action> {
-        let source = match self.current_row() {
-            Some(Row::Input {
-                source: Some(s), ..
-            }) => Some(s.clone()),
-            _ => self.rows.iter().find_map(|r| match r {
-                Row::Input {
-                    source: Some(s), ..
-                } => Some(s.clone()),
-                _ => None,
-            }),
-        };
+        let source = row_source(self.current_row())
+            .or_else(|| self.rows.iter().find_map(|r| row_source(Some(r))))
+            .cloned();
         let Some(source) = source else {
             self.message = Some("no connected inputs".into());
             return None;
@@ -333,9 +335,11 @@ impl App {
             .and_then(|s| s.input(&c.port))
             .is_some_and(|p| p.multi);
         let index = multi.then_some(c.index);
-        self.select_row(
-            |r| matches!(r, Row::Input { port, index: i, .. } if *port == c.port && *i == index),
-        );
+        self.select_row(|r| match r {
+            Row::Input { port, index: i, .. } => *port == c.port && *i == index,
+            Row::Param { name, .. } => *name == c.port,
+            _ => false,
+        });
         action
     }
 
@@ -353,10 +357,10 @@ impl App {
         if let Some(item) = self.current_item() {
             return self.default_probe(&item.node);
         }
+        if let Some(source) = row_source(self.current_row()) {
+            return Some(source.clone());
+        }
         match self.current_row() {
-            Some(Row::Input {
-                source: Some(s), ..
-            }) => Some(s.clone()),
             Some(Row::Output { port }) => Some(Reference {
                 node: self.focus.clone()?,
                 port: port.clone(),
@@ -597,6 +601,17 @@ impl App {
     }
 }
 
+/// What feeds a row: an input's source or a linked param's link.
+fn row_source(row: Option<&Row>) -> Option<&Reference> {
+    match row? {
+        Row::Input {
+            source: Some(s), ..
+        }
+        | Row::Param { link: Some(s), .. } => Some(s),
+        _ => None,
+    }
+}
+
 /// Pops history entries until one names a node that exists.
 fn pop_existing(history: &mut Vec<String>, project: &Project) -> Option<String> {
     while let Some(id) = history.pop() {
@@ -611,11 +626,11 @@ fn pop_existing(history: &mut Vec<String>, project: &Project) -> Option<String> 
 fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
     let mut rows = Vec::new();
     for (port, refs) in node.input_ports() {
-        let multi = node
-            .spec
-            .as_ref()
-            .and_then(|s| s.input(&port))
-            .is_some_and(|p| p.multi);
+        let spec = node.spec.as_ref().and_then(|s| s.input(&port));
+        if spec.is_some_and(|p| p.param) {
+            continue; // shown on the param's row
+        }
+        let multi = spec.is_some_and(|p| p.multi);
         if refs.is_empty() {
             rows.push(Row::Input {
                 port,
@@ -643,11 +658,10 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
         .keys()
         .filter(|k| node.spec.as_ref().is_none_or(|s| s.param(k).is_none()))
         .cloned();
-    rows.extend(
-        spec_params
-            .chain(extra_params)
-            .map(|name| Row::Param { name }),
-    );
+    rows.extend(spec_params.chain(extra_params).map(|name| Row::Param {
+        link: node.inputs.get(&name).and_then(|r| r.first()).cloned(),
+        name,
+    }));
     rows.extend(
         node.spec
             .iter()
@@ -712,7 +726,8 @@ mod tests {
                     source: Some(reference("comp"))
                 },
                 Row::Param {
-                    name: "title".into()
+                    name: "title".into(),
+                    link: None,
                 },
             ]
         );
@@ -889,7 +904,7 @@ mod tests {
     }
 
     fn param(name: &str) -> impl Fn(&Row) -> bool + '_ {
-        move |r| matches!(r, Row::Param { name: n } if n == name)
+        move |r| matches!(r, Row::Param { name: n, .. } if n == name)
     }
 
     fn input(port: &str, index: Option<usize>) -> impl Fn(&Row) -> bool + '_ {
@@ -1005,6 +1020,79 @@ mod tests {
         assert_eq!(focus(&app), "red_box");
         assert!(read(&app, "red_box").starts_with("type = \"rect\""));
         assert!(app.project.is_valid());
+    }
+
+    fn link(app: &App, name: &str) -> Option<Reference> {
+        app.rows.iter().find_map(|r| match r {
+            Row::Param { name: n, link } if n == name => link.clone(),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn link_number_params() {
+        let (_tmp, mut app) = temp_example();
+        let original = read(&app, "black_sq");
+        goto(&mut app, "black_sq");
+
+        // `i` on a number param: feed it from a new int that starts at its value.
+        select(&mut app, param("width"));
+        press(&mut app, "i");
+        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kinds, ["int"]);
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "black_sq_width"));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(focus(&app), "black_sq", "focus stays on the fed node");
+        assert!(read(&app, "black_sq_width").contains("value = 50"));
+        assert_eq!(link(&app, "width"), Some(reference("black_sq_width")));
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+        assert!(
+            !app.rows.iter().any(input("width", None)),
+            "param inputs aren't shown as input rows"
+        );
+
+        // `c` links another number param to an existing number output; only numbers fit.
+        select(&mut app, param("height"));
+        press(&mut app, "c");
+        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["black_sq_width.out"]);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(link(&app, "height"), Some(reference("black_sq_width")));
+
+        // `h` follows the link; `l` from there comes back to the param row.
+        press(&mut app, "h");
+        assert_eq!(focus(&app), "black_sq_width");
+        press(&mut app, "l");
+        assert_eq!(focus(&app), "black_sq");
+        assert!(matches!(app.current_row(), Some(Row::Param { .. })));
+
+        // `d` unlinks; typing a value replaces a link.
+        select(&mut app, param("height"));
+        press(&mut app, "d");
+        assert_eq!(link(&app, "height"), None);
+        assert_eq!(
+            app.message.as_deref(),
+            Some("unlinked black_sq.height from black_sq_width")
+        );
+        select(&mut app, param("width"));
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "50"));
+        clear(&mut app);
+        press(&mut app, "70");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(link(&app, "width"), None);
+        assert!(read(&app, "black_sq").contains("width = 70"));
+
+        // Non-number params can't be linked.
+        select(&mut app, param("color"));
+        press(&mut app, "c");
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.message.as_deref().unwrap().contains("only numbers"));
+
+        press(&mut app, "uuuu");
+        assert_eq!(read(&app, "black_sq"), original);
+        assert_eq!(read(&app, "black_sq_width"), "", "new node removed by undo");
     }
 
     #[test]

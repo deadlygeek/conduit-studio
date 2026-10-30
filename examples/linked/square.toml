@@ -1,0 +1,8 @@
+type = "rect"
+
+[inputs]
+width = "size"
+height = "size"
+
+[params]
+color = "#e63946"

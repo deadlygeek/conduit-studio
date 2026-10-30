@@ -1,0 +1,6 @@
+type = "position"
+
+[inputs]
+image = "square"
+x = "offset"
+y = "offset"

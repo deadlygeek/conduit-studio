@@ -279,7 +279,24 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
             }
             Line::from(spans)
         }
-        Row::Param { name } => {
+        Row::Param {
+            name,
+            link: Some(link),
+        } => {
+            let mut spans = label("par", name.clone());
+            let style = if app.project.nodes.contains_key(&link.node) {
+                Style::new().fg(Color::Cyan)
+            } else {
+                ERROR
+            };
+            spans.push(Span::styled("← ", DIM));
+            spans.push(Span::styled(short(link), style));
+            if let Some(value) = app.linked_value(link) {
+                spans.push(Span::styled(format!("  = {value}"), DIM));
+            }
+            Line::from(spans)
+        }
+        Row::Param { name, link: None } => {
             let mut spans = label("par", name.clone());
             let spec: Option<&ParamSpec> = node.spec.as_ref().and_then(|s| s.param(name));
             match (node.params.get(name), spec) {
@@ -340,7 +357,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![Span::raw(" ")];
     match &app.status {
         None => spans.push(Span::styled("starting…", DIM)),
-        Some(Event::Rendered { stats, elapsed }) => spans.push(Span::styled(
+        Some(Event::Rendered { stats, elapsed, .. }) => spans.push(Span::styled(
             format!("● {}", run::describe_render(stats, *elapsed)),
             Style::new().fg(Color::Green),
         )),
@@ -508,10 +525,13 @@ const HELP: &[(&str, &str)] = &[
         "back / forward through focused nodes (also ctrl-o, backspace)",
     ),
     ("/", "find a node by name or type"),
-    ("c / d", "connect / disconnect the input under the cursor"),
+    (
+        "c / d",
+        "connect / disconnect the input, or link / unlink a number",
+    ),
     (
         "i",
-        "insert a new node into the connection under the cursor",
+        "insert a node into the connection; on a number: feed it from an int",
     ),
     ("a", "add a new node"),
     ("r / D", "rename / delete the focused node"),
@@ -586,6 +606,7 @@ mod tests {
                 nodes: 5,
                 evaluated: 5,
             },
+            numbers: Default::default(),
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 120, 16);
@@ -607,6 +628,40 @@ mod tests {
                 "missing {expected:?} in:\n{screen}"
             );
         }
+    }
+
+    #[test]
+    fn linked_params_show_source_and_value() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/linked");
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(&dir, &registry).unwrap();
+        let mut app = App::new(dir, project, registry);
+        for c in "/square".chars() {
+            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
+        }
+        app.handle_key(KeyEvent::from(KeyCode::Enter));
+        app.on_runner_event(Event::Rendered {
+            stats: EvalStats {
+                nodes: 7,
+                evaluated: 1,
+            },
+            numbers: [(Reference::parse("size").unwrap(), 120.0)].into(),
+            elapsed: Duration::from_millis(3),
+        });
+        let screen = render(&mut app, 120, 16);
+        for expected in [
+            "par color      = \"#e63946\"",
+            "par width      ← size  = 120",
+            "par height     ← size  = 120",
+            "width ← size  int",
+            "● rendered 7 nodes (6 unchanged) in 3 ms",
+        ] {
+            assert!(
+                screen.contains(expected),
+                "missing {expected:?} in:\n{screen}"
+            );
+        }
+        assert!(!screen.contains("in  width"), "{screen}");
     }
 
     #[test]
@@ -655,6 +710,7 @@ mod tests {
                 nodes: 5,
                 evaluated: 5,
             },
+            numbers: Default::default(),
             elapsed: Duration::from_millis(18),
         });
         let screen = render(&mut app, 60, 30);

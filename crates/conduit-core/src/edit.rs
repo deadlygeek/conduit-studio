@@ -174,28 +174,42 @@ fn replace_value(item: &mut Item, mut new: toml_edit::Value) {
     *item = Item::Value(new);
 }
 
-/// Sets `[params] name = value` on a node.
+/// Sets `[params] name = value` on a node. Also removes any input linked to that param,
+/// since a linked value would override the one being set.
 pub fn set_param(dir: &Path, node: &str, name: &str, value: &toml::Value) -> EditResult<Change> {
-    let value = to_edit_value(value)?;
     transact(|tx| {
         tx.update(&node_path(dir, node), |doc| {
-            let params = table_mut(doc, "params")?;
-            match params.get_mut(name) {
-                Some(item) => replace_value(item, value),
-                None => {
-                    params.insert(name, Item::Value(value));
-                }
-            }
+            set_param_in(doc, name, value)?;
+            unlink_param_in(doc, name);
             Ok(())
         })
     })
 }
 
-/// Removes `[params] name` from a node, so its default applies.
+fn set_param_in(doc: &mut DocumentMut, name: &str, value: &toml::Value) -> EditResult<()> {
+    let value = to_edit_value(value)?;
+    let params = table_mut(doc, "params")?;
+    match params.get_mut(name) {
+        Some(item) => replace_value(item, value),
+        None => {
+            params.insert(name, Item::Value(value));
+        }
+    }
+    Ok(())
+}
+
+fn unlink_param_in(doc: &mut DocumentMut, name: &str) {
+    if let Some(inputs) = doc.get_mut("inputs").and_then(Item::as_table_like_mut) {
+        inputs.remove(name);
+    }
+}
+
+/// Removes `[params] name` from a node, and any input linked to it, so its default applies.
 pub fn remove_param(dir: &Path, node: &str, name: &str) -> EditResult<Change> {
     transact(|tx| {
         tx.update(&node_path(dir, node), |doc| {
             table_mut(doc, "params")?.remove(name);
+            unlink_param_in(doc, name);
             Ok(())
         })
     })
@@ -295,6 +309,41 @@ fn add_node_in(tx: &mut Tx, dir: &Path, id: &str, spec: &NodeSpec) -> EditResult
         return Err(EditError::Invalid(format!("node `{id}` already exists")));
     }
     tx.write(&path, &spec.template())
+}
+
+/// Creates a node from `spec`'s template with `params` set, and connects its output
+/// `output` to `node`'s input `port` (replacing any connection there). E.g. a new `int`
+/// node feeding a number param.
+pub fn add_feeding(
+    dir: &Path,
+    new_id: &str,
+    spec: &NodeSpec,
+    params: &toml::Table,
+    output: &str,
+    node: &str,
+    port: &str,
+) -> EditResult<Change> {
+    if spec.output(output).is_none() {
+        return Err(EditError::Invalid(format!(
+            "`{}` has no output `{output}`",
+            spec.kind
+        )));
+    }
+    let source = Reference {
+        node: new_id.to_string(),
+        port: output.to_string(),
+    };
+    transact(|tx| {
+        add_node_in(tx, dir, new_id, spec)?;
+        tx.update(&node_path(dir, new_id), |doc| {
+            params
+                .iter()
+                .try_for_each(|(name, value)| set_param_in(doc, name, value))
+        })?;
+        tx.update(&node_path(dir, node), |doc| {
+            connect_in(doc, port, &source, false)
+        })
+    })
 }
 
 /// Adds a node of kind `spec` between `node`'s input `port` (list element `index`) and
@@ -803,5 +852,37 @@ mod tests {
             Err(EditError::Parse { .. })
         ));
         assert_eq!(f.snapshot(), before);
+    }
+
+    #[test]
+    fn setting_a_param_unlinks_it() {
+        let linked = "type = \"source\"\n[inputs]\nsize = \"n\"\n[params]\nsize = 3\n";
+        let f = Fixture::new(&[("n", "type = \"num\""), ("src", linked)]);
+        let after = f.apply_and_undo(|| set_param(f.path(), "src", "size", &4.into()));
+        assert_eq!(
+            after["src.toml"],
+            "type = \"source\"\n[inputs]\n[params]\nsize = 4\n"
+        );
+        let after = f.apply_and_undo(|| remove_param(f.path(), "src", "size"));
+        assert_eq!(after["src.toml"], "type = \"source\"\n[inputs]\n[params]\n");
+    }
+
+    #[test]
+    fn add_feeding_creates_and_links() {
+        let f = Fixture::new(&[("src", SRC)]);
+        let spec = registry().spec("num").unwrap().clone();
+        let params = toml::Table::from_iter([("value".to_string(), toml::Value::Float(5.0))]);
+        let after = f.apply_and_undo(|| {
+            add_feeding(f.path(), "src_size", &spec, &params, "out", "src", "size")
+        });
+        assert!(after["src_size.toml"].contains("value = 5.0"), "{after:?}");
+        assert!(
+            after["src.toml"].contains("size = \"src_size\""),
+            "{after:?}"
+        );
+
+        let err = add_feeding(f.path(), "x", &spec, &params, "nope", "src", "size");
+        assert!(err.is_err());
+        assert_eq!(f.snapshot().len(), 1, "nothing created on failure");
     }
 }

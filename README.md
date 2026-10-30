@@ -28,6 +28,9 @@ target/debug/conduit run examples/basic
 A window opens showing an 800×600 white canvas with a 50×50 black square at (300, 300).
 Edit `examples/basic/placed.toml`, save, and the square moves.
 
+`examples/linked` is the same idea with its numbers coming from `int` nodes: one `size`
+node sets both the square's width and height, and one `offset` node its x and y.
+
 To explore and edit the project interactively instead (it renders alongside):
 
 ```sh
@@ -72,6 +75,35 @@ y = 300
     `layers = ["background_shape", "placed"]`.
 - **`[params]`** holds the node's settings. Unknown or mistyped settings are errors.
 
+### Numbers: typed, default, or linked
+
+Every number param (`width`, `x`, …) has a default, can be typed in `[params]`, or can be
+**linked** to another node's number output by naming it in `[inputs]` — a link wins over a
+typed value:
+
+```toml
+# square.toml
+type = "rect"
+
+[inputs]
+width = "size"      # both come from the `int` node `size`
+height = "size"
+
+[params]
+color = "#e63946"
+```
+
+```toml
+# size.toml
+type = "int"
+
+[params]
+value = 120
+```
+
+Change `size.toml` and everything linked to it follows. A linked value outside the param's
+range (e.g. a width of 0) is reported as an error on the node that uses it.
+
 Colors are named (`white`, `black`, `red`, `green`, `lime`, `blue`, `yellow`, `cyan`,
 `magenta`, `orange`, `purple`, `gray`/`grey`, `transparent`) or hex: `"#ff8800"`,
 `"#ff880080"` (with alpha).
@@ -88,7 +120,8 @@ Connections carry typed values:
 |---|---|
 | `image` | RGBA pixels (straight alpha) |
 | `layer` | an image placed at an x, y offset, ready to composite |
-| `number`, `color` | reserved for future nodes |
+| `number` | a number (from `int`); feeds number params |
+| `color` | reserved for future nodes |
 
 An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
 
@@ -96,10 +129,14 @@ An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
 
 | Type | Inputs | Params | Output `out` |
 |---|---|---|---|
-| `rect` | — | `color`, `width`, `height` (1–16384) | image filled with `color` |
+| `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
 | `position` | `image`: image | `x`, `y` (default 0, may be negative) | layer |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
+| `int` | — | `value` (default 0) | number |
+
+Number params (`width`, `x`, …) can also be linked from a number output instead of typed;
+see above.
 
 ## Preview window
 
@@ -160,7 +197,9 @@ edit.
 
 | Key | Action |
 |---|---|
-| `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. |
+| `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
+| `c` / `d` on a number param | link it to a number output (e.g. an `int` node) / unlink it, going back to its typed or default value. A linked param shows its source and live value: `par width ← size  = 120`. |
+| `i` on a number param | feed it from a new node: pick a type (e.g. `int`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
 | `⏎` or `c` on an input | pick a source: only type-compatible outputs that don't create a cycle are offered. List inputs append; single inputs are replaced. |
 | `d` on an input | disconnect that connection |
 | `i` on an input | insert a new node into that connection (`source → new → this`); only node types that fit are offered |
@@ -186,10 +225,14 @@ crates/
   conduit-cli      the `conduit` binary: run, edit (the TUI, ratatui), check, nodes
   conduit-preview  the `conduit-preview` window (egui/eframe)
 examples/basic     the example project
+examples/linked    the same, with sizes and positions fed from `int` nodes
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
-  the graph, then evaluates nodes in dependency order.
+  the graph, then evaluates nodes in dependency order. Nodes whose type, params and
+  upstream nodes are unchanged since the last render reuse their previous outputs (a
+  fingerprint per node, chained through its sources); GUI nodes always run so their
+  windows stay current. The status shows e.g. `rendered 7 nodes (5 unchanged) in 3 ms`.
 - The renderer (`conduit-cli/src/run.rs`) runs on a background thread: it watches the
   folder, re-renders only when node files actually change, and reports events. `conduit run`
   prints them; `conduit edit` shows them in its status line and sends it probe commands.
@@ -226,7 +269,12 @@ pub struct Opacity;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)] // reject typos in [params]
 struct Params {
+    #[serde(default = "one")]
     amount: f32, // 0.0 = invisible, 1.0 = unchanged
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 impl Node for Opacity {
@@ -238,6 +286,7 @@ impl Node for Opacity {
             // Describes [params] for editors and new-node templates.
             params: vec![
                 ParamSpec::float("amount", 0.0, 1.0, "1.0")
+                    .default("1.0") // number params need one (see below)
                     .doc("0 = invisible, 1 = unchanged"),
             ],
             gui: false,
@@ -269,6 +318,10 @@ Things to know:
 - List every param in `params` with `ParamSpec::int / float / color / text(name, …, example)`;
   `.default("…")` makes one optional. `conduit edit` uses these for its forms and for new
   nodes, and a test in `conduit-nodes` fails if they drift from what `check_params` accepts.
+- **Int and float params must have a default** (registration panics otherwise), because
+  each one automatically gets an optional `number` input of the same name: when it's
+  connected, the incoming value (rounded for ints, range-checked) replaces the param before
+  `eval` sees it. Nothing else is needed for a node's numbers to be linkable.
 - Return every declared output (`Outputs::out(..)` for the usual single `out` port);
   evaluation fails otherwise.
 - Images are `Arc<RgbaImage>`, so passing them along is cheap; clone the pixels only
@@ -292,9 +345,8 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 
 ## Roadmap
 
-- **Next:** skip re-rendering nodes whose inputs and params haven't changed; let params be
-  driven by inputs (e.g. a `number` node feeding `position.x`); `rotate`, `opacity` and
-  `text` nodes; a headless `save_png` node.
+- **Next:** `rotate`, `opacity` and `text` nodes; a headless `save_png` node; nodes that
+  compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
   focused node); reordering list inputs; image thumbnails in the terminal; nudging number
   params from the keyboard with the cursor on the param (e.g. `+`/`-` for ±1, `>`/`<` for

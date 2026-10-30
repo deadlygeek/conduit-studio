@@ -31,6 +31,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "conduit-nodes"
+version = "0.1.0"
+dependencies = [
+ "conduit-core",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

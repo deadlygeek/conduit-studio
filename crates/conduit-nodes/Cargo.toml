@@ -1,0 +1,10 @@
+[package]
+name = "conduit-nodes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conduit-core = { version = "0.1.0", path = "../conduit-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"

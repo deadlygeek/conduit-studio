@@ -18,7 +18,7 @@ pub use node::{
 pub use registry::Registry;
 pub use value::{Layer, Value, ValueType};
 
-pub use image::{Rgba, RgbaImage};
+pub use image::{self, Rgba, RgbaImage};
 
 #[cfg(test)]
 mod test_nodes;

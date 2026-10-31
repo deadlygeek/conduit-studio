@@ -1019,7 +1019,7 @@ mod tests {
         clear(&mut app);
         press(&mut app, "abc");
         key(&mut app, KeyCode::Enter);
-        assert!(prompt_error(&app).unwrap().contains("not a whole number"));
+        assert!(prompt_error(&app).unwrap().contains("not a number"));
         key(&mut app, KeyCode::Esc);
         assert!(read(&app, "placed").contains("x = 120"));
 
@@ -1190,7 +1190,7 @@ mod tests {
             Some(300 + 1 + 10 + 50 - 1 + 1 - 1)
         );
         assert_eq!(app.message.as_deref(), Some("nudged placed.x to 360 (-1)"));
-        // Optional params start from their default; position.x can go negative.
+        // Optional params start from their default; transform.y can go negative.
         select(&mut app, param("y"));
         press(&mut app, "{{{{{{{");
         assert_eq!(int_param(&app, "placed", "y"), Some(300 - 350));

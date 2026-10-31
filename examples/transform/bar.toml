@@ -1,0 +1,7 @@
+# 120x40 bar, the image every transform below starts from
+type = "rect"
+
+[params]
+color = "#264653"
+width = 120
+height = 40

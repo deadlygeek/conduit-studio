@@ -1,8 +1,8 @@
 # Put the black square at (300, 300)
-type = "position"
+type = "transform"
 
 [inputs]
-image = "black_sq"
+layer = "black_sq"
 
 [params]
 x = 300

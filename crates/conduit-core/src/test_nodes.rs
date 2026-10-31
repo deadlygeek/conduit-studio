@@ -57,11 +57,7 @@ impl Node for Wrap {
     }
     fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
         let image = inputs.image("image")?.clone();
-        Ok(Outputs::out(Value::Layer(crate::Layer {
-            image,
-            x: 0,
-            y: 0,
-        })))
+        Ok(Outputs::out(Value::Layer(crate::Layer::new(image))))
     }
 }
 

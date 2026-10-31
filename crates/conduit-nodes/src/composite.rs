@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use conduit_core::{
-    EvalCtx, Inputs, Layer, Node, NodeResult, NodeSpec, Outputs, PortSpec, Rgba, RgbaImage, Value,
-    ValueType,
+    EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, PortSpec, Value, ValueType, raster,
 };
 
-/// Draws layers over a base image in order (alpha-over). Output has the base's size;
-/// anything outside it is clipped.
+/// Draws layers over a base image in order (alpha-over). The base is the layers' parent
+/// canvas: each layer is resampled once, with its final transform, and clipped to it.
 pub struct Composite;
 
 impl Node for Composite {
@@ -26,68 +25,24 @@ impl Node for Composite {
     fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
         let mut canvas = inputs.image("base")?.as_ref().clone();
         for layer in inputs.layers("layers")? {
-            draw_layer(&mut canvas, layer);
+            raster::draw(&mut canvas, layer, (0, 0));
         }
         Ok(Outputs::out(Value::Image(Arc::new(canvas))))
     }
 }
 
-/// Alpha-over of `layer` onto `canvas`, clipped to the canvas. Written by hand because
-/// `image::imageops::overlay` rounds an opaque result down to alpha 254.
-fn draw_layer(canvas: &mut RgbaImage, layer: &Layer) {
-    let (cw, ch) = (i64::from(canvas.width()), i64::from(canvas.height()));
-    let (lw, lh) = (
-        i64::from(layer.image.width()),
-        i64::from(layer.image.height()),
-    );
-    let (x0, y0) = (layer.x.max(0), layer.y.max(0));
-    let (x1, y1) = ((layer.x + lw).min(cw), (layer.y + lh).min(ch));
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let src = layer
-                .image
-                .get_pixel((x - layer.x) as u32, (y - layer.y) as u32);
-            let dst = canvas.get_pixel_mut(x as u32, y as u32);
-            *dst = blend_over(*src, *dst);
-        }
-    }
-}
-
-fn blend_over(src: Rgba<u8>, dst: Rgba<u8>) -> Rgba<u8> {
-    match src[3] {
-        255 => return src,
-        0 => return dst,
-        _ => {}
-    }
-    let sa = f32::from(src[3]) / 255.0;
-    let da = f32::from(dst[3]) / 255.0;
-    let out_a = sa + da * (1.0 - sa);
-    let channel = |i: usize| {
-        let c = (f32::from(src[i]) * sa + f32::from(dst[i]) * da * (1.0 - sa)) / out_a;
-        c.round() as u8
-    };
-    Rgba([
-        channel(0),
-        channel(1),
-        channel(2),
-        (out_a * 255.0).round() as u8,
-    ])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use conduit_core::{Affine, Layer, Rgba};
+
     use crate::test_util::{image, run};
 
     const WHITE: [u8; 4] = [255, 255, 255, 255];
     const BLACK: [u8; 4] = [0, 0, 0, 255];
 
     fn layer(w: u32, h: u32, rgba: [u8; 4], x: i64, y: i64) -> Value {
-        Value::Layer(Layer {
-            image: image(w, h, rgba),
-            x,
-            y,
-        })
+        Value::Layer(Layer::at(image(w, h, rgba), x, y))
     }
 
     fn composite(base: Value, layers: Vec<Value>) -> Arc<conduit_core::RgbaImage> {
@@ -169,5 +124,21 @@ mod tests {
         let base = image(3, 2, BLACK);
         let img = composite(Value::Image(base.clone()), vec![]);
         assert_eq!(*img, *base);
+    }
+
+    #[test]
+    fn draws_transformed_layers() {
+        // A 4×2 bar turned a quarter clockwise about its center (2, 1) stands upright,
+        // covering x 1..3, y -1..3.
+        let mut bar = Layer::new(image(4, 2, BLACK));
+        bar.transform =
+            Affine::translate(2.0, 1.0) * Affine::rotate(90.0) * Affine::translate(-2.0, -1.0);
+        bar.filter = conduit_core::Filter::Nearest;
+        let img = composite(Value::Image(image(4, 4, WHITE)), vec![Value::Layer(bar)]);
+        let col = |x| (0..4).map(|y| img.get_pixel(x, y).0).collect::<Vec<_>>();
+        assert_eq!(col(0), [WHITE; 4]);
+        assert_eq!(col(1), [BLACK, BLACK, BLACK, WHITE]);
+        assert_eq!(col(2), [BLACK, BLACK, BLACK, WHITE]);
+        assert_eq!(col(3), [WHITE; 4]);
     }
 }

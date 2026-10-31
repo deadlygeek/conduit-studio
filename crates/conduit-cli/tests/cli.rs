@@ -36,7 +36,7 @@ fn check_reports_all_problems() {
     .unwrap();
     std::fs::write(
         dir.path().join("b.toml"),
-        "type = \"position\"\n[inputs]\nimage = \"ghost\"",
+        "type = \"transform\"\n[inputs]\nlayer = \"ghost\"",
     )
     .unwrap();
     let out = conduit(&["check", dir.path().to_str().unwrap()]);
@@ -47,7 +47,7 @@ fn check_reports_all_problems() {
         "{stderr}"
     );
     assert!(
-        stderr.contains("b.toml: input `image` refers to missing node `ghost`"),
+        stderr.contains("b.toml: input `layer` refers to missing node `ghost`"),
         "{stderr}"
     );
     assert!(stderr.contains("2 problem(s) found"), "{stderr}");
@@ -58,7 +58,7 @@ fn nodes_lists_builtins() {
     let out = conduit(&["nodes"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    for kind in ["rect", "position", "composite"] {
+    for kind in ["rect", "transform", "realize", "composite"] {
         assert!(
             stdout.lines().any(|l| l == kind),
             "missing {kind}: {stdout}"

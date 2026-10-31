@@ -5,9 +5,10 @@ mod color;
 mod composite;
 mod int;
 mod palette;
-mod position;
 mod preview;
+mod realize;
 mod rect;
+mod transform;
 
 #[cfg(test)]
 mod test_util;
@@ -18,16 +19,18 @@ pub use color::ColorNode;
 pub use composite::Composite;
 pub use int::Int;
 pub use palette::Palette;
-pub use position::Position;
 pub use preview::Preview;
+pub use realize::Realize;
 pub use rect::Rect;
+pub use transform::Transform;
 
 /// Largest width/height a node may create, to catch typos before allocating gigabytes.
 pub const MAX_DIMENSION: u32 = 16_384;
 
 pub fn register_all(registry: &mut Registry) {
     registry.register(Rect);
-    registry.register(Position);
+    registry.register(Transform);
+    registry.register(Realize);
     registry.register(Composite);
     registry.register(Preview);
     registry.register(Int);

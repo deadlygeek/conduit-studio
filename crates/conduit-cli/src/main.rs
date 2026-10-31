@@ -163,15 +163,7 @@ fn print_outputs(graph: &Graph, registry: &Registry, values: &conduit_core::Valu
 fn describe(value: &Value) -> String {
     match value {
         Value::Image(img) => format!("image {}x{}", img.width(), img.height()),
-        Value::Layer(l) => {
-            format!(
-                "layer {}x{} at {},{}",
-                l.image.width(),
-                l.image.height(),
-                l.x,
-                l.y
-            )
-        }
+        Value::Layer(l) => format!("layer {l}"),
         Value::Number(n) => format!("number {n}"),
         Value::Color(c) => format!("color {}", conduit_core::to_hex(*c)),
     }

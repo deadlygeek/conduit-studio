@@ -63,10 +63,10 @@ digits, `_` and `-`.
 
 ```toml
 # placed.toml
-type = "position"          # which kind of node this is (see `conduit nodes`)
+type = "transform"         # which kind of node this is (see `conduit nodes`)
 
 [inputs]
-image = "black_sq"         # take the `out` output of the node `black_sq`
+layer = "black_sq"         # take the `out` output of the node `black_sq`
 
 [params]
 x = 300
@@ -190,19 +190,22 @@ Connections carry typed values:
 | Type | Meaning |
 |---|---|
 | `image` | RGBA pixels (straight alpha) |
-| `layer` | an image placed at an x, y offset, ready to composite |
+| `layer` | an image plus where it goes in a parent canvas (a 2D transform), ready to composite |
 | `number` | a number (from `int`); feeds number params |
 | `color` | an RGBA color (from `color` or a palette); feeds color params |
 
-An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
+An `image` can be connected where a `layer` is expected; it becomes an untransformed layer at
+(0, 0). A `layer` can't be used as an `image`: it has no pixels of its own until it is drawn
+onto a canvas (`composite`) or realized (`realize`).
 
 ### Built-in nodes
 
 | Type | Inputs | Params | Output `out` |
 |---|---|---|---|
 | `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
-| `position` | `image`: image | `x`, `y` (default 0, may be negative) | layer |
-| `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (alpha blended, clipped to `base`) |
+| `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |
+| `realize` | `layer`: layer | — | the layer rendered onto its own bounding box, moved by whole pixels only |
+| `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
 | `color` | — | `color` (base), `hue`, `saturation`, `lightness`, `alpha` | the base color, adjusted |
@@ -210,6 +213,31 @@ An `image` can be connected where a `layer` is expected; it is placed at (0, 0).
 
 Number and color params (`width`, `x`, `color`, …) can also be linked from an output of the
 same type instead of typed; see above.
+
+### Transforms
+
+A transform only means something relative to a parent canvas, so `transform` never touches
+pixels: it updates the layer's transform, and `composite` (whose `base` is the parent)
+resamples each layer once with its final transform. Chaining transforms therefore never
+blurs twice. The conventions follow node compositors such as Nuke, Fusion and Blender, with
+After Effects' y-down directions:
+
+- Each `transform` acts in the parent's pixels, on the layer as it already is. `x` and `y`
+  move it (for a fresh image, that's where its top-left corner lands); `rotate` (degrees,
+  clockwise), `scale` (times `scale_x` / `scale_y`; negative flips) and `skew_x` /
+  `skew_y` (degrees, −89 to 89) pivot on the anchor: `anchor_x`, `anchor_y` are fractions
+  of the image (0.5, 0.5 is its center) wherever the earlier transforms put it.
+  Order: scale, skew, rotate, then move.
+- `filter` picks how the layer is resampled: `nearest` (hard pixel edges), `bilinear` (the
+  default) or `bicubic` (sharper). Left unset, a transform keeps the incoming layer's
+  filter, so the last one set wins.
+- A move by whole pixels with nothing else is copied exactly, without filtering.
+- To apply a pixel effect after a transform, `realize` the layer first: it renders the
+  layer onto its own bounding box (no canvas, so nothing is clipped) and still lands in the
+  same place.
+
+`examples/transform` shows a rotated bar, the same bar moved and scaled by a second
+transform, a squashed and skewed bar with `filter = "nearest"`, and `realize`.
 
 ## Preview window
 
@@ -237,8 +265,8 @@ focus: everything upstream of it on the left, everything that uses it on the rig
  conduit edit examples/basic  ·  5 nodes
 ┌ ← inputs (3) ───────────┐┏ ● comp  composite ━━━━━━━━━━━━┓┌ used by → (1) ────────┐
 │   base ← white_bg  rect  │┃ in  base       ← white_bg     ┃│   preview.image       │
-│ ▾ layers ← placed  posi… │┃ in  layers[0]  ← placed       ┃│                       │
-│     image ← black_sq     │┃ out out        → preview.image┃│                       │
+│ ▾ layers ← placed  tran… │┃ in  layers[0]  ← placed       ┃│                       │
+│     layer ← black_sq     │┃ out out        → preview.image┃│                       │
 └──────────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└───────────────────────┘
  ● rendered 5 nodes in 18 ms                                      probe: comp.out
  h/l follow   j/k move   ⏎ edit   c/d connect   i insert   a add   …   ? help
@@ -274,7 +302,7 @@ edit.
 |---|---|
 | `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
 | `c` / `d` on a number param | link it to a number output (e.g. an `int` node) / unlink it, going back to its typed or default value. A linked param shows its source and live value: `par width ← size  = 120`. |
-| `+` `-` / `>` `<` / `}` `{` on a whole-number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
+| `+` `-` / `>` `<` / `}` `{` on a number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
 | `i` on a number or color param | feed it from a new node: pick a type (`int`, `color`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
 | `⏎` on a color | open the **color editor** (below) |
 | `C` on a color | open the **color picker** window (below) |
@@ -354,6 +382,7 @@ crates/
 examples/basic     the example project
 examples/linked    the same, with sizes and positions fed from `int` nodes
 examples/palette   colors from an imported palette, adjusted with a `color` node
+examples/transform rotate, scale, skew and realize layers
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
@@ -486,32 +515,16 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 
 - **Next:** `opacity` and `text` nodes; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
-- **Transforms:** a `layer` becomes an image plus a 2D affine matrix instead of an x, y
-  offset. The matrix only means something relative to a parent canvas, so only `composite`
-  turns it into pixels. The conventions follow existing node compositors (Nuke, Fusion,
-  Blender) and After Effects:
-  - A single `transform` node replaces `position`. It takes a layer (or an image, as an
-    untransformed layer) and returns a layer, only updating the matrix, so chained
-    transforms combine and never resample.
-  - Each transform acts in the parent's space: `x`, `y` move in parent pixels; `rotate`
-    (degrees, clockwise), `scale` / `scale_x` / `scale_y` and `skew_x` / `skew_y` pivot on
-    the image's current center, or on an optional `center_x`, `center_y`. `filter`
-    (`nearest`, `bilinear` by default, `bicubic`) is taken from the last transform.
-  - `composite` resamples each layer once using its final matrix; a whole-pixel move is an
-    exact copy.
-  - A `realize` node (layer → layer) renders a layer onto its own bounding box, leaving only
-    a whole-pixel offset, so pixel effects (blur, color, opacity) can follow a transform
-    without clipping to a canvas.
-  - Transforms stay separate nodes rather than settings on `composite`'s inputs, so they
-    keep per-node params and linking. Scale and skew need float params.
-  - Later: a `group` node that combines several layers' transforms without rendering them.
+- **Transforms:** a `group` node that combines several layers' transforms without
+  rendering them (After Effects' "collapse transformations"); pixel effects (blur, color)
+  that take a realized layer directly.
 - **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
   tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
   a color from the preview window; optional online palette sources (e.g. Lospec's palette
   list, Colormind's generator) behind an explicit command.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
-  focused node); reordering list inputs; image thumbnails in the terminal; nudging float
-  params (with steps that suit their range).
+  focused node); reordering list inputs; image thumbnails in the terminal; nudge steps that
+  suit a float param's range (today every number nudges by 1, 10 or 50).
 - **Later:** nodes as external programs written in any language; more GUI tools in the
   picker's style (e.g. a slider window for numbers) that write values back to the node's
   TOML file.

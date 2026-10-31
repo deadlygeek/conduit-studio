@@ -589,10 +589,7 @@ const HELP: &[(&str, &str)] = &[
         "i",
         "insert a node into the connection; on a number: feed it from an int",
     ),
-    (
-        "+ / -",
-        "nudge a whole number by 1 (< / > by 10, { / } by 50)",
-    ),
+    ("+ / -", "nudge a number by 1 (< / > by 10, { / } by 50)"),
     ("a", "add a new node"),
     (
         "o / x",
@@ -745,7 +742,7 @@ mod tests {
             "base ← white_bg",
             "layers ← placed",
             "▾ ",
-            "image ← black_sq",
+            "layer ← black_sq",
             "in  base       ← white_bg",
             "in  layers[0]  ← placed",
             "out out        → preview.image",
@@ -815,7 +812,7 @@ mod tests {
     #[test]
     fn errors_are_visible() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("a.toml"), "type = \"position\"\n").unwrap();
+        std::fs::write(tmp.path().join("a.toml"), "type = \"transform\"\n").unwrap();
         let registry = Arc::new(conduit_nodes::registry());
         let project = inspect(tmp.path(), &registry).unwrap();
         let mut app = App::new(tmp.path().to_path_buf(), project, registry);
@@ -823,7 +820,7 @@ mod tests {
             "a.toml: required input `image` is not connected".into(),
         ));
         let screen = render(&mut app, 120, 12);
-        assert!(screen.contains("✗ a  position"), "{screen}");
+        assert!(screen.contains("✗ a  transform"), "{screen}");
         assert!(screen.contains("not connected"), "{screen}");
         assert!(screen.contains("✗ a.toml: required input"), "{screen}");
         assert!(screen.contains("1 problem(s)"), "{screen}");
@@ -864,14 +861,17 @@ mod tests {
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // comp
         app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // layers[0]
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // placed, on `out`
-        app.handle_key(KeyEvent::from(KeyCode::Char('k'))); // y
+        // Up past filter, the anchors, skews, scales and rotate to y.
+        for _ in 0..10 {
+            app.handle_key(KeyEvent::from(KeyCode::Char('k')));
+        }
         app.handle_key(KeyEvent::from(KeyCode::Enter));
         app.handle_key(KeyEvent::from(KeyCode::Char('x')));
         app.handle_key(KeyEvent::from(KeyCode::Enter)); // "300x" is rejected
         let screen = render(&mut app, 120, 30);
         assert!(screen.contains("placed.y (empty = default)"), "{screen}");
         assert!(screen.contains("300x▏"), "{screen}");
-        assert!(screen.contains("`300x` is not a whole number"), "{screen}");
+        assert!(screen.contains("`300x` is not a number"), "{screen}");
 
         app.handle_key(KeyEvent::from(KeyCode::Esc));
         app.handle_key(KeyEvent::from(KeyCode::Char('D')));

@@ -4,7 +4,9 @@
 use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
-use conduit_core::{NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, inspect};
+use conduit_core::{
+    NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, float_value, inspect,
+};
 
 use super::{Action, App, Mode, Row};
 use crate::edit::finder;
@@ -485,7 +487,7 @@ impl App {
         }
     }
 
-    /// Nudge keys: add `delta` to the whole-number param under the cursor, clamped to its
+    /// Nudge keys: add `delta` to the number param under the cursor, clamped to its
     /// range. On a linked param, nudges the number of the node feeding it (e.g. its `int`).
     pub(super) fn nudge_row(&mut self, delta: i64) {
         if let Err(e) = self.try_nudge(delta) {
@@ -514,35 +516,50 @@ impl App {
                     }
                 }
             }
-            _ => return Err("move the cursor to a whole-number param to nudge it".into()),
+            _ => return Err("move the cursor to a number param to nudge it".into()),
         };
         let node = self.project.get(&node_id).cloned().ok_or("no such node")?;
         let spec = node.spec.as_ref().and_then(|s| s.param(&name)).cloned();
-        let Some(ParamKind::Int { min, max }) = spec.as_ref().map(|p| p.kind.clone()) else {
-            if spec.is_some_and(|p| p.kind == ParamKind::Color) {
-                return Err(format!("press ⏎ to adjust `{name}` in the color editor"));
-            }
-            return Err(format!("only whole numbers can be nudged, not `{name}`"));
-        };
+        let kind = spec.as_ref().map(|p| p.kind.clone());
         let current = node
             .params
             .get(&name)
             .cloned()
-            .or_else(|| spec.as_ref().and_then(|p| p.default).map(parse_literal))
-            .and_then(|v| v.as_integer())
-            .ok_or_else(|| format!("`{name}` has no whole-number value to nudge"))?;
-        let new = current.saturating_add(delta).clamp(min, max);
+            .or_else(|| spec.as_ref().and_then(|p| p.default).map(parse_literal));
+        let no_value = || format!("`{name}` has no number to nudge");
+        let (current, new): (toml::Value, toml::Value) = match kind {
+            Some(ParamKind::Int { min, max }) => {
+                let current = current.and_then(|v| v.as_integer()).ok_or_else(no_value)?;
+                (
+                    current.into(),
+                    current.saturating_add(delta).clamp(min, max).into(),
+                )
+            }
+            Some(ParamKind::Float { min, max }) => {
+                let current = current
+                    .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+                    .ok_or_else(no_value)?;
+                let new = (current + delta as f64).clamp(min, max);
+                (float_value(current), float_value(new))
+            }
+            Some(ParamKind::Color) => {
+                return Err(format!("press ⏎ to adjust `{name}` in the color editor"));
+            }
+            _ => return Err(format!("only numbers can be nudged, not `{name}`")),
+        };
         if new == current {
             let bound = if delta > 0 { "maximum" } else { "minimum" };
-            return Err(format!("{node_id}.{name} is at its {bound}, {current}"));
+            return Err(format!(
+                "{node_id}.{name} is at its {bound}, {}",
+                plain(&current)
+            ));
         }
-        self.check_param(&node, &name, &new.into())?;
+        self.check_param(&node, &name, &new)?;
 
-        let change =
-            ops::set_param(&self.dir, &node_id, &name, &new.into()).map_err(|e| e.to_string())?;
+        let change = ops::set_param(&self.dir, &node_id, &name, &new).map_err(|e| e.to_string())?;
         // Repeated nudges of one param undo together.
         let key = format!("{node_id}.{name}");
-        let label = format!("nudged {key} to {new}");
+        let label = format!("nudged {key} to {}", plain(&new));
         self.record_coalesced(key, label.clone(), change);
         self.message = Some(format!("{label} ({delta:+})"));
         Ok(())
@@ -786,4 +803,12 @@ fn parse_literal(input: &str) -> toml::Value {
         .ok()
         .and_then(|mut t| t.remove("v"))
         .unwrap_or_else(|| toml::Value::String(input.to_string()))
+}
+
+/// A number as shown in messages (`360`, `2.5`).
+fn plain(v: &toml::Value) -> String {
+    match v {
+        toml::Value::Float(f) => f.to_string(),
+        other => other.to_string(),
+    }
 }

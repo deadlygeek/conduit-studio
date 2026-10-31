@@ -1,6 +1,6 @@
-type = "position"
+type = "transform"
 
 [inputs]
-image = "square"
+layer = "square"
 x = "offset"
 y = "offset"

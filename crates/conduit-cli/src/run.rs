@@ -251,15 +251,15 @@ impl Runner {
         self.flush_warnings();
     }
 
-    /// Sends the probed output to the probe window: images as-is, layers as their image,
-    /// colors as a solid swatch.
+    /// Sends the probed output to the probe window: images as-is, layers as their
+    /// transformed pixels (realized onto their own bounding box), colors as a solid swatch.
     fn show_probe(&mut self) {
         let Some(target) = &self.probe else { return };
         self.probe_gui
             .set_title(PROBE_ID, format!("probe: {target}"));
         let image = match self.values.as_ref().and_then(|v| v.get(target)) {
             Some(Value::Image(image)) => Ok(image.clone()),
-            Some(Value::Layer(layer)) => Ok(layer.image.clone()),
+            Some(Value::Layer(layer)) => probe_layer(layer),
             Some(Value::Color(c)) => Ok(Arc::new(RgbaImage::from_pixel(256, 256, *c))),
             Some(other) => Err(format!(
                 "`{target}` is a {}, which can't be shown as an image",
@@ -446,5 +446,19 @@ mod tests {
             "warning",
             |e| matches!(e, Event::Warning(w) if w.contains("cannot start")),
         );
+    }
+}
+
+/// A layer's pixels as they'll be drawn, without the canvas.
+fn probe_layer(layer: &conduit_core::Layer) -> Result<Arc<RgbaImage>, String> {
+    let limit = i64::from(conduit_nodes::MAX_DIMENSION);
+    match conduit_core::raster::bounds(layer) {
+        Some((x0, y0, x1, y1))
+            if x1.saturating_sub(x0) > limit || y1.saturating_sub(y0) > limit =>
+        {
+            Err("the transformed layer is too large to show".into())
+        }
+        Some(_) => Ok(conduit_core::raster::realize(layer).image),
+        None => Err("the layer draws nothing (empty, or scaled to zero)".into()),
     }
 }

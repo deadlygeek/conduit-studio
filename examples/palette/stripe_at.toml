@@ -1,7 +1,7 @@
-type = "position"
+type = "transform"
 
 [inputs]
-image = "stripe"
+layer = "stripe"
 
 [params]
 y = 520

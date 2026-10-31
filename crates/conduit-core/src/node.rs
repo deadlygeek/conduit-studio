@@ -175,7 +175,7 @@ impl ParamSpec {
                 if !(v >= *min && v <= *max) {
                     return Err(format!("must be between {min} and {max}"));
                 }
-                Ok(toml::Value::Float(v))
+                Ok(float_value(v))
             }
             ParamKind::Color => {
                 crate::color::parse_color(input).map(|_| toml::Value::String(input.to_string()))
@@ -183,6 +183,16 @@ impl ParamSpec {
             ParamKind::Text => Ok(toml::Value::String(input.to_string())),
             ParamKind::Colors => Err("edit the colors one at a time".into()),
         }
+    }
+}
+
+/// A float param's value as written to a node file: whole numbers without the `.0`
+/// (`x = 120`, not `x = 120.0`). Float params accept either.
+pub fn float_value(v: f64) -> toml::Value {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        toml::Value::Integer(v as i64)
+    } else {
+        toml::Value::Float(v)
     }
 }
 
@@ -461,6 +471,7 @@ mod tests {
 
         let float = ParamSpec::float("a", 0.0, 1.0, "1.0");
         assert_eq!(float.parse_input("0.25"), Ok(toml::Value::Float(0.25)));
+        assert_eq!(float.parse_input("1"), Ok(toml::Value::Integer(1)));
         assert!(float.parse_input("2").is_err());
         assert!(float.parse_input("NaN").is_err());
 

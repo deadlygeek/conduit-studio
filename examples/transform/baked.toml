@@ -1,0 +1,6 @@
+# The grown bar rendered onto its own bounding box. A pixel effect would go after this;
+# it lands exactly where `grown` would.
+type = "realize"
+
+[inputs]
+layer = "grown"

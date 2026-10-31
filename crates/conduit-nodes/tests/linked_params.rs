@@ -27,9 +27,9 @@ width = 5
 width = "size"
 height = "size"
 "#;
-const PLACED: &str = r#"type = "position"
+const PLACED: &str = r#"type = "transform"
 [inputs]
-image = "square"
+layer = "square"
 x = "size"
 [params]
 y = 7
@@ -46,7 +46,11 @@ fn int_feeds_dimensions_and_position() {
     let Value::Layer(layer) = value(&values, "placed") else {
         panic!("expected layer")
     };
-    assert_eq!((layer.x, layer.y), (30, 7), "x linked, y typed");
+    assert_eq!(
+        layer.transform.whole_pixel_offset(),
+        Some((30, 7)),
+        "x linked, y typed"
+    );
 }
 
 #[test]

@@ -1,0 +1,6 @@
+# Draw the layers onto the canvas; each is resampled once with its final transform
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["turned", "slanted", "baked"]

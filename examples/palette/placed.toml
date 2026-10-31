@@ -1,7 +1,7 @@
-type = "position"
+type = "transform"
 
 [inputs]
-image = "square"
+layer = "square"
 
 [params]
 x = 300

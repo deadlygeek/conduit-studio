@@ -1,0 +1,10 @@
+# Chained: moves the turned bar down and scales it about where it is now. The two
+# transforms combine, so the bar is still resampled only once.
+type = "transform"
+
+[inputs]
+layer = "turned"
+
+[params]
+y = 150
+scale = 1.5

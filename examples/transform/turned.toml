@@ -1,0 +1,10 @@
+# Top-left at (40, 40), then turned 30° clockwise about its center
+type = "transform"
+
+[inputs]
+layer = "bar"
+
+[params]
+x = 40
+y = 40
+rotate = 30

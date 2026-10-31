@@ -17,11 +17,11 @@ black_sq ─► placed (300,300) ─┘
 
 ## Quick start
 
-Development happens inside the `bevy-dev` distrobox (the host has no `mold` linker,
-which `~/.cargo/config.toml` requires):
+You need stable Rust 1.85 or newer (the workspace uses edition 2024). On Linux, the GUI
+windows (built on eframe/egui) also need the Wayland/X11, xkbcommon and OpenGL
+development libraries.
 
 ```sh
-distrobox enter bevy-dev
 cargo build --workspace
 target/debug/conduit run examples/basic
 ```

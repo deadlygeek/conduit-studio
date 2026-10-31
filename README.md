@@ -487,12 +487,24 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 - **Next:** `opacity` and `text` nodes; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
 - **Transforms:** a `layer` becomes an image plus a 2D affine matrix instead of an x, y
-  offset. A single `transform` node (x, y, rotate, scale, skew) replaces `position`: it takes
-  a layer (or an image, as an untransformed layer) and returns a layer, only updating the
-  matrix, so chained transforms never resample. `composite` resamples each layer once using
-  its final matrix. Pixel effects (blur, color, opacity) stay image → image nodes; to apply
-  one after a transform, composite onto its own canvas first. Transforms stay separate nodes
-  rather than settings on `composite`'s inputs, so they keep per-node params and linking.
+  offset. The matrix only means something relative to a parent canvas, so only `composite`
+  turns it into pixels. The conventions follow existing node compositors (Nuke, Fusion,
+  Blender) and After Effects:
+  - A single `transform` node replaces `position`. It takes a layer (or an image, as an
+    untransformed layer) and returns a layer, only updating the matrix, so chained
+    transforms combine and never resample.
+  - Each transform acts in the parent's space: `x`, `y` move in parent pixels; `rotate`
+    (degrees, clockwise), `scale` / `scale_x` / `scale_y` and `skew_x` / `skew_y` pivot on
+    the image's current center, or on an optional `center_x`, `center_y`. `filter`
+    (`nearest`, `bilinear` by default, `bicubic`) is taken from the last transform.
+  - `composite` resamples each layer once using its final matrix; a whole-pixel move is an
+    exact copy.
+  - A `realize` node (layer → layer) renders a layer onto its own bounding box, leaving only
+    a whole-pixel offset, so pixel effects (blur, color, opacity) can follow a transform
+    without clipping to a canvas.
+  - Transforms stay separate nodes rather than settings on `composite`'s inputs, so they
+    keep per-node params and linking. Scale and skew need float params.
+  - Later: a `group` node that combines several layers' transforms without rendering them.
 - **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
   tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
   a color from the preview window; optional online palette sources (e.g. Lospec's palette

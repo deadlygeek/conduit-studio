@@ -484,8 +484,15 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 
 ## Roadmap
 
-- **Next:** `rotate`, `opacity` and `text` nodes; a headless `save_png` node; nodes that
+- **Next:** `opacity` and `text` nodes; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
+- **Transforms:** a `layer` becomes an image plus a 2D affine matrix instead of an x, y
+  offset. A single `transform` node (x, y, rotate, scale, skew) replaces `position`: it takes
+  a layer (or an image, as an untransformed layer) and returns a layer, only updating the
+  matrix, so chained transforms never resample. `composite` resamples each layer once using
+  its final matrix. Pixel effects (blur, color, opacity) stay image → image nodes; to apply
+  one after a transform, composite onto its own canvas first. Transforms stay separate nodes
+  rather than settings on `composite`'s inputs, so they keep per-node params and linking.
 - **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
   tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
   a color from the preview window; optional online palette sources (e.g. Lospec's palette

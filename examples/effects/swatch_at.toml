@@ -1,0 +1,8 @@
+type = "transform"
+
+[inputs]
+layer = "swatch_shifted"
+
+[params]
+x = 30
+y = 170

@@ -1,9 +1,8 @@
 use conduit_core::{
-    EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, PortSpec, Value, ValueType,
-    raster,
+    EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, PortSpec, Value, ValueType,
 };
 
-use crate::MAX_DIMENSION;
+use crate::effect;
 
 /// Renders a transformed layer onto its own bounding box, so pixel effects can follow a
 /// transform without clipping to a canvas. The result is a layer moved by whole pixels:
@@ -22,19 +21,8 @@ impl Node for Realize {
     }
 
     fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let layer = *inputs
-            .layers("layer")?
-            .first()
-            .ok_or_else(|| NodeError::new("input `layer` is not connected"))?;
-        if let Some((x0, y0, x1, y1)) = raster::bounds(layer) {
-            let (w, h) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
-            if w > i64::from(MAX_DIMENSION) || h > i64::from(MAX_DIMENSION) {
-                return Err(NodeError::new(format!(
-                    "the transformed layer would be {w}x{h}, larger than the {MAX_DIMENSION}x{MAX_DIMENSION} limit"
-                )));
-            }
-        }
-        Ok(Outputs::out(Value::Layer(raster::realize(layer))))
+        let layer = effect::realized(effect::input_layer(inputs)?)?;
+        Ok(Outputs::out(Value::Layer(layer)))
     }
 }
 

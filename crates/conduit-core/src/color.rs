@@ -127,6 +127,12 @@ pub fn adjust(c: Rgba<u8>, hue: f64, saturation: f64, lightness: f64, alpha: f64
     from_hsl(adjusted, a)
 }
 
+/// How light `c` looks, from 0 (black) to 1 (white): Rec. 709 weights on the stored
+/// (sRGB) values, as image editors' grayscale and tint effects use. Alpha is ignored.
+pub fn luminance(c: Rgba<u8>) -> f64 {
+    (0.2126 * f64::from(c[0]) + 0.7152 * f64::from(c[1]) + 0.0722 * f64::from(c[2])) / 255.0
+}
+
 /// One adjustable part of a color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {

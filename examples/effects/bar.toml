@@ -1,0 +1,8 @@
+type = "rect"
+
+[inputs]
+color = "brand.primary"
+
+[params]
+width = 120
+height = 40

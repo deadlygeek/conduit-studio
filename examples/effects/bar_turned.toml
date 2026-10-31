@@ -1,0 +1,10 @@
+# Top-left at (220, 200), turned 30° about its center
+type = "transform"
+
+[inputs]
+layer = "bar"
+
+[params]
+x = 220
+y = 200
+rotate = 30

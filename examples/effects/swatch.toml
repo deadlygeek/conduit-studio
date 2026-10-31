@@ -1,0 +1,8 @@
+type = "rect"
+
+[inputs]
+color = "brand.teal"
+
+[params]
+width = 100
+height = 100

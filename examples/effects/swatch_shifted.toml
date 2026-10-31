@@ -1,0 +1,9 @@
+# The teal swatch with its hue turned halfway round and a little darker
+type = "hsl"
+
+[inputs]
+layer = "swatch"
+
+[params]
+hue = 180
+lightness = -10

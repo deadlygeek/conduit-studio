@@ -58,7 +58,16 @@ fn nodes_lists_builtins() {
     let out = conduit(&["nodes"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    for kind in ["rect", "text", "transform", "realize", "composite"] {
+    for kind in [
+        "rect",
+        "text",
+        "transform",
+        "realize",
+        "hsl",
+        "tint",
+        "invert",
+        "composite",
+    ] {
         assert!(
             stdout.lines().any(|l| l == kind),
             "missing {kind}: {stdout}"

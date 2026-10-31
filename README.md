@@ -207,6 +207,9 @@ onto a canvas (`composite`) or realized (`realize`).
 | `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |
 | `text` | — | `text`, `font` (default `sans-serif`), `size` (px, default 48), `color` (default black), `weight` (100–900, default 400), `style` (`normal` / `italic`) — see [Text](#text) | layer: the text on a transparent background |
 | `realize` | `layer`: layer | — | the layer rendered onto its own bounding box, moved by whole pixels only |
+| `hsl` | `layer`: layer | `hue`, `saturation`, `lightness`, `alpha` (as on `color`) — see [Color effects](#color-effects) | layer: every pixel adjusted |
+| `tint` | `layer`: layer | `black` (default black), `white` (default white), `amount` (0–100, default 100) — see [Color effects](#color-effects) | layer: each pixel's lightness mapped between `black` and `white` |
+| `invert` | `layer`: layer | — | layer: colors inverted, alpha kept |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
@@ -237,6 +240,26 @@ After Effects' y-down directions:
 - To apply a pixel effect after a transform, `realize` the layer first: it renders the
   layer onto its own bounding box (no canvas, so nothing is clipped) and still lands in the
   same place.
+
+### Color effects
+
+`hsl`, `tint` and `invert` change a layer's pixels and output a layer that lands in the
+same place, so they go anywhere a layer does: straight after `rect` or `text`, or after a
+`transform`. A rotated, scaled or skewed layer is realized first (as `realize` would), so
+the effect sees the pixels as they'll be drawn; images and layers moved by whole pixels
+go through untouched. One node per effect, as in Blender and Nuke.
+
+- `hsl` applies the `color` node's adjustments to every pixel: `hue` rotates hues (degrees),
+  `saturation` and `lightness` move by percentage points, `alpha` scales opacity.
+- `tint` works like After Effects' Tint: each pixel's lightness (Rec. 709) picks a color
+  between `black` and `white`, mixed with the original by `amount` %. With no params it
+  makes a layer **grayscale**. To recolor a black logo, link `black` to a palette color
+  (`black = "brand.accent"` under `[inputs]`); the mapped color's alpha scales the
+  pixel's, so `black = "transparent"` knocks dark areas out.
+- `invert` makes a negative of the colors and keeps alpha.
+
+`examples/effects` recolors a text logo from a palette, shifts a swatch's hue and inverts
+a rotated bar.
 
 ### Text
 
@@ -408,6 +431,7 @@ examples/linked    the same, with sizes and positions fed from `int` nodes
 examples/palette   colors from an imported palette, adjusted with a `color` node
 examples/transform rotate, scale, skew and realize layers
 examples/text      text in system fonts, colored and transformed
+examples/effects   hsl, tint and invert, including after a rotation
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
@@ -541,8 +565,9 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 - **Next:** an `opacity` node; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
 - **Transforms:** a `group` node that combines several layers' transforms without
-  rendering them (After Effects' "collapse transformations"); pixel effects (blur, color)
-  that take a realized layer directly.
+  rendering them (After Effects' "collapse transformations").
+- **Effects:** blur (growing the layer's bounds so edges aren't clipped); more color
+  effects such as levels and curves; blend modes (multiply, screen, …) on `composite`.
 - **Text:** alignment for multi-line text, a wrap width, letter and line spacing, a font
   file param (for fonts that aren't installed), and a font browser window that shows each
   family in its own typeface.

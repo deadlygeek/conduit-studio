@@ -1,0 +1,13 @@
+# The palette from examples/palette.
+# Imported from Coolors, then renamed in `conduit edit`.
+type = "palette"
+
+[params]
+source = "https://coolors.co/264653-2a9d8f-e9c46a-f4a261-e76f51"
+
+[params.colors]
+primary = "#264653"
+teal = "#2a9d8f"
+sand = "#e9c46a"
+orange = "#f4a261"
+accent = "#e76f51"

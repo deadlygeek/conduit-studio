@@ -1,0 +1,6 @@
+# An effect after a rotation: `invert` realizes the turned bar first, so it lands
+# exactly where `bar_turned` would.
+type = "invert"
+
+[inputs]
+layer = "bar_turned"

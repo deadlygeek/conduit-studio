@@ -3,12 +3,16 @@
 
 mod color;
 mod composite;
+mod effect;
+mod hsl;
 mod int;
+mod invert;
 mod palette;
 mod preview;
 mod realize;
 mod rect;
 pub mod text;
+mod tint;
 mod transform;
 
 #[cfg(test)]
@@ -18,12 +22,15 @@ use conduit_core::Registry;
 
 pub use color::ColorNode;
 pub use composite::Composite;
+pub use hsl::Hsl;
 pub use int::Int;
+pub use invert::Invert;
 pub use palette::Palette;
 pub use preview::Preview;
 pub use realize::Realize;
 pub use rect::Rect;
 pub use text::Text;
+pub use tint::Tint;
 pub use transform::Transform;
 
 /// Largest width/height a node may create, to catch typos before allocating gigabytes.
@@ -33,6 +40,9 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Rect);
     registry.register(Transform);
     registry.register(Realize);
+    registry.register(Hsl);
+    registry.register(Tint);
+    registry.register(Invert);
     registry.register(Composite);
     registry.register(Preview);
     registry.register(Int);

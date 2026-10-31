@@ -1,0 +1,7 @@
+# Black becomes the palette's accent; white stays white. With no params, `tint` makes
+# a layer grayscale.
+type = "tint"
+
+[inputs]
+layer = "logo"
+black = "brand.accent"

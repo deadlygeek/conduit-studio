@@ -1,0 +1,7 @@
+# Black text, recolored by `logo_tinted`
+type = "text"
+
+[params]
+text = "conduit"
+size = 64
+weight = 700

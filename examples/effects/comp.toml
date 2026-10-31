@@ -1,0 +1,5 @@
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["logo_at", "swatch_at", "bar_inverted"]

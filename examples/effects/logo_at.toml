@@ -1,0 +1,8 @@
+type = "transform"
+
+[inputs]
+layer = "logo_tinted"
+
+[params]
+x = 30
+y = 30

@@ -303,6 +303,39 @@ fn disconnect_in(doc: &mut DocumentMut, port: &str, index: Option<usize>) -> Edi
     Ok(())
 }
 
+/// Swaps elements `a` and `b` of `node`'s list input `port` (e.g. to change which of
+/// `composite`'s layers is drawn on top). Each position keeps its own formatting.
+pub fn swap_connections(
+    dir: &Path,
+    node: &str,
+    port: &str,
+    a: usize,
+    b: usize,
+) -> EditResult<Change> {
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            let items = table_mut(doc, "inputs")?
+                .get_mut(port)
+                .and_then(Item::as_array_mut)
+                .ok_or_else(|| EditError::Invalid(format!("input `{port}` is not a list")))?;
+            let len = items.len();
+            let (Some(va), Some(vb)) = (items.get(a).cloned(), items.get(b).cloned()) else {
+                return Err(EditError::Invalid(format!(
+                    "input `{port}` has {len} connection(s); can't swap {a} and {b}"
+                )));
+            };
+            let swapped = |value: &toml_edit::Value, decor: &toml_edit::Decor| {
+                let mut value = value.clone();
+                *value.decor_mut() = decor.clone();
+                value
+            };
+            items.replace_formatted(a, swapped(&vb, va.decor()));
+            items.replace_formatted(b, swapped(&va, vb.decor()));
+            Ok(())
+        })
+    })
+}
+
 /// Creates a new node file from `spec`'s template.
 pub fn add_node(dir: &Path, id: &str, spec: &NodeSpec) -> EditResult<Change> {
     transact(|tx| add_node_in(tx, dir, id, spec))
@@ -910,6 +943,19 @@ mod tests {
         let f = fixture();
         disconnect(f.path(), "w", "image", None).unwrap();
         assert!(f.project().get("w").unwrap().inputs.is_empty());
+    }
+
+    #[test]
+    fn swap_list_connections() {
+        let f = fixture();
+        let after = f.apply_and_undo(|| swap_connections(f.path(), "s", "items", 0, 1));
+        // The values trade places; the layout and comments stay where they were.
+        assert_eq!(
+            after["s.toml"],
+            "type = \"sink\"\n[inputs]\nitems = [\n  \"src.out\",  # first\n  \"w\",\n]\n"
+        );
+        assert!(swap_connections(f.path(), "s", "items", 1, 2).is_err());
+        assert!(swap_connections(f.path(), "w", "image", 0, 1).is_err());
     }
 
     #[test]

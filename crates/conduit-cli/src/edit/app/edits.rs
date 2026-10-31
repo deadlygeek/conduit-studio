@@ -457,6 +457,41 @@ impl App {
         self.apply_or_report(label, |dir, _| ops::disconnect(dir, &focus, &port, index));
     }
 
+    /// `J` / `K`: move the list connection under the cursor one place later (`step` 1) or
+    /// earlier (-1). For `composite`'s layers, later draws on top.
+    pub(super) fn move_row(&mut self, step: isize) {
+        let (
+            Some(Row::Input {
+                port,
+                index: Some(i),
+                source: Some(source),
+            }),
+            Some(focus),
+        ) = (self.current_row().cloned(), self.focus.clone())
+        else {
+            self.message = Some("move the cursor to a connection in a list to reorder it".into());
+            return;
+        };
+        let len = self
+            .rows
+            .iter()
+            .filter(|r| matches!(r, Row::Input { port: p, index: Some(_), .. } if *p == port))
+            .count();
+        let Some(j) = i.checked_add_signed(step).filter(|j| *j < len) else {
+            let end = if step < 0 { "first" } else { "last" };
+            self.message = Some(format!("{focus}.{port}[{i}] is already {end}"));
+            return;
+        };
+        let label = format!("moved {focus}.{port} ← {} to [{j}]", short(&source));
+        if self.apply_or_report(label, |dir, _| {
+            ops::swap_connections(dir, &focus, &port, i, j)
+        }) {
+            self.select_row(|r| {
+                matches!(r, Row::Input { port: p, index: Some(k), .. } if *p == port && *k == j)
+            });
+        }
+    }
+
     /// `i`: insert a new node into the connection under the cursor. On an unlinked number
     /// param, add a node (e.g. `int`) that feeds it, starting at the param's value.
     pub(super) fn insert_row(&mut self) {

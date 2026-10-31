@@ -589,6 +589,10 @@ const HELP: &[(&str, &str)] = &[
         "i",
         "insert a node into the connection; on a number: feed it from an int",
     ),
+    (
+        "K / J",
+        "move a list connection earlier / later (composite: later is on top)",
+    ),
     ("+ / -", "nudge a number by 1 (< / > by 10, { / } by 50)"),
     ("a", "add a new node"),
     (

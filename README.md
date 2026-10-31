@@ -311,6 +311,7 @@ edit.
 | `I` on a palette | import colors: paste a Coolors link or hex codes; replaces the palette's colors. Adding a palette with `a` opens this straight away. |
 | `⏎` or `c` on an input | pick a source: only type-compatible outputs that don't create a cycle are offered. List inputs append; single inputs are replaced. |
 | `d` on an input | disconnect that connection |
+| `K` / `J` on a list connection | move it one place earlier / later in the list. In `composite`'s `layers`, later entries are drawn on top, so `J` raises a layer and `K` lowers it. |
 | `i` on an input | insert a new node into that connection (`source → new → this`); only node types that fit are offered |
 | `a` | add a node: pick a type, give it an id (suggested `<type>_N`) |
 | `r` / `D` | rename the focused node (every reference is updated) / delete it (after confirmation; its connections are removed) |
@@ -523,7 +524,7 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
   a color from the preview window; optional online palette sources (e.g. Lospec's palette
   list, Colormind's generator) behind an explicit command.
 - **Editor:** a path filter (mark a node, then show only the flows between it and the
-  focused node); reordering list inputs; image thumbnails in the terminal; nudge steps that
+  focused node); image thumbnails in the terminal; nudge steps that
   suit a float param's range (today every number nudges by 1, 10 or 50).
 - **Later:** nodes as external programs written in any language; more GUI tools in the
   picker's style (e.g. a slider window for numbers) that write values back to the node's

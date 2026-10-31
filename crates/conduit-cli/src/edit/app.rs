@@ -541,6 +541,8 @@ impl App {
             (Pane::Node, KeyCode::Char('c')) => self.connect_row(),
             (Pane::Node, KeyCode::Char('d')) => self.disconnect_row(),
             (Pane::Node, KeyCode::Char('i')) => self.insert_row(),
+            (Pane::Node, KeyCode::Char('K')) => self.move_row(-1),
+            (Pane::Node, KeyCode::Char('J')) => self.move_row(1),
             (Pane::Node, KeyCode::Char(c)) if nudge_step(c).is_some() => {
                 self.nudge_row(nudge_step(c).expect("checked"))
             }
@@ -1219,6 +1221,43 @@ mod tests {
         assert_eq!(
             app.message.as_deref(),
             Some("press ⏎ to adjust `color` in the color editor")
+        );
+    }
+
+    #[test]
+    fn reorder_composite_layers() {
+        let (_tmp, mut app) = temp_project("transform");
+        goto(&mut app, "comp");
+        select(&mut app, input("layers", Some(0)));
+        // `J` raises `turned` one place; the cursor follows it.
+        press(&mut app, "J");
+        assert!(
+            read(&app, "comp").contains(r#"layers = ["slanted", "turned", "baked"]"#),
+            "{}",
+            read(&app, "comp")
+        );
+        assert_eq!(
+            app.message.as_deref(),
+            Some("moved comp.layers ← turned to [1]")
+        );
+        press(&mut app, "J");
+        assert!(read(&app, "comp").contains(r#"["slanted", "baked", "turned"]"#));
+        press(&mut app, "J");
+        assert_eq!(
+            app.message.as_deref(),
+            Some("comp.layers[2] is already last")
+        );
+        press(&mut app, "K");
+        assert!(read(&app, "comp").contains(r#"["slanted", "turned", "baked"]"#));
+
+        press(&mut app, "uuu");
+        assert!(read(&app, "comp").contains(r#"["turned", "slanted", "baked"]"#));
+
+        select(&mut app, input("base", None));
+        press(&mut app, "J");
+        assert_eq!(
+            app.message.as_deref(),
+            Some("move the cursor to a connection in a list to reorder it")
         );
     }
 

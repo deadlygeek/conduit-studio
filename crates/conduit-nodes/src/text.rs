@@ -71,15 +71,39 @@ fn system_fonts() -> Database {
     db
 }
 
-/// The family names of every installed font, sorted, for `conduit fonts`.
-pub fn families() -> Vec<String> {
-    let mut names: Vec<String> = system_fonts()
-        .faces()
-        .flat_map(|f| f.families.iter().map(|(name, _)| name.clone()))
-        .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    names.dedup();
-    names
+/// Names `font` accepts besides installed families.
+pub const GENERIC_FAMILIES: [&str; 3] = ["sans-serif", "serif", "monospace"];
+
+/// An installed font family, as offered by `conduit fonts` and the editor's font picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFamily {
+    pub name: String,
+    /// Every glyph is the same width.
+    pub monospace: bool,
+    /// Has an italic or oblique face (otherwise `style = "italic"` falls back).
+    pub italic: bool,
+}
+
+/// Every installed font family, sorted by name (case-insensitive). Loading system fonts
+/// takes a moment, so callers should keep the result.
+pub fn font_families() -> Vec<FontFamily> {
+    let mut by_name: std::collections::BTreeMap<String, FontFamily> = Default::default();
+    for face in system_fonts().faces() {
+        // The first name is the English one when the font has several.
+        let Some((name, _)) = face.families.first() else {
+            continue;
+        };
+        let family = by_name
+            .entry(name.to_lowercase())
+            .or_insert_with(|| FontFamily {
+                name: name.clone(),
+                monospace: false,
+                italic: false,
+            });
+        family.monospace |= face.monospaced;
+        family.italic |= face.style != fontdb::Style::Normal;
+    }
+    by_name.into_values().collect()
 }
 
 /// Generic family names accepted by `font`, with the installed families tried for each,
@@ -221,7 +245,7 @@ impl Node for Text {
             outputs: vec![PortSpec::new("out", ValueType::Layer)],
             params: vec![
                 ParamSpec::text("text", "\"Hello\"").doc("the text; \\n starts a new line"),
-                ParamSpec::text("font", "\"sans-serif\"")
+                ParamSpec::font("font", "\"sans-serif\"")
                     .default("\"sans-serif\"")
                     .doc("an installed family (see `conduit fonts`), or serif / sans-serif / monospace"),
                 ParamSpec::float("size", 1.0, MAX_SIZE, "48")

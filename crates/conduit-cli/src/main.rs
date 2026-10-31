@@ -86,9 +86,9 @@ fn main() -> ExitCode {
             use std::io::Write;
             let mut out = std::io::stdout().lock();
             // Stop quietly if the reader goes away (e.g. `| head`).
-            let _ = conduit_nodes::text::families()
+            let _ = conduit_nodes::text::font_families()
                 .iter()
-                .try_for_each(|family| writeln!(out, "{family}"))
+                .try_for_each(|family| writeln!(out, "{}", family.name))
                 .and_then(|()| writeln!(out, "(also: serif, sans-serif, monospace)"));
             ExitCode::SUCCESS
         }

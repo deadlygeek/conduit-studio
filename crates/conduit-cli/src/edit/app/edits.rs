@@ -31,6 +31,10 @@ pub enum Pick {
     FeedType {
         param: String,
     },
+    /// A font for the focused node's font param, previewed live.
+    Font {
+        param: String,
+    },
 }
 
 impl Pick {
@@ -41,6 +45,7 @@ impl Pick {
             Pick::AddType => "add node of type".into(),
             Pick::InsertType { port, .. } => format!("insert before {focus}.{port}: type"),
             Pick::FeedType { param } => format!("feed {focus}.{param} from a new"),
+            Pick::Font { param } => format!("font for {focus}.{param}"),
         }
     }
 }
@@ -169,6 +174,7 @@ impl App {
                     .map(|s| (s.kind.to_string(), type_label(s)))
                     .collect()
             }
+            Pick::Font { param } => self.font_items(param),
         }
     }
 
@@ -178,6 +184,10 @@ impl App {
             return Vec::new();
         };
         let items = self.pick_items(purpose);
+        // Fonts are listed in a deliberate order (recent, generic, A–Z); keep it unfiltered.
+        if matches!(purpose, Pick::Font { .. }) && query.trim().is_empty() {
+            return items;
+        }
         finder::rank(
             query,
             items.iter().map(|item| (item.clone(), item.1.as_str())),
@@ -216,6 +226,7 @@ impl App {
                 let id = self.free_id_like(&format!("{focus}_{param}"));
                 self.open_prompt(Prompt::FeedId { kind: key, param }, id);
             }
+            Pick::Font { param } => self.choose_font(&param, key),
         }
         None
     }
@@ -389,7 +400,7 @@ impl App {
     /// `⏎` in the node panel: edit a param (typing a value replaces a link), or pick a
     /// source for an input.
     pub(super) fn edit_row(&mut self) {
-        if self.open_color_editor() {
+        if self.open_color_editor() || self.open_font_picker() {
             return;
         }
         match self.current_row().cloned() {

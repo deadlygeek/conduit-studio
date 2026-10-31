@@ -67,6 +67,8 @@ pub enum ParamKind {
     },
     Color,
     Text,
+    /// A text param naming an installed font family; editors offer a font picker.
+    Font,
     /// A table of named colors (`[params.colors]`), each also an output.
     Colors,
 }
@@ -84,6 +86,7 @@ impl fmt::Display for ParamKind {
             ParamKind::Float { min, max } => write!(f, "float {min}..{max}"),
             ParamKind::Color => f.write_str("color"),
             ParamKind::Text => f.write_str("text"),
+            ParamKind::Font => f.write_str("font"),
             ParamKind::Colors => f.write_str("named colors"),
         }
     }
@@ -136,6 +139,11 @@ impl ParamSpec {
         Self::new(name, ParamKind::Text, example)
     }
 
+    /// A font family name (text, with a font picker in editors).
+    pub fn font(name: &'static str, example: &'static str) -> Self {
+        Self::new(name, ParamKind::Font, example)
+    }
+
     /// Makes the param optional with the given default (a TOML literal).
     pub fn default(mut self, default: &'static str) -> Self {
         self.required = false;
@@ -180,7 +188,7 @@ impl ParamSpec {
             ParamKind::Color => {
                 crate::color::parse_color(input).map(|_| toml::Value::String(input.to_string()))
             }
-            ParamKind::Text => Ok(toml::Value::String(input.to_string())),
+            ParamKind::Text | ParamKind::Font => Ok(toml::Value::String(input.to_string())),
             ParamKind::Colors => Err("edit the colors one at a time".into()),
         }
     }
@@ -259,7 +267,7 @@ impl NodeSpec {
             let ty = match p.kind {
                 ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
                 ParamKind::Color => ValueType::Color,
-                ParamKind::Text | ParamKind::Colors => continue,
+                ParamKind::Text | ParamKind::Font | ParamKind::Colors => continue,
             };
             assert!(
                 ty != ValueType::Number || p.default.is_some(),

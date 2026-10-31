@@ -2,6 +2,7 @@
 
 mod colors;
 mod edits;
+mod fonts;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -117,6 +118,10 @@ pub struct App {
     pub message: Option<String>,
     pub probe: Option<Reference>,
     pub probe_follow: bool,
+    /// Installed font families for the font picker, loaded when it first opens.
+    fonts: Option<Arc<Vec<conduit_nodes::text::FontFamily>>>,
+    /// Fonts chosen in this session, most recent last; listed first in the picker.
+    recent_fonts: Vec<String>,
 }
 
 impl App {
@@ -141,6 +146,8 @@ impl App {
             message: None,
             probe: None,
             probe_follow: false,
+            fonts: None,
+            recent_fonts: Vec::new(),
         };
         app.focus = app.default_focus();
         app.refresh();
@@ -461,8 +468,17 @@ impl App {
         mut selected: usize,
     ) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let font = match &purpose {
+            Pick::Font { param } => Some(param.clone()),
+            _ => None,
+        };
         match key.code {
-            KeyCode::Esc => return None,
+            KeyCode::Esc => {
+                if let Some(param) = font {
+                    self.revert_font(&param);
+                }
+                return None;
+            }
             KeyCode::Enter => {
                 self.mode = Mode::Pick {
                     purpose: purpose.clone(),
@@ -495,6 +511,9 @@ impl App {
         let count = self.pick_matches().len();
         if let Mode::Pick { selected, .. } = &mut self.mode {
             *selected = (*selected).min(count.saturating_sub(1));
+        }
+        if let Some(param) = font {
+            self.preview_font(&param);
         }
         None
     }
@@ -750,7 +769,7 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::Path;
 
     use conduit_core::inspect;
@@ -1222,6 +1241,108 @@ mod tests {
             app.message.as_deref(),
             Some("press ⏎ to adjust `color` in the color editor")
         );
+    }
+
+    fn test_fonts(app: &mut App) {
+        let family = |name: &str, monospace, italic| conduit_nodes::text::FontFamily {
+            name: name.into(),
+            monospace,
+            italic,
+        };
+        app.fonts = Some(Arc::new(vec![
+            family("Alpha Sans", false, true),
+            family("Beta Mono", true, false),
+            family("Gamma Serif", false, true),
+        ]));
+    }
+
+    /// Opens the font picker on `node.font`, with a fixed font list (for view tests).
+    pub(crate) fn open_font_picker_on(app: &mut App, node: &str) {
+        test_fonts(app);
+        goto(app, node);
+        select(app, param("font"));
+        key(app, KeyCode::Enter);
+    }
+
+    fn font_line(app: &App) -> Option<String> {
+        read(app, "title")
+            .lines()
+            .find(|l| l.starts_with("font ="))
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn font_picker_previews_in_place_and_reverts() {
+        let (_tmp, mut app) = temp_project("text");
+        test_fonts(&mut app);
+        let original = read(&app, "title");
+        goto(&mut app, "title");
+        select(&mut app, param("font"));
+        key(&mut app, KeyCode::Enter);
+        // Generic names first, then families; the current font (the default) is selected.
+        let labels: Vec<String> = app.pick_matches().into_iter().map(|(_, l)| l).collect();
+        assert_eq!(
+            labels,
+            [
+                "sans-serif  generic · current",
+                "serif  generic",
+                "monospace  generic",
+                "Alpha Sans",
+                "Beta Mono  mono",
+                "Gamma Serif",
+            ]
+        );
+        assert!(matches!(app.mode, Mode::Pick { selected: 0, .. }));
+
+        // Moving writes the highlighted font straight away.
+        key(&mut app, KeyCode::Down);
+        assert_eq!(font_line(&app).as_deref(), Some("font = \"serif\""));
+        key(&mut app, KeyCode::Down);
+        assert_eq!(font_line(&app).as_deref(), Some("font = \"monospace\""));
+        // esc puts the file back as it was.
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(read(&app, "title"), original);
+        assert_eq!(app.mode, Mode::Normal);
+
+        // Filter, keep with ⏎; the whole session undoes in one step.
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "beta");
+        assert_eq!(font_line(&app).as_deref(), Some("font = \"Beta Mono\""));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(
+            app.message.as_deref(),
+            Some("set title.font = \"Beta Mono\"")
+        );
+        press(&mut app, "u");
+        assert_eq!(read(&app, "title"), original);
+        press(&mut app, "u");
+        assert_eq!(app.message.as_deref(), Some("nothing to undo"));
+
+        // Recent fonts come first next time.
+        key(&mut app, KeyCode::Enter);
+        let first = app.pick_matches().into_iter().next().unwrap();
+        assert_eq!(first.1, "Beta Mono  recent · mono");
+        key(&mut app, KeyCode::Esc);
+    }
+
+    #[test]
+    fn font_picker_flags_families_without_italic() {
+        let (_tmp, mut app) = temp_project("text");
+        test_fonts(&mut app);
+        goto(&mut app, "note");
+        select(&mut app, param("font"));
+        key(&mut app, KeyCode::Enter);
+        let labels: Vec<String> = app.pick_matches().into_iter().map(|(_, l)| l).collect();
+        assert!(
+            labels.contains(&"Beta Mono  mono · no italic".to_string()),
+            "{labels:?}"
+        );
+        assert!(
+            labels.contains(&"serif  generic · current".to_string()),
+            "{labels:?}"
+        );
+        key(&mut app, KeyCode::Esc);
     }
 
     #[test]

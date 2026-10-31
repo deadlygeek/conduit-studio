@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-use super::app::{App, ColorEdit, Mode, Pane, Row};
+use super::app::{App, ColorEdit, Mode, Pane, Pick, Row};
 use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -442,6 +442,13 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
     let hints = match (&app.mode, app.pane) {
+        (
+            Mode::Pick {
+                purpose: Pick::Font { .. },
+                ..
+            },
+            _,
+        ) => "type to filter   ↑/↓ preview in place   ⏎ keep   esc put back",
         (Mode::Pick { .. }, _) => "type to filter   ↑/↓ select   ⏎ choose   esc cancel",
         (Mode::Prompt { .. }, _) => "⏎ save   esc cancel   ctrl-u clear",
         (Mode::Confirm { .. }, _) => "y confirm   any other key cancels",
@@ -588,6 +595,10 @@ const HELP: &[(&str, &str)] = &[
     (
         "i",
         "insert a node into the connection; on a number: feed it from an int",
+    ),
+    (
+        "⏎ on a font",
+        "pick a font; the preview shows each one as you move",
     ),
     (
         "K / J",
@@ -811,6 +822,24 @@ mod tests {
             screen.contains("follow the connection under the cursor"),
             "{screen}"
         );
+    }
+
+    #[test]
+    fn font_picker_overlay() {
+        let tmp = tempfile::tempdir().unwrap();
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/text");
+        for entry in std::fs::read_dir(example).unwrap() {
+            let path = entry.unwrap().path();
+            std::fs::copy(&path, tmp.path().join(path.file_name().unwrap())).unwrap();
+        }
+        let registry = Arc::new(conduit_nodes::registry());
+        let project = inspect(tmp.path(), &registry).unwrap();
+        let mut app = App::new(tmp.path().to_path_buf(), project, registry);
+        super::super::app::tests::open_font_picker_on(&mut app, "title");
+        let screen = render(&mut app, 120, 30);
+        assert!(screen.contains("font for title.font (6 of 6)"), "{screen}");
+        assert!(screen.contains("Beta Mono  mono"), "{screen}");
+        assert!(screen.contains("↑/↓ preview in place"), "{screen}");
     }
 
     #[test]

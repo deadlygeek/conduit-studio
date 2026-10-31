@@ -243,7 +243,8 @@ After Effects' y-down directions:
 `text` sets text in any installed font and outputs a **layer**, so it is positioned,
 rotated and stacked like any other layer: put a `transform` after it, then `composite`.
 
-- `font` is a family name as `conduit fonts` lists it (case doesn't matter), or one of
+- `font` is a family name as `conduit fonts` lists it (case doesn't matter; in
+  `conduit edit`, `⏎` on it opens a font picker that previews live), or one of
   `serif`, `sans-serif`, `monospace`, which pick a common installed family. A family
   that isn't installed is an error; characters the font lacks (emoji, other scripts)
   fall back to another font automatically.
@@ -326,6 +327,7 @@ edit.
 | `+` `-` / `>` `<` / `}` `{` on a number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
 | `i` on a number or color param | feed it from a new node: pick a type (`int`, `color`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
 | `⏎` on a color | open the **color editor** (below) |
+| `⏎` on a font | open the **font picker**: fonts you chose this session, then `sans-serif` / `serif` / `monospace`, then every installed family (marked `mono`, or `no italic` when the node is italic and the family has none). Moving through the list writes the highlighted font to the file, so the preview shows it in place; `⏎` keeps it, `esc` puts back the original. The whole session undoes in one `u`. |
 | `C` on a color | open the **color picker** window (below) |
 | `c` / `d` on a color param | link it to a color output (a palette color or `color` node) / unlink it |
 | `r` / `o` / `x` on a palette color | rename it (links follow) / add a color (a copy of this one) / remove it (asks first if it's used) |
@@ -542,7 +544,8 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
   rendering them (After Effects' "collapse transformations"); pixel effects (blur, color)
   that take a realized layer directly.
 - **Text:** alignment for multi-line text, a wrap width, letter and line spacing, a font
-  file param (for fonts that aren't installed), and a font picker in the editor.
+  file param (for fonts that aren't installed), and a font browser window that shows each
+  family in its own typeface.
 - **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
   tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
   a color from the preview window; optional online palette sources (e.g. Lospec's palette

@@ -1,0 +1,10 @@
+# Bold title in the default sans-serif font; its color comes from `ink`
+type = "text"
+
+[inputs]
+color = "ink"
+
+[params]
+text = "Conduit Studio"
+size = 64
+weight = 700

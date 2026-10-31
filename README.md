@@ -53,6 +53,7 @@ target/debug/conduit edit examples/basic
 | `conduit edit <dir>` | Everything `run` does, plus a terminal UI for exploring and editing the project (see [Editing projects](#editing-projects)). |
 | `conduit check <dir>` | Load and render without opening windows. Prints each node's output, or every problem found, and exits non-zero on errors. |
 | `conduit nodes` | List the available node types with their inputs, outputs and params. |
+| `conduit fonts` | List the installed font families (for the `text` node's `font`). |
 | `conduit palette import <dir> <id> <source>` | Create the palette node `<id>` (or replace its colors) from a Coolors link, hex codes, or a palette file — see [Palettes](#palettes). |
 
 ## Writing a project
@@ -204,6 +205,7 @@ onto a canvas (`composite`) or realized (`realize`).
 |---|---|---|---|
 | `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
 | `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |
+| `text` | — | `text`, `font` (default `sans-serif`), `size` (px, default 48), `color` (default black), `weight` (100–900, default 400), `style` (`normal` / `italic`) — see [Text](#text) | layer: the text on a transparent background |
 | `realize` | `layer`: layer | — | the layer rendered onto its own bounding box, moved by whole pixels only |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
@@ -235,6 +237,25 @@ After Effects' y-down directions:
 - To apply a pixel effect after a transform, `realize` the layer first: it renders the
   layer onto its own bounding box (no canvas, so nothing is clipped) and still lands in the
   same place.
+
+### Text
+
+`text` sets text in any installed font and outputs a **layer**, so it is positioned,
+rotated and stacked like any other layer: put a `transform` after it, then `composite`.
+
+- `font` is a family name as `conduit fonts` lists it (case doesn't matter), or one of
+  `serif`, `sans-serif`, `monospace`, which pick a common installed family. A family
+  that isn't installed is an error; characters the font lacks (emoji, other scripts)
+  fall back to another font automatically.
+- `size` is the font size in pixels; lines are 1.2 × `size` apart. `\n` in `text` (or a
+  TOML multi-line string) starts a new line.
+- `color` and the number params can be linked like any others (e.g. a palette color).
+- The layer's origin is the top-left of the text box, so `transform`'s `x`, `y` place
+  that corner and its anchor (0.5, 0.5) is the box's center. Glyph parts that reach
+  outside the box (an italic overhang) are kept, not clipped.
+
+`examples/text` shows a bold title colored from a `color` node and a two-line italic
+note rotated by a `transform`.
 
 `examples/transform` shows a rotated bar, the same bar moved and scaled by a second
 transform, a squashed and skewed bar with `filter = "nearest"`, and `realize`.
@@ -384,6 +405,7 @@ examples/basic     the example project
 examples/linked    the same, with sizes and positions fed from `int` nodes
 examples/palette   colors from an imported palette, adjusted with a `color` node
 examples/transform rotate, scale, skew and realize layers
+examples/text      text in system fonts, colored and transformed
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
@@ -514,11 +536,13 @@ cargo run -q -p conduit-ipc --example send_frames | cargo run -q -p conduit-prev
 
 ## Roadmap
 
-- **Next:** `opacity` and `text` nodes; a headless `save_png` node; nodes that
+- **Next:** an `opacity` node; a headless `save_png` node; nodes that
   compute numbers (add, multiply, …) so one `int` can drive related values; a `float` node.
 - **Transforms:** a `group` node that combines several layers' transforms without
   rendering them (After Effects' "collapse transformations"); pixel effects (blur, color)
   that take a realized layer directly.
+- **Text:** alignment for multi-line text, a wrap width, letter and line spacing, a font
+  file param (for fonts that aren't installed), and a font picker in the editor.
 - **Color:** a `mix` node (blend two colors) and gradients; palette generators (shades and
   tints of one color, complementary / analogous / triadic schemes); an eyedropper that picks
   a color from the preview window; optional online palette sources (e.g. Lospec's palette

@@ -37,6 +37,8 @@ enum Command {
     },
     /// List available node types and their ports.
     Nodes,
+    /// List the installed font families, for the `text` node's `font` param.
+    Fonts,
     /// Work with palette nodes.
     #[command(subcommand)]
     Palette(PaletteCommand),
@@ -78,6 +80,16 @@ fn main() -> ExitCode {
         Command::Check { dir } => check(&dir, &registry),
         Command::Nodes => {
             print_nodes(&registry);
+            ExitCode::SUCCESS
+        }
+        Command::Fonts => {
+            use std::io::Write;
+            let mut out = std::io::stdout().lock();
+            // Stop quietly if the reader goes away (e.g. `| head`).
+            let _ = conduit_nodes::text::families()
+                .iter()
+                .try_for_each(|family| writeln!(out, "{family}"))
+                .and_then(|()| writeln!(out, "(also: serif, sans-serif, monospace)"));
             ExitCode::SUCCESS
         }
         Command::Palette(PaletteCommand::Import { dir, id, source }) => {

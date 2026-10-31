@@ -1,0 +1,5 @@
+# The title color, linked into `title.color`
+type = "color"
+
+[params]
+color = "#264653"

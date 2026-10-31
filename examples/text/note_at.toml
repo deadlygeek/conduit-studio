@@ -1,0 +1,10 @@
+# Moved under the title and tilted 6° clockwise about its center
+type = "transform"
+
+[inputs]
+layer = "note"
+
+[params]
+x = 60
+y = 150
+rotate = 6

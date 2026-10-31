@@ -58,12 +58,20 @@ fn nodes_lists_builtins() {
     let out = conduit(&["nodes"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    for kind in ["rect", "transform", "realize", "composite"] {
+    for kind in ["rect", "text", "transform", "realize", "composite"] {
         assert!(
             stdout.lines().any(|l| l == kind),
             "missing {kind}: {stdout}"
         );
     }
+}
+
+#[test]
+fn fonts_lists_generic_families() {
+    let out = conduit(&["fonts"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("sans-serif"), "{stdout}");
 }
 
 #[test]

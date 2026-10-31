@@ -1,0 +1,9 @@
+# Two lines of italic serif text
+type = "text"
+
+[params]
+text = "set in any installed font\nrotated like any other layer"
+font = "serif"
+size = 28
+color = "#e76f51"
+style = "italic"

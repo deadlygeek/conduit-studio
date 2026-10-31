@@ -8,6 +8,7 @@ mod palette;
 mod preview;
 mod realize;
 mod rect;
+pub mod text;
 mod transform;
 
 #[cfg(test)]
@@ -22,6 +23,7 @@ pub use palette::Palette;
 pub use preview::Preview;
 pub use realize::Realize;
 pub use rect::Rect;
+pub use text::Text;
 pub use transform::Transform;
 
 /// Largest width/height a node may create, to catch typos before allocating gigabytes.
@@ -36,6 +38,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Int);
     registry.register(ColorNode);
     registry.register(Palette);
+    registry.register(Text::system());
 }
 
 /// A registry containing every built-in node.

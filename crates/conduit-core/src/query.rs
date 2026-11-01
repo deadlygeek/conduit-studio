@@ -17,11 +17,16 @@ pub struct TreeItem {
     pub port: String,
     /// The output port on the upstream side of the connection.
     pub output: String,
+    /// The connection's position in `port` when that is a list input; 0 otherwise.
+    pub index: usize,
     /// Already shown earlier in this tree (a diamond or cycle); not expanded again.
     pub repeat: bool,
     /// Referenced but no such node file exists.
     pub missing: bool,
 }
+
+/// `(node, port, output, index)` of a neighbour in a lineage tree (see [`TreeItem`]).
+type Neighbour = (String, String, String, usize);
 
 impl Project {
     /// Everything `id` depends on, as a tree of its inputs. `max_depth` limits expansion.
@@ -33,7 +38,8 @@ impl Project {
                         .into_iter()
                         .flat_map(|(port, refs)| {
                             refs.into_iter()
-                                .map(move |r| (r.node, port.clone(), r.port))
+                                .enumerate()
+                                .map(move |(i, r)| (r.node, port.clone(), r.port, i))
                         })
                         .collect()
                 })
@@ -46,30 +52,29 @@ impl Project {
         self.tree(id, max_depth, |p, node| {
             p.consumers(node)
                 .iter()
-                .map(|c| (c.node.clone(), c.port.clone(), c.output.clone()))
+                .map(|c| (c.node.clone(), c.port.clone(), c.output.clone(), c.index))
                 .collect()
         })
     }
 
     /// Iterative pre-order walk (deep chains must not overflow the stack).
-    /// `children` returns `(node, port, output)` for each neighbour.
+    /// `children` returns `(node, port, output, index)` for each neighbour.
     fn tree(
         &self,
         root: &str,
         max_depth: Option<usize>,
-        children: impl Fn(&Project, &str) -> Vec<(String, String, String)>,
+        children: impl Fn(&Project, &str) -> Vec<Neighbour>,
     ) -> Vec<TreeItem> {
         let mut seen = BTreeSet::from([root.to_string()]);
         let mut out = Vec::new();
-        let push_children =
-            |stack: &mut Vec<(usize, (String, String, String))>, node: &str, depth| {
-                for child in children(self, node).into_iter().rev() {
-                    stack.push((depth, child));
-                }
-            };
+        let push_children = |stack: &mut Vec<(usize, Neighbour)>, node: &str, depth| {
+            for child in children(self, node).into_iter().rev() {
+                stack.push((depth, child));
+            }
+        };
         let mut stack = Vec::new();
         push_children(&mut stack, root, 1);
-        while let Some((depth, (node, port, output))) = stack.pop() {
+        while let Some((depth, (node, port, output, index))) = stack.pop() {
             let missing = !self.nodes.contains_key(&node);
             let repeat = !missing && !seen.insert(node.clone());
             if !missing && !repeat && max_depth.is_none_or(|max| depth < max) {
@@ -80,6 +85,7 @@ impl Project {
                 node,
                 port,
                 output,
+                index,
                 repeat,
                 missing,
             });
@@ -212,6 +218,30 @@ mod tests {
         );
         assert_eq!(rows(&p.downstream_tree("src", Some(1))), ["a", "c"]);
         assert!(p.downstream_tree("s", None).is_empty());
+    }
+
+    #[test]
+    fn tree_items_know_their_list_position() {
+        let p = project(&[
+            ("src", "type = \"source\"".into()),
+            ("a", pass("src")),
+            (
+                "s",
+                "type = \"sink\"\n[inputs]\nitems = [\"src\", \"a\", \"src\"]".into(),
+            ),
+        ]);
+        let up: Vec<(String, usize)> = p
+            .upstream_tree("s", Some(1))
+            .into_iter()
+            .map(|i| (i.node, i.index))
+            .collect();
+        assert_eq!(up, [("src".into(), 0), ("a".into(), 1), ("src".into(), 2)]);
+        let down: Vec<(String, usize)> = p
+            .downstream_tree("src", Some(1))
+            .into_iter()
+            .map(|i| (i.node, i.index))
+            .collect();
+        assert_eq!(down, [("a".into(), 0), ("s".into(), 0), ("s".into(), 2)]);
     }
 
     #[test]

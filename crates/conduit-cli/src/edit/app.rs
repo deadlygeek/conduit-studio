@@ -122,6 +122,8 @@ pub struct App {
     fonts: Option<Arc<Vec<conduit_nodes::text::FontFamily>>>,
     /// Fonts chosen in this session, most recent last; listed first in the picker.
     recent_fonts: Vec<String>,
+    /// A node picked up with `m`, to be put into the next connection chosen.
+    pub carrying: Option<String>,
 }
 
 impl App {
@@ -148,6 +150,7 @@ impl App {
             probe_follow: false,
             fonts: None,
             recent_fonts: Vec::new(),
+            carrying: None,
         };
         app.focus = app.default_focus();
         app.refresh();
@@ -275,6 +278,50 @@ impl App {
         self.visible(self.pane)
             .get(self.cursor(self.pane))
             .map(|&i| &tree[i])
+    }
+
+    /// The node `D`, `X` and `m` act on: the highlighted row's in a tree, else the focus.
+    fn target_node(&self) -> Option<String> {
+        match self.pane {
+            Pane::Node => self.focus.clone(),
+            _ => self
+                .current_item()
+                .filter(|i| !i.missing)
+                .map(|i| i.node.clone()),
+        }
+    }
+
+    /// The connection a tree row stands for. In the inputs tree the row's node feeds its
+    /// parent; in the used-by tree the parent feeds the row's node. The parent is the
+    /// nearest row above at one less depth, or the focused node.
+    fn tree_connection(&self) -> Option<conduit_core::edit::Connection> {
+        let tree = match self.pane {
+            Pane::Up => &self.up,
+            Pane::Down => &self.down,
+            Pane::Node => return None,
+        };
+        let i = *self.visible(self.pane).get(self.cursor(self.pane))?;
+        let item = &tree[i];
+        let parent = tree[..i]
+            .iter()
+            .rev()
+            .find(|p| p.depth < item.depth)
+            .map(|p| p.node.clone())
+            .or_else(|| self.focus.clone())?;
+        let (source, node) = if self.pane == Pane::Up {
+            (item.node.clone(), parent)
+        } else {
+            (parent, item.node.clone())
+        };
+        Some(conduit_core::edit::Connection {
+            source: Reference {
+                node: source,
+                port: item.output.clone(),
+            },
+            node,
+            port: item.port.clone(),
+            index: item.index,
+        })
     }
 
     // --- focus and history -------------------------------------------------------------
@@ -550,6 +597,22 @@ impl App {
 
     fn normal_key(&mut self, key: KeyEvent) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        // Carrying a node (`m`): `⏎` drops it, `esc` cancels; everything else works as usual.
+        if let Some(id) = self.carrying.clone() {
+            match key.code {
+                KeyCode::Enter => {
+                    self.carrying = None;
+                    self.drop_carried(id);
+                    return None;
+                }
+                KeyCode::Esc => {
+                    self.carrying = None;
+                    self.message = Some(format!("stopped moving {id}"));
+                    return None;
+                }
+                _ => {}
+            }
+        }
         match (self.pane, key.code) {
             (_, KeyCode::Char('q')) => return Some(Action::Quit),
             (_, KeyCode::Char('?')) => self.mode = Mode::Help,
@@ -560,6 +623,7 @@ impl App {
             (Pane::Node, KeyCode::Char('c')) => self.connect_row(),
             (Pane::Node, KeyCode::Char('d')) => self.disconnect_row(),
             (Pane::Node, KeyCode::Char('i')) => self.insert_row(),
+            (_, KeyCode::Char('i')) => self.insert_tree_row(),
             (Pane::Node, KeyCode::Char('K')) => self.move_row(-1),
             (Pane::Node, KeyCode::Char('J')) => self.move_row(1),
             (Pane::Node, KeyCode::Char(c)) if nudge_step(c).is_some() => {
@@ -575,6 +639,8 @@ impl App {
             },
             (_, KeyCode::Char('r')) => self.start_rename(),
             (_, KeyCode::Char('D')) => self.start_delete(),
+            (_, KeyCode::Char('X')) => self.start_dissolve(),
+            (_, KeyCode::Char('m')) => self.start_move(),
             (_, KeyCode::Char('u')) => self.undo(),
             (_, KeyCode::Char('E')) => {
                 return self.focused().map(|n| Action::OpenEditor(n.path.clone()));
@@ -1614,6 +1680,126 @@ pub(crate) mod tests {
         assert!(read(&app, "comp").contains("base = \"composite_1\""));
         assert!(read(&app, "composite_1").contains("base = \"white_bg\""));
         assert!(app.project.is_valid(), "{:?}", app.project.errors);
+    }
+
+    /// Moves into `pane` and puts the cursor on the first row for `node`.
+    fn select_tree(app: &mut App, pane: Pane, node: &str) {
+        app.pane = pane;
+        let tree = if pane == Pane::Up { &app.up } else { &app.down };
+        let i = app
+            .visible(pane)
+            .iter()
+            .position(|&i| tree[i].node == node)
+            .unwrap_or_else(|| panic!("{node} in the {pane:?} tree"));
+        app.set_cursor(pane, i);
+    }
+
+    /// Picks the node type `kind` in the open picker and accepts the suggested id.
+    fn pick_type(app: &mut App, kind: &str) {
+        press(app, kind);
+        assert_eq!(app.pick_matches()[0].0, kind);
+        key(app, KeyCode::Enter);
+        key(app, KeyCode::Enter);
+    }
+
+    #[test]
+    fn insert_from_the_trees() {
+        let (_tmp, mut app) = temp_project("effects");
+        // Inputs tree, depth 2: `bar` feeds `bar_turned.layer`.
+        goto(&mut app, "bar_inverted");
+        select_tree(&mut app, Pane::Up, "bar");
+        press(&mut app, "i");
+        pick_type(&mut app, "hsl");
+        assert_eq!(focus(&app), "hsl_1");
+        assert!(read(&app, "bar_turned").contains("layer = \"hsl_1\""));
+        assert!(read(&app, "hsl_1").contains("layer = \"bar\""));
+
+        // Used-by tree: `swatch_at` feeds `comp.layers[1]`.
+        goto(&mut app, "swatch_shifted");
+        select_tree(&mut app, Pane::Down, "comp");
+        press(&mut app, "i");
+        pick_type(&mut app, "invert");
+        assert!(read(&app, "invert_1").contains("layer = \"swatch_at\""));
+        assert!(
+            read(&app, "comp").contains("[\"logo_at\", \"invert_1\", \"bar_inverted\"]"),
+            "{}",
+            read(&app, "comp")
+        );
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+    }
+
+    #[test]
+    fn dissolve_reconnects() {
+        let (_tmp, mut app) = temp_project("effects");
+        goto(&mut app, "bar_turned");
+        press(&mut app, "X");
+        assert!(
+            matches!(&app.mode, Mode::Confirm { question, .. }
+                if question.contains("Connects bar → bar_inverted.layer")),
+            "{:?}",
+            app.mode
+        );
+        press(&mut app, "y");
+        assert!(read(&app, "bar_turned").is_empty());
+        assert!(read(&app, "bar_inverted").contains("layer = \"bar\""));
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+        press(&mut app, "u");
+        assert!(!read(&app, "bar_turned").is_empty());
+
+        // From a tree, the highlighted node goes and focus stays.
+        goto(&mut app, "comp");
+        select_tree(&mut app, Pane::Up, "logo_tinted");
+        press(&mut app, "Xy");
+        assert_eq!(focus(&app), "comp");
+        assert!(read(&app, "logo_tinted").is_empty());
+        assert!(read(&app, "logo_at").contains("layer = \"logo\""));
+    }
+
+    #[test]
+    fn delete_in_a_tree_deletes_the_highlighted_node() {
+        let (_tmp, mut app) = temp_project("effects");
+        goto(&mut app, "comp");
+        select_tree(&mut app, Pane::Up, "swatch_at");
+        press(&mut app, "Dy");
+        assert_eq!(focus(&app), "comp");
+        assert!(read(&app, "swatch_at").is_empty());
+        assert!(!read(&app, "comp").is_empty());
+    }
+
+    #[test]
+    fn move_a_node_to_another_connection() {
+        let (_tmp, mut app) = temp_project("effects");
+        goto(&mut app, "bar_turned");
+        press(&mut app, "m");
+        assert_eq!(app.carrying.as_deref(), Some("bar_turned"));
+
+        // Not a connection: still carrying.
+        select(&mut app, param("x"));
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.carrying.as_deref(), Some("bar_turned"));
+        assert!(read(&app, "bar_inverted").contains("layer = \"bar_turned\""));
+
+        // `bar_inverted → comp.layers[2]`, two levels down the used-by tree.
+        select_tree(&mut app, Pane::Down, "comp");
+        press(&mut app, "m");
+        assert_eq!(app.carrying, None, "{:?}", app.message);
+        assert!(read(&app, "bar_inverted").contains("layer = \"bar\""));
+        assert!(read(&app, "bar_turned").contains("layer = \"bar_inverted\""));
+        assert!(
+            read(&app, "comp").contains("\"bar_turned\"]"),
+            "{}",
+            read(&app, "comp")
+        );
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+
+        // One undo puts it all back.
+        press(&mut app, "u");
+        assert!(read(&app, "bar_inverted").contains("layer = \"bar_turned\""));
+
+        // esc cancels.
+        press(&mut app, "m");
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.carrying, None);
     }
 
     #[test]

@@ -8,7 +8,8 @@ use toml_edit::{DocumentMut, Item, TableLike};
 
 use crate::graph::{Reference, is_ident};
 use crate::node::NodeSpec;
-use crate::project::Project;
+use crate::project::{Consumer, Project};
+use crate::value::ValueType;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EditError {
@@ -543,6 +544,250 @@ pub fn delete_node(dir: &Path, project: &Project, id: &str) -> EditResult<Change
     })
 }
 
+/// One connection: `node.port[index]` takes `source` (`index` is 0 for single inputs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Connection {
+    pub source: Reference,
+    pub node: String,
+    pub port: String,
+    pub index: usize,
+}
+
+/// How taking a node out of the graph would rewire it (see [`bypass_plan`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bypass {
+    /// The node's input that is passed through, and what feeds it. `None` if nothing
+    /// feeds the node, so its users can only be disconnected.
+    pub through: Option<(String, Reference)>,
+    /// Uses of the node that will take `through` instead.
+    pub reconnect: Vec<Consumer>,
+    /// Uses that can't take `through` (wrong type, or nothing to pass) and will be
+    /// disconnected.
+    pub disconnect: Vec<Consumer>,
+}
+
+/// Plans taking `id` out from between its sources and its users: its first connected
+/// input (in spec order, plain inputs before linked params) is passed through to every
+/// user that accepts its type. So `a → b → c` becomes `a → c`, and taking out a `color`
+/// node links its users to the palette color feeding it.
+pub fn bypass_plan(project: &Project, id: &str) -> EditResult<Bypass> {
+    let node = project.get(id).ok_or_else(|| missing(id))?;
+    let mut through = None;
+    if let Some(spec) = &node.spec {
+        let ports = spec.inputs.iter().filter(|p| !p.param);
+        for port in ports.chain(spec.inputs.iter().filter(|p| p.param)) {
+            let refs: Vec<&Reference> = node
+                .inputs
+                .get(port.name)
+                .into_iter()
+                .flatten()
+                .filter(|r| r.node != id)
+                .collect();
+            match refs.as_slice() {
+                [] => continue,
+                [r] => {
+                    through = Some((port.name.to_string(), (*r).clone()));
+                    break;
+                }
+                many => {
+                    return Err(EditError::Invalid(format!(
+                        "`{id}.{}` has {} connections; can't tell which one to reconnect",
+                        port.name,
+                        many.len()
+                    )));
+                }
+            }
+        }
+    }
+    let through_ty = through.as_ref().and_then(|(_, r)| output_type(project, r));
+    let (mut reconnect, mut disconnect) = (Vec::new(), Vec::new());
+    for c in project.consumers(id).iter().filter(|c| c.node != id) {
+        let fits = through_ty
+            .zip(input_type(project, &c.node, &c.port))
+            .is_some_and(|(from, to)| from.coerces_to(to));
+        if fits {
+            reconnect.push(c.clone());
+        } else {
+            disconnect.push(c.clone());
+        }
+    }
+    Ok(Bypass {
+        through,
+        reconnect,
+        disconnect,
+    })
+}
+
+fn output_type(project: &Project, r: &Reference) -> Option<ValueType> {
+    let n = project.get(&r.node)?;
+    n.spec.as_ref()?.output_type(&n.params, &r.port)
+}
+
+fn input_type(project: &Project, node: &str, port: &str) -> Option<ValueType> {
+    Some(project.get(node)?.spec.as_ref()?.input(port)?.ty)
+}
+
+/// The reference at `port` (list element `index`, or the single value).
+fn reference_at(doc: &DocumentMut, port: &str, index: usize) -> Option<Reference> {
+    let value = doc.get("inputs")?.as_table_like()?.get(port)?.as_value()?;
+    let value = match value.as_array() {
+        Some(items) => items.get(index)?,
+        None if index == 0 => value,
+        None => return None,
+    };
+    Reference::parse(value.as_str()?).ok()
+}
+
+/// Checks `port[index]` still references `expected` (the file may have changed since the
+/// project was read).
+fn expect_reference(
+    doc: &DocumentMut,
+    node: &str,
+    port: &str,
+    index: usize,
+    expected: &Reference,
+) -> EditResult<()> {
+    if reference_at(doc, port, index).as_ref() == Some(expected) {
+        Ok(())
+    } else {
+        Err(EditError::Invalid(format!(
+            "`{node}.{port}` no longer takes `{expected}`; the file changed, try again"
+        )))
+    }
+}
+
+/// Uses of a node in one file, each with its new source (`None`: disconnect).
+type Uses<'a> = Vec<(&'a Consumer, Option<&'a Reference>)>;
+
+/// Rewires `id`'s users as `plan` says.
+fn bypass_in(tx: &mut Tx, dir: &Path, id: &str, plan: &Bypass) -> EditResult<()> {
+    let mut by_node: Vec<(&str, Uses)> = Vec::new();
+    let through = plan.through.as_ref().map(|(_, r)| r);
+    let uses = (plan.reconnect.iter().map(|c| (c, through)))
+        .chain(plan.disconnect.iter().map(|c| (c, None)));
+    for (c, new) in uses {
+        match by_node.iter_mut().find(|(n, _)| *n == c.node) {
+            Some((_, list)) => list.push((c, new)),
+            None => by_node.push((&c.node, vec![(c, new)])),
+        }
+    }
+    for (node, mut uses) in by_node {
+        // Highest index first, so removing a list element doesn't shift the others.
+        uses.sort_by_key(|(c, _)| std::cmp::Reverse(c.index));
+        tx.update(&node_path(dir, node), |doc| {
+            for (c, new) in &uses {
+                let old = Reference {
+                    node: id.to_string(),
+                    port: c.output.clone(),
+                };
+                expect_reference(doc, node, &c.port, c.index, &old)?;
+                match new {
+                    Some(new) => replace_reference(doc, &c.port, c.index, new)?,
+                    None => disconnect_in(doc, &c.port, Some(c.index))?,
+                }
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// Deletes `id` and connects what fed it to its users instead (see [`bypass_plan`]).
+/// Users that can't take it are disconnected, as with [`delete_node`].
+pub fn dissolve_node(dir: &Path, project: &Project, id: &str) -> EditResult<Change> {
+    let node = project.get(id).ok_or_else(|| missing(id))?;
+    let plan = bypass_plan(project, id)?;
+    transact(|tx| {
+        bypass_in(tx, dir, id, &plan)?;
+        tx.remove(&node.path)
+    })
+}
+
+/// Takes `id` out from where it is (as [`dissolve_node`] does, but keeping it) and puts
+/// it into `target`: `target.source → id → target.node`.
+pub fn move_node(
+    dir: &Path,
+    project: &Project,
+    id: &str,
+    target: &Connection,
+) -> EditResult<Change> {
+    let node = project.get(id).ok_or_else(|| missing(id))?;
+    let spec = node
+        .spec
+        .as_ref()
+        .ok_or_else(|| EditError::Invalid(format!("`{id}` has an unknown type")))?;
+    if target.source.node == id || target.node == id {
+        return Err(EditError::Invalid(format!("`{id}` is already there")));
+    }
+    let plan = bypass_plan(project, id)?;
+    let Some((through_port, _)) = &plan.through else {
+        return Err(EditError::Invalid(format!(
+            "nothing feeds `{id}`, so it can't pass a connection through; use `i` to insert a new node"
+        )));
+    };
+    let through_ty = spec.input(through_port).map(|p| p.ty);
+    let source_ty = output_type(project, &target.source).ok_or_else(|| {
+        EditError::Invalid(format!("cannot tell the type of `{}`", target.source))
+    })?;
+    if !through_ty.is_some_and(|t| source_ty.coerces_to(t)) {
+        return Err(EditError::Invalid(format!(
+            "`{id}.{through_port}` can't take {source_ty} from `{}`",
+            target.source
+        )));
+    }
+    let target_ty = input_type(project, &target.node, &target.port).ok_or_else(|| {
+        EditError::Invalid(format!("`{}` has no input `{}`", target.node, target.port))
+    })?;
+    let output = spec
+        .outputs_for(&node.params)
+        .into_iter()
+        .find(|(_, ty)| ty.coerces_to(target_ty))
+        .map(|(name, _)| name)
+        .ok_or_else(|| {
+            EditError::Invalid(format!(
+                "`{id}` has no output usable as {target_ty} for `{}.{}`",
+                target.node, target.port
+            ))
+        })?;
+    // `id`'s other inputs stay, so they must not depend on where it's going.
+    let downstream = project.descendants(&target.node);
+    let other_sources = node
+        .inputs
+        .iter()
+        .filter(|(port, _)| *port != through_port)
+        .flat_map(|(_, refs)| refs);
+    if let Some(r) = other_sources
+        .into_iter()
+        .find(|r| r.node == target.node || downstream.contains(&r.node))
+    {
+        return Err(EditError::Invalid(format!(
+            "`{id}` takes `{r}`, which depends on `{}`: that would make a cycle",
+            target.node
+        )));
+    }
+    let new_ref = Reference {
+        node: id.to_string(),
+        port: output,
+    };
+    transact(|tx| {
+        // The target first: its index is as read, before any bypass removal in that file.
+        tx.update(&node_path(dir, &target.node), |doc| {
+            expect_reference(
+                doc,
+                &target.node,
+                &target.port,
+                target.index,
+                &target.source,
+            )?;
+            replace_reference(doc, &target.port, target.index, &new_ref)
+        })?;
+        bypass_in(tx, dir, id, &plan)?;
+        tx.update(&node_path(dir, id), |doc| {
+            replace_reference(doc, through_port, 0, &target.source)
+        })
+    })
+}
+
 /// Applies `f` to every reference in `[inputs]`, replacing it when `f` returns `Some`.
 fn rewrite_references(doc: &mut DocumentMut, f: impl Fn(&Reference) -> Option<Reference>) {
     let Some(inputs) = doc.get_mut("inputs").and_then(Item::as_table_like_mut) else {
@@ -1052,6 +1297,144 @@ mod tests {
         assert!(p.is_valid(), "{:?}", p.errors);
         change.undo().unwrap();
         assert_eq!(f.snapshot(), before);
+    }
+
+    const PASS_SRC: &str = "type = \"pass\"\n[inputs]\nimage = \"src\"\n";
+
+    fn inputs(f: &Fixture, id: &str, port: &str) -> Vec<String> {
+        f.project().get(id).unwrap().inputs[port]
+            .iter()
+            .map(|r| r.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn dissolve_reconnects_a_chain() {
+        let wrap_p = "type = \"wrap\"\n[inputs]\nimage = \"p\" # from p\n";
+        let f = Fixture::new(&[("src", SRC), ("p", PASS_SRC), ("w", wrap_p)]);
+        let project = f.project();
+        let after = f.apply_and_undo(|| dissolve_node(f.path(), &project, "p"));
+        assert!(!after.contains_key("p.toml"));
+        assert_eq!(
+            after["w.toml"],
+            "type = \"wrap\"\n[inputs]\nimage = \"src\" # from p\n"
+        );
+    }
+
+    #[test]
+    fn dissolve_keeps_list_position() {
+        let f = fixture();
+        let project = f.project();
+        let plan = bypass_plan(&project, "w").unwrap();
+        assert_eq!(
+            plan.through,
+            Some(("image".into(), Reference::parse("src").unwrap()))
+        );
+        assert_eq!(plan.reconnect.len(), 1);
+        let after = f.apply_and_undo(|| dissolve_node(f.path(), &project, "w"));
+        assert!(
+            after["s.toml"].contains("\"src\",  # first\n  \"src.out\","),
+            "{}",
+            after["s.toml"]
+        );
+    }
+
+    #[test]
+    fn dissolve_without_inputs_disconnects() {
+        let f = fixture();
+        let project = f.project();
+        let plan = bypass_plan(&project, "src").unwrap();
+        assert_eq!(plan.through, None);
+        assert_eq!(plan.disconnect.len(), 2);
+        dissolve_node(f.path(), &project, "src").unwrap();
+        assert!(!f.path().join("src.toml").exists());
+        assert!(!f.project().get("w").unwrap().inputs.contains_key("image"));
+    }
+
+    #[test]
+    fn dissolve_refuses_several_sources() {
+        let f = fixture();
+        let err = dissolve_node(f.path(), &f.project(), "s").unwrap_err();
+        assert!(err.to_string().contains("can't tell which"), "{err}");
+        assert!(f.path().join("s.toml").exists());
+    }
+
+    #[test]
+    fn dissolve_links_a_param_to_what_fed_it() {
+        let f = Fixture::new(&[
+            ("pal", "type = \"pal\"\n[params.colors]\na = \"red\"\n"),
+            ("t1", "type = \"tint\"\n[inputs]\ncolor = \"pal.a\"\n"),
+            ("t2", "type = \"tint\"\n[inputs]\ncolor = \"t1\"\n"),
+        ]);
+        let project = f.project();
+        f.apply_and_undo(|| dissolve_node(f.path(), &project, "t1"));
+        dissolve_node(f.path(), &project, "t1").unwrap();
+        assert_eq!(inputs(&f, "t2", "color"), ["pal.a"]);
+    }
+
+    fn chain() -> Fixture {
+        // src → p1 → p2 → w
+        Fixture::new(&[
+            ("src", SRC),
+            ("p1", PASS_SRC),
+            ("p2", "type = \"pass\"\n[inputs]\nimage = \"p1\"\n"),
+            ("w", "type = \"wrap\"\n[inputs]\nimage = \"p2\"\n"),
+        ])
+    }
+
+    fn connection(source: &str, node: &str, port: &str, index: usize) -> Connection {
+        Connection {
+            source: Reference::parse(source).unwrap(),
+            node: node.into(),
+            port: port.into(),
+            index,
+        }
+    }
+
+    #[test]
+    fn move_node_to_another_connection() {
+        let f = chain();
+        let project = f.project();
+        let target = connection("p2", "w", "image", 0);
+        f.apply_and_undo(|| move_node(f.path(), &project, "p1", &target));
+        move_node(f.path(), &project, "p1", &target).unwrap();
+        // src → p2 → p1 → w
+        assert_eq!(inputs(&f, "p2", "image"), ["src.out"]);
+        assert_eq!(inputs(&f, "p1", "image"), ["p2.out"]);
+        assert_eq!(inputs(&f, "w", "image"), ["p1.out"]);
+    }
+
+    #[test]
+    fn move_node_into_a_list() {
+        // Move the unused pass `p` into s.items[1], which is `src.out`.
+        let f = Fixture::new(&[("src", SRC), ("p", PASS_SRC), ("w", WRAP), ("s", SINK)]);
+        let project = f.project();
+        move_node(f.path(), &project, "p", &connection("src", "s", "items", 1)).unwrap();
+        assert_eq!(inputs(&f, "s", "items"), ["w.out", "p.out"]);
+        assert_eq!(inputs(&f, "p", "image"), ["src.out"]);
+        assert!(f.read("s").contains("\"w\",  # first"), "{}", f.read("s"));
+    }
+
+    #[test]
+    fn move_node_rejects_bad_targets() {
+        let f = chain();
+        let project = f.project();
+        let before = f.snapshot();
+        let fail = |id: &str, target: Connection| {
+            let err = move_node(f.path(), &project, id, &target).unwrap_err();
+            assert_eq!(
+                f.snapshot(),
+                before,
+                "nothing written for {id} → {target:?}"
+            );
+            err.to_string()
+        };
+        assert!(fail("p1", connection("p1", "p2", "image", 0)).contains("already there"));
+        assert!(fail("p1", connection("src", "p1", "image", 0)).contains("already there"));
+        // `w` outputs a layer; `p1.image` needs an image.
+        assert!(fail("w", connection("src", "p1", "image", 0)).contains("no output usable"));
+        // Nothing feeds `src`.
+        assert!(fail("src", connection("p2", "w", "image", 0)).contains("nothing feeds"));
     }
 
     #[test]

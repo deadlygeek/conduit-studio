@@ -431,6 +431,12 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         )),
         Some(Event::FilesChanged) => {}
     }
+    if let Some(id) = &app.carrying {
+        spans.push(Span::styled(
+            format!("   ⇄ moving {id}"),
+            Style::new().fg(ACCENT),
+        ));
+    }
     if let Some(message) = &app.message {
         spans.push(Span::styled(
             format!("   {message}"),
@@ -456,11 +462,18 @@ fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
         (Mode::Color(_), _) => {
             "j/k channel  +/- 1  >/< 10  }/{ 50  tab HSL/RGB  # hex  ⏎ keep  esc revert"
         }
+        _ if app.carrying.is_some() => {
+            "go to a connection (j/k, H/L, h/l)   m/⏎ put it there   esc cancel"
+        }
         (_, Pane::Node) => {
             "h/l follow   j/k move   ⏎ edit   c/d connect   i insert   a add   r/D rename/del   u undo   / find   p probe   ? help"
         }
-        (_, Pane::Up) => "h/⏎ focus   l back   j/k move   space fold   / find   p probe   ? help",
-        (_, Pane::Down) => "l/⏎ focus   h back   j/k move   space fold   / find   p probe   ? help",
+        (_, Pane::Up) => {
+            "h/⏎ focus   l back   j/k move   i insert   m move   X dissolve   space fold   ? help"
+        }
+        (_, Pane::Down) => {
+            "l/⏎ focus   h back   j/k move   i insert   m move   X dissolve   space fold   ? help"
+        }
     };
     frame.render_widget(Line::from(Span::styled(format!(" {hints}"), DIM)), area);
 }
@@ -594,7 +607,7 @@ const HELP: &[(&str, &str)] = &[
     ),
     (
         "i",
-        "insert a node into the connection; on a number: feed it from an int",
+        "insert a node into a connection or tree row; number: feed from int",
     ),
     (
         "⏎ on a font",
@@ -618,7 +631,18 @@ const HELP: &[(&str, &str)] = &[
         "C",
         "open the color under the cursor in the GUI color picker",
     ),
-    ("r / D", "rename / delete the focused node"),
+    (
+        "r / D",
+        "rename / delete the node (in a tree: the highlighted one)",
+    ),
+    (
+        "X",
+        "dissolve: delete the node, connecting what fed it to its users",
+    ),
+    (
+        "m",
+        "move the node: pick it up, then m / ⏎ on a connection to put it",
+    ),
     ("E", "open the focused node's file in $EDITOR"),
     ("u", "undo the last edit"),
     (

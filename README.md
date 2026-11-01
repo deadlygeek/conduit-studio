@@ -330,7 +330,7 @@ stack vertically.
 |---|---|
 | `h` / `l` | follow the connection under the cursor upstream / downstream (repeat to walk a chain) |
 | `j` / `k`, `g` / `G` | move the cursor; top / bottom |
-| `H` / `L` | move into the inputs / used-by tree; there `⏎` focuses a node and `space` folds a branch |
+| `H` / `L` | move into the inputs / used-by tree; there `⏎` focuses a node and `space` folds a branch. Each tree row is a connection (the row's node and its parent), so `i` and `m` work on it, and `D` / `X` / `m` act on the highlighted node instead of the focused one. |
 | `tab`, `esc` | cycle panes; back to the node panel |
 | `[` / `]` | back / forward through nodes you've focused (also `ctrl-o`, backspace) |
 | `/` | fuzzy-find a node by name or type (`wbg` finds `white_bg`) |
@@ -358,9 +358,11 @@ edit.
 | `⏎` or `c` on an input | pick a source: only type-compatible outputs that don't create a cycle are offered. List inputs append; single inputs are replaced. |
 | `d` on an input | disconnect that connection |
 | `K` / `J` on a list connection | move it one place earlier / later in the list. In `composite`'s `layers`, later entries are drawn on top, so `J` raises a layer and `K` lowers it. |
-| `i` on an input | insert a new node into that connection (`source → new → this`); only node types that fit are offered |
+| `i` on an input or a tree row | insert a new node into that connection (`source → new → this`); only node types that fit are offered |
+| `X` | dissolve the node: delete it and connect what fed it to everything that used it (`a → b → c` becomes `a → c`), after confirmation. The input passed through is its first connected one (plain inputs before linked params, so dissolving a `color` node links its users to the palette color feeding it); users that can't take that type are disconnected. |
+| `m` | move the node: pick it up (`⇄ moving …` shows in the status line), go to any connection — a tree row, or an input of whichever node you focus — and press `m` or `⏎` to put it there (`source → node → user`). Where it was is reconnected as `X` would. `esc` cancels; the whole move undoes in one `u`. |
 | `a` | add a node: pick a type, give it an id (suggested `<type>_N`) |
-| `r` / `D` | rename the focused node (every reference is updated) / delete it (after confirmation; its connections are removed) |
+| `r` / `D` | rename the focused node (every reference is updated) / delete it (after confirmation; its connections are removed, see `X` to reconnect them) |
 | `E` | open the focused node's file in `$VISUAL` / `$EDITOR` (default `vi`) |
 | `u` | undo the last edit (restores the files exactly; this session only) |
 

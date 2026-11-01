@@ -5,7 +5,7 @@ use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
 use conduit_core::{
-    NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, float_value, inspect,
+    Consumer, NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, float_value, inspect,
 };
 
 use super::{Action, App, Mode, Row};
@@ -22,8 +22,10 @@ pub enum Pick {
     },
     /// The type of a new node.
     AddType,
-    /// The type of a node to insert before the focused node's input.
+    /// The type of a node to insert before `node.port[index]` (the focused node's input,
+    /// or a connection in a tree).
     InsertType {
+        node: String,
         port: String,
         index: usize,
     },
@@ -43,7 +45,7 @@ impl Pick {
             Pick::FindNode => "find node".into(),
             Pick::Connect { port, .. } => format!("connect {focus}.{port} to"),
             Pick::AddType => "add node of type".into(),
-            Pick::InsertType { port, .. } => format!("insert before {focus}.{port}: type"),
+            Pick::InsertType { node, port, .. } => format!("insert before {node}.{port}: type"),
             Pick::FeedType { param } => format!("feed {focus}.{param} from a new"),
             Pick::Font { param } => format!("font for {focus}.{param}"),
         }
@@ -61,6 +63,7 @@ pub enum Prompt {
     },
     InsertId {
         kind: String,
+        node: String,
         port: String,
         index: usize,
     },
@@ -102,6 +105,7 @@ impl Prompt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Confirm {
     Delete(String),
+    Dissolve(String),
     RemoveEntry { param: String, key: String },
 }
 
@@ -154,8 +158,8 @@ impl App {
                 .specs()
                 .map(|s| (s.kind.to_string(), type_label(s)))
                 .collect(),
-            Pick::InsertType { port, index } => {
-                let Some((source_ty, target_ty)) = self.insert_types(port, *index) else {
+            Pick::InsertType { node, port, index } => {
+                let Some((source_ty, target_ty)) = self.insert_types(node, port, *index) else {
                     return Vec::new();
                 };
                 self.registry
@@ -210,11 +214,12 @@ impl App {
                 let id = self.free_id(&key);
                 self.open_prompt(Prompt::AddId { kind: key }, id);
             }
-            Pick::InsertType { port, index } => {
+            Pick::InsertType { node, port, index } => {
                 let id = self.free_id(&key);
                 self.open_prompt(
                     Prompt::InsertId {
                         kind: key,
+                        node,
                         port,
                         index,
                     },
@@ -263,11 +268,16 @@ impl App {
                 }
                 Ok(action)
             }
-            Prompt::InsertId { kind, port, index } => {
+            Prompt::InsertId {
+                kind,
+                node,
+                port,
+                index,
+            } => {
                 let spec = self.spec(&kind)?;
-                let label = format!("inserted {input} ({kind}) before {focus}.{port}");
+                let label = format!("inserted {input} ({kind}) before {node}.{port}");
                 self.apply(label, |dir, project| {
-                    ops::insert_between(dir, project, &focus, &port, index, input, &spec)
+                    ops::insert_between(dir, project, &node, &port, index, input, &spec)
                 })?;
                 Ok(self.focus_on(input))
             }
@@ -506,12 +516,14 @@ impl App {
     /// `i`: insert a new node into the connection under the cursor. On an unlinked number
     /// param, add a node (e.g. `int`) that feeds it, starting at the param's value.
     pub(super) fn insert_row(&mut self) {
+        let node = self.focus.clone().unwrap_or_default();
         match self.current_row().cloned() {
             Some(Row::Input {
                 port,
                 index,
                 source: Some(_),
             }) => self.open_pick(Pick::InsertType {
+                node,
                 port,
                 index: index.unwrap_or(0),
             }),
@@ -519,6 +531,7 @@ impl App {
                 name,
                 link: Some(_),
             }) => self.open_pick(Pick::InsertType {
+                node,
                 port: name,
                 index: 0,
             }),
@@ -530,6 +543,18 @@ impl App {
                     "move the cursor to a connection or number param to insert a node there".into(),
                 )
             }
+        }
+    }
+
+    /// `i` in a tree: insert a new node into the connection that row stands for.
+    pub(super) fn insert_tree_row(&mut self) {
+        match self.tree_connection() {
+            Some(c) => self.open_pick(Pick::InsertType {
+                node: c.node,
+                port: c.port,
+                index: c.index,
+            }),
+            None => self.message = Some("move the cursor to a connection to insert a node".into()),
         }
     }
 
@@ -668,7 +693,7 @@ impl App {
     }
 
     pub(super) fn start_delete(&mut self) {
-        let Some(id) = self.focus.clone() else { return };
+        let Some(id) = self.target_node() else { return };
         let users: Vec<String> = self
             .project
             .consumers(&id)
@@ -686,21 +711,128 @@ impl App {
         };
     }
 
+    /// `X`: delete the node and connect what fed it to its users, after confirmation.
+    pub(super) fn start_dissolve(&mut self) {
+        let Some(id) = self.target_node() else { return };
+        let plan = match ops::bypass_plan(&self.project, &id) {
+            Ok(plan) => plan,
+            Err(e) => {
+                self.message = Some(format!("can't dissolve {id}: {e}"));
+                return;
+            }
+        };
+        let mut question = format!("Dissolve `{id}`?");
+        if let (Some((_, through)), false) = (&plan.through, plan.reconnect.is_empty()) {
+            question += &format!(" Connects {} → {}.", short(through), uses(&plan.reconnect));
+        }
+        if !plan.disconnect.is_empty() {
+            question += &format!(" Disconnects {}.", uses(&plan.disconnect));
+        }
+        self.mode = Mode::Confirm {
+            question,
+            purpose: Confirm::Dissolve(id),
+        };
+    }
+
     pub(super) fn confirmed(&mut self, purpose: Confirm) {
         match purpose {
             Confirm::RemoveEntry { param, key } => self.remove_entry(&param, &key),
             Confirm::Delete(id) => {
-                let previous = self.back.iter().rev().find(|b| **b != id).cloned();
-                if self.apply_or_report(format!("deleted {id}"), |dir, project| {
-                    ops::delete_node(dir, project, &id)
-                }) && let Some(previous) =
-                    previous.filter(|p| self.project.nodes.contains_key(p))
-                {
-                    self.focus = Some(previous);
-                    self.refresh();
-                }
+                self.remove_node(format!("deleted {id}"), &id, ops::delete_node);
+            }
+            Confirm::Dissolve(id) => {
+                let through = ops::bypass_plan(&self.project, &id)
+                    .ok()
+                    .and_then(|p| p.through.map(|(_, r)| format!(" ({} → …)", short(&r))))
+                    .unwrap_or_default();
+                self.remove_node(format!("dissolved {id}{through}"), &id, ops::dissolve_node);
             }
         }
+    }
+
+    /// Runs an edit that removes `id`; if it was focused, goes back to an earlier node.
+    fn remove_node(
+        &mut self,
+        label: String,
+        id: &str,
+        edit: fn(&Path, &Project, &str) -> EditResult<Change>,
+    ) {
+        let previous = self.back.iter().rev().find(|b| *b != id).cloned();
+        let was_focused = self.focus.as_deref() == Some(id);
+        if self.apply_or_report(label, |dir, project| edit(dir, project, id))
+            && was_focused
+            && let Some(previous) = previous.filter(|p| self.project.nodes.contains_key(p))
+        {
+            self.focus = Some(previous);
+            self.refresh();
+        }
+    }
+
+    /// `m`: pick up the node to move it; the next `m` or `⏎` on a connection drops it there.
+    pub(super) fn start_move(&mut self) {
+        if let Some(id) = self.carrying.take() {
+            return self.drop_carried(id);
+        }
+        let Some(id) = self.target_node() else { return };
+        if let Err(e) = ops::bypass_plan(&self.project, &id) {
+            self.message = Some(format!("can't move {id}: {e}"));
+            return;
+        }
+        self.message = Some(format!(
+            "moving {id}: go to a connection, then m or ⏎ to put it there (esc cancels)"
+        ));
+        self.carrying = Some(id);
+    }
+
+    /// Puts the carried node `id` into the connection under the cursor. On failure it
+    /// stays carried.
+    pub(super) fn drop_carried(&mut self, id: String) {
+        let Some(target) = self.cursor_connection() else {
+            self.message = Some(format!(
+                "moving {id}: that's not a connection; go to one, or esc to cancel"
+            ));
+            self.carrying = Some(id);
+            return;
+        };
+        let label = format!(
+            "moved {id} to {} → {}.{}",
+            short(&target.source),
+            target.node,
+            target.port
+        );
+        if let Err(e) = self.apply(label, |dir, project| {
+            ops::move_node(dir, project, &id, &target)
+        }) {
+            self.message = Some(format!("moving {id}: {e} (esc cancels)"));
+            self.carrying = Some(id);
+        }
+    }
+
+    /// The connection under the cursor: a tree row, or a connected input or linked param
+    /// of the focused node.
+    fn cursor_connection(&self) -> Option<ops::Connection> {
+        if self.pane != super::Pane::Node {
+            return self.tree_connection();
+        }
+        let node = self.focus.clone()?;
+        let (port, index, source) = match self.current_row()? {
+            Row::Input {
+                port,
+                index,
+                source: Some(source),
+            } => (port, index.unwrap_or(0), source),
+            Row::Param {
+                name,
+                link: Some(link),
+            } => (name, 0, link),
+            _ => return None,
+        };
+        Some(ops::Connection {
+            source: source.clone(),
+            node,
+            port: port.clone(),
+            index,
+        })
     }
 
     /// `u`: undo the most recent edit.
@@ -780,9 +912,9 @@ impl App {
             .expect("unbounded")
     }
 
-    /// Type of the source feeding `focus.port[index]`, and the type that input expects.
-    fn insert_types(&self, port: &str, index: usize) -> Option<(ValueType, ValueType)> {
-        let node = self.focused()?;
+    /// Type of the source feeding `node.port[index]`, and the type that input expects.
+    fn insert_types(&self, node: &str, port: &str, index: usize) -> Option<(ValueType, ValueType)> {
+        let node = self.project.get(node)?;
         let target = node.spec.as_ref()?.input(port)?.ty;
         let source = node.inputs.get(port)?.get(index)?;
         let source_node = self.project.get(&source.node)?;
@@ -792,6 +924,15 @@ impl App {
             .output_type(&source_node.params, &source.port)?;
         Some((source_ty, target))
     }
+}
+
+/// `a.items, b.image` for a list of uses.
+fn uses(consumers: &[Consumer]) -> String {
+    consumers
+        .iter()
+        .map(|c| format!("{}.{}", c.node, c.port))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `"node"` for the default output, `"node.port"` otherwise.

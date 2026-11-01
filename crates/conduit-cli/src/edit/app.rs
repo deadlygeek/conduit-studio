@@ -64,9 +64,12 @@ pub enum Mode {
         selected: usize,
     },
     /// Typing a value; `error` is shown when the last submission was rejected.
+    /// `selected`: the whole input is highlighted, so typing replaces it (as when a
+    /// prompt opens on the current value).
     Prompt {
         purpose: Prompt,
         input: String,
+        selected: bool,
         error: Option<String>,
     },
     /// Waiting for `y` to go ahead.
@@ -489,8 +492,9 @@ impl App {
             Mode::Prompt {
                 purpose,
                 input,
+                selected,
                 error,
-            } => self.prompt_key(key, purpose, input, error),
+            } => self.prompt_key(key, purpose, input, selected, error),
             Mode::Color(edit) => {
                 self.color_key(key, edit);
                 None
@@ -571,6 +575,7 @@ impl App {
         key: KeyEvent,
         purpose: Prompt,
         mut input: String,
+        selected: bool,
         mut error: Option<String>,
     ) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -580,16 +585,25 @@ impl App {
                 Ok(action) => return action,
                 Err(e) => error = Some(e),
             },
+            // With the value highlighted, deleting or typing replaces all of it.
+            KeyCode::Backspace | KeyCode::Delete if selected => input.clear(),
             KeyCode::Backspace => {
                 input.pop();
             }
             KeyCode::Char('u') if ctrl => input.clear(),
-            KeyCode::Char(c) if !ctrl => input.push(c),
+            KeyCode::Char(c) if !ctrl => {
+                if selected {
+                    input.clear();
+                }
+                input.push(c);
+            }
+            // Any other key (e.g. → or End) keeps the value to edit it.
             _ => {}
         }
         self.mode = Mode::Prompt {
             purpose,
             input,
+            selected: false,
             error,
         };
         None
@@ -1800,6 +1814,29 @@ pub(crate) mod tests {
         press(&mut app, "m");
         key(&mut app, KeyCode::Esc);
         assert_eq!(app.carrying, None);
+    }
+
+    #[test]
+    fn typing_replaces_the_highlighted_value() {
+        let (_tmp, mut app) = temp_example();
+        goto(&mut app, "black_sq");
+        select(&mut app, param("width"));
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(&app.mode, Mode::Prompt { input, selected: true, .. } if input == "50"));
+        press(&mut app, "80");
+        assert!(matches!(&app.mode, Mode::Prompt { input, selected: false, .. } if input == "80"));
+        key(&mut app, KeyCode::Enter);
+        assert!(read(&app, "black_sq").contains("width = 80"));
+
+        // → keeps the value to edit it; backspace on a highlighted value clears it.
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Right);
+        press(&mut app, "0");
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "800"));
+        key(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Backspace);
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input.is_empty()));
     }
 
     #[test]

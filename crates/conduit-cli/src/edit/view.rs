@@ -456,6 +456,9 @@ fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
             _,
         ) => "type to filter   ↑/↓ preview in place   ⏎ keep   esc put back",
         (Mode::Pick { .. }, _) => "type to filter   ↑/↓ select   ⏎ choose   esc cancel",
+        (Mode::Prompt { selected: true, .. }, _) => {
+            "type to replace   → keep and edit   ⏎ save   esc cancel"
+        }
         (Mode::Prompt { .. }, _) => "⏎ save   esc cancel   ctrl-u clear",
         (Mode::Confirm { .. }, _) => "y confirm   any other key cancels",
         (Mode::Help, _) => "any key to close",
@@ -546,6 +549,7 @@ fn draw_prompt(frame: &mut Frame, app: &App) {
     let Mode::Prompt {
         purpose,
         input,
+        selected,
         error,
     } = &app.mode
     else {
@@ -553,8 +557,14 @@ fn draw_prompt(frame: &mut Frame, app: &App) {
     };
     let focus = app.focus.as_deref().unwrap_or_default();
     let area = popup(frame, 64, if error.is_some() { 4 } else { 3 });
+    // A highlighted value is replaced by whatever is typed next.
+    let text = if *selected {
+        Span::styled(input.clone(), Style::new().fg(Color::Black).bg(ACCENT))
+    } else {
+        Span::raw(input.clone())
+    };
     let mut lines = vec![Line::from(vec![
-        Span::raw(input.clone()),
+        text,
         Span::styled("▏", Style::new().fg(ACCENT)),
     ])];
     if let Some(error) = error {
@@ -923,6 +933,12 @@ mod tests {
             app.handle_key(KeyEvent::from(KeyCode::Char('k')));
         }
         app.handle_key(KeyEvent::from(KeyCode::Enter));
+        let screen = render(&mut app, 120, 30);
+        assert!(
+            screen.contains("type to replace"),
+            "the value starts highlighted"
+        );
+        app.handle_key(KeyEvent::from(KeyCode::Right)); // keep it, to edit
         app.handle_key(KeyEvent::from(KeyCode::Char('x')));
         app.handle_key(KeyEvent::from(KeyCode::Enter)); // "300x" is rejected
         let screen = render(&mut app, 120, 30);

@@ -345,7 +345,7 @@ edit.
 
 | Key | Action |
 |---|---|
-| `⏎` on a param | edit it; the value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
+| `⏎` on a param | edit it: the prompt opens on the current value, highlighted, so typing replaces it (`→` keeps it to edit, backspace clears it; ids and renames work the same way). The value is checked (type, range, the node's own validation) before anything is written. Empty resets to the default. Either one replaces a link. |
 | `c` / `d` on a number param | link it to a number output (e.g. an `int` node) / unlink it, going back to its typed or default value. A linked param shows its source and live value: `par width ← size  = 120`. |
 | `+` `-` / `>` `<` / `}` `{` on a number param | nudge it by ±1 / ±10 / ±50 (`=` and `_` work for ±1 too), clamped to its range and written straight to the file, so the preview follows. On a linked param this nudges the `int` feeding it. A run of nudges to one param undoes in a single `u`. |
 | `i` on a number or color param | feed it from a new node: pick a type (`int`, `color`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |

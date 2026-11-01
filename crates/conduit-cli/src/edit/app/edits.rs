@@ -241,6 +241,7 @@ impl App {
     pub(super) fn open_prompt(&mut self, purpose: Prompt, input: String) {
         self.mode = Mode::Prompt {
             purpose,
+            selected: !input.is_empty(),
             input,
             error: None,
         };

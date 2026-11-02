@@ -1,5 +1,6 @@
 //! Minimal node kinds used by core's own tests.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -186,4 +187,12 @@ pub fn registry() -> Registry {
     r.register(Pal);
     r.register(Tint);
     r
+}
+
+/// `(id, text)` pairs as node file sources.
+pub fn sources(files: &[(&str, &str)]) -> crate::graph::Sources {
+    files
+        .iter()
+        .map(|(id, text)| (PathBuf::from(format!("{id}.toml")), text.to_string()))
+        .collect()
 }

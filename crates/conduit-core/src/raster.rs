@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use image::{Rgba, RgbaImage};
 
-use crate::affine::{Affine, Filter};
+use crate::affine::Filter;
 use crate::value::Layer;
 
 /// The pixel rectangle `[x0, x1) × [y0, y1)` a layer can touch in its parent, including
@@ -107,17 +107,15 @@ pub fn realize(layer: &Layer) -> Layer {
     }
     let Some((x0, y0, x1, y1)) = bounds(layer) else {
         return Layer {
-            image: Arc::new(RgbaImage::new(0, 0)),
-            transform: Affine::IDENTITY,
             filter: layer.filter,
+            ..Layer::new(Arc::new(RgbaImage::new(0, 0)))
         };
     };
     let mut image = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32);
     draw(&mut image, layer, (x0, y0));
     Layer {
-        image: Arc::new(image),
-        transform: Affine::translate(x0 as f64, y0 as f64),
         filter: layer.filter,
+        ..Layer::at(Arc::new(image), x0, y0)
     }
 }
 
@@ -217,6 +215,7 @@ pub fn blend_over(src: Rgba<u8>, dst: Rgba<u8>) -> Rgba<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::affine::Affine;
 
     const RED: [u8; 4] = [255, 0, 0, 255];
     const CLEAR: [u8; 4] = [0, 0, 0, 0];

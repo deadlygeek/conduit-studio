@@ -195,14 +195,10 @@ fn lenient_inputs(inputs: &toml::Table) -> BTreeMap<String, Vec<Reference>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_nodes::registry;
+    use crate::test_nodes::{registry, sources};
 
     fn project(files: &[(&str, &str)]) -> Project {
-        let sources = files
-            .iter()
-            .map(|(id, text)| (PathBuf::from(format!("{id}.toml")), text.to_string()))
-            .collect();
-        inspect_sources(sources, &registry())
+        inspect_sources(sources(files), &registry())
     }
 
     #[test]

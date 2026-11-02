@@ -497,13 +497,10 @@ fn topo_sort(mut nodes: BTreeMap<String, GraphNode>) -> Result<Graph, LoadError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_nodes::registry;
+    use crate::test_nodes::{registry, sources};
 
     fn load_str(files: &[(&str, &str)]) -> Result<Graph, LoadErrors> {
-        let sources = files
-            .iter()
-            .map(|(id, text)| (PathBuf::from(format!("{id}.toml")), text.to_string()));
-        from_sources(sources, &registry())
+        from_sources(sources(files), &registry())
     }
 
     fn errors(files: &[(&str, &str)]) -> Vec<LoadError> {

@@ -37,17 +37,9 @@ impl Change {
                 Some(text) => std::fs::write(path, text),
                 None => std::fs::remove_file(path).or_else(ignore_not_found),
             }
-            .map_err(|source| EditError::Io {
-                path: path.clone(),
-                source,
-            })?;
+            .map_err(io_err(path))?;
         }
         Ok(())
-    }
-
-    /// Files this edit touched.
-    pub fn paths(&self) -> impl Iterator<Item = &Path> {
-        self.before.iter().map(|(p, _)| p.as_path())
     }
 }
 
@@ -59,6 +51,13 @@ pub fn snapshot(paths: &[PathBuf]) -> EditResult<Change> {
         tx.record(path)?;
     }
     Ok(Change { before: tx.before })
+}
+
+fn io_err(path: &Path) -> impl FnOnce(io::Error) -> EditError + '_ {
+    move |source| EditError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
 }
 
 fn ignore_not_found(e: io::Error) -> io::Result<()> {
@@ -84,23 +83,19 @@ impl Tx {
         let contents = match std::fs::read_to_string(path) {
             Ok(text) => Some(text),
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-            Err(source) => {
-                return Err(EditError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
+            Err(e) => return Err(io_err(path)(e)),
         };
         self.before.push((path.to_path_buf(), contents));
         Ok(())
     }
 
+    fn read(&self, path: &Path) -> EditResult<String> {
+        std::fs::read_to_string(path).map_err(io_err(path))
+    }
+
     fn read_doc(&self, path: &Path) -> EditResult<DocumentMut> {
-        let text = std::fs::read_to_string(path).map_err(|source| EditError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        text.parse()
+        self.read(path)?
+            .parse()
             .map_err(|e: toml_edit::TomlError| EditError::Parse {
                 path: path.to_path_buf(),
                 message: e.message().to_string(),
@@ -109,18 +104,12 @@ impl Tx {
 
     fn write(&mut self, path: &Path, text: &str) -> EditResult<()> {
         self.record(path)?;
-        std::fs::write(path, text).map_err(|source| EditError::Io {
-            path: path.to_path_buf(),
-            source,
-        })
+        std::fs::write(path, text).map_err(io_err(path))
     }
 
     fn remove(&mut self, path: &Path) -> EditResult<()> {
         self.record(path)?;
-        std::fs::remove_file(path).map_err(|source| EditError::Io {
-            path: path.to_path_buf(),
-            source,
-        })
+        std::fs::remove_file(path).map_err(io_err(path))
     }
 
     /// Reads a node file, applies `f` to it, and writes it back.
@@ -162,12 +151,28 @@ fn reference_text(r: &Reference) -> String {
     }
 }
 
-/// The `[name]` table of a document, created if absent.
-fn table_mut<'a>(doc: &'a mut DocumentMut, name: &str) -> EditResult<&'a mut dyn TableLike> {
-    doc.entry(name)
+/// The `[name]` sub-table of `table`, created if absent.
+fn sub_table<'a>(table: &'a mut dyn TableLike, name: &str) -> EditResult<&'a mut dyn TableLike> {
+    table
+        .entry(name)
         .or_insert_with(toml_edit::table)
         .as_table_like_mut()
         .ok_or_else(|| EditError::Invalid(format!("`{name}` is not a table")))
+}
+
+/// The `[name]` table of a document, created if absent.
+fn table_mut<'a>(doc: &'a mut DocumentMut, name: &str) -> EditResult<&'a mut dyn TableLike> {
+    sub_table(doc.as_table_mut(), name)
+}
+
+/// Sets `key = value` in `table`, keeping the old value's formatting if there was one.
+fn upsert(table: &mut dyn TableLike, key: &str, value: toml_edit::Value) {
+    match table.get_mut(key) {
+        Some(item) => replace_value(item, value),
+        None => {
+            table.insert(key, Item::Value(value));
+        }
+    }
 }
 
 fn to_edit_value(value: &toml::Value) -> EditResult<toml_edit::Value> {
@@ -178,11 +183,18 @@ fn to_edit_value(value: &toml::Value) -> EditResult<toml_edit::Value> {
 }
 
 /// Replaces an item's value, keeping its surrounding whitespace and trailing comment.
-fn replace_value(item: &mut Item, mut new: toml_edit::Value) {
-    if let Some(old) = item.as_value() {
-        *new.decor_mut() = old.decor().clone();
-    }
+fn replace_value(item: &mut Item, new: toml_edit::Value) {
+    let new = match item.as_value() {
+        Some(old) => with_decor(new, old),
+        None => new,
+    };
     *item = Item::Value(new);
+}
+
+/// `new` with `old`'s surrounding whitespace and comments.
+fn with_decor(mut new: toml_edit::Value, old: &toml_edit::Value) -> toml_edit::Value {
+    *new.decor_mut() = old.decor().clone();
+    new
 }
 
 /// Sets `[params] name = value` on a node. Also removes any input linked to that param,
@@ -198,14 +210,7 @@ pub fn set_param(dir: &Path, node: &str, name: &str, value: &toml::Value) -> Edi
 }
 
 fn set_param_in(doc: &mut DocumentMut, name: &str, value: &toml::Value) -> EditResult<()> {
-    let value = to_edit_value(value)?;
-    let params = table_mut(doc, "params")?;
-    match params.get_mut(name) {
-        Some(item) => replace_value(item, value),
-        None => {
-            params.insert(name, Item::Value(value));
-        }
-    }
+    upsert(table_mut(doc, "params")?, name, to_edit_value(value)?);
     Ok(())
 }
 
@@ -325,13 +330,8 @@ pub fn swap_connections(
                     "input `{port}` has {len} connection(s); can't swap {a} and {b}"
                 )));
             };
-            let swapped = |value: &toml_edit::Value, decor: &toml_edit::Decor| {
-                let mut value = value.clone();
-                *value.decor_mut() = decor.clone();
-                value
-            };
-            items.replace_formatted(a, swapped(&vb, va.decor()));
-            items.replace_formatted(b, swapped(&va, vb.decor()));
+            items.replace_formatted(a, with_decor(vb.clone(), &va));
+            items.replace_formatted(b, with_decor(va, &vb));
             Ok(())
         })
     })
@@ -339,20 +339,7 @@ pub fn swap_connections(
 
 /// Creates a new node file from `spec`'s template.
 pub fn add_node(dir: &Path, id: &str, spec: &NodeSpec) -> EditResult<Change> {
-    transact(|tx| add_node_in(tx, dir, id, spec))
-}
-
-fn add_node_in(tx: &mut Tx, dir: &Path, id: &str, spec: &NodeSpec) -> EditResult<()> {
-    if !is_ident(id) {
-        return Err(EditError::Invalid(format!(
-            "`{id}` is not a valid node id (letters, digits, `_`, `-`)"
-        )));
-    }
-    let path = node_path(dir, id);
-    if path.exists() {
-        return Err(EditError::Invalid(format!("node `{id}` already exists")));
-    }
-    tx.write(&path, &spec.template())
+    transact(|tx| add_raw(tx, dir, id, &spec.template()))
 }
 
 /// Creates a node from `spec`'s template with `params` set, and connects its output
@@ -378,7 +365,7 @@ pub fn add_feeding(
         port: output.to_string(),
     };
     transact(|tx| {
-        add_node_in(tx, dir, new_id, spec)?;
+        add_raw(tx, dir, new_id, &spec.template())?;
         tx.update(&node_path(dir, new_id), |doc| {
             params
                 .iter()
@@ -412,9 +399,7 @@ pub fn insert_between(
         .get(port)
         .and_then(|refs| refs.get(index))
         .ok_or_else(|| EditError::Invalid(format!("`{node}.{port}` is not connected")))?;
-    let source_ty = project
-        .get(&source.node)
-        .and_then(|n| n.spec.as_ref()?.output_type(&n.params, &source.port))
+    let source_ty = output_type(project, source)
         .ok_or_else(|| EditError::Invalid(format!("cannot tell the type of `{source}`")))?;
 
     let new_input = spec
@@ -443,7 +428,7 @@ pub fn insert_between(
     };
 
     transact(|tx| {
-        add_node_in(tx, dir, new_id, spec)?;
+        add_raw(tx, dir, new_id, &spec.template())?;
         tx.update(&node_path(dir, new_id), |doc| {
             connect_in(doc, new_input.name, source, new_input.multi)
         })?;
@@ -467,9 +452,7 @@ fn replace_reference(
     match item.as_array_mut() {
         Some(items) => {
             let slot = items.get_mut(index).ok_or_else(|| invalid_input(port))?;
-            let decor = slot.decor().clone();
-            *slot = text.into();
-            *slot.decor_mut() = decor;
+            *slot = with_decor(text.into(), slot);
         }
         None => replace_value(item, text.into()),
     }
@@ -480,21 +463,12 @@ fn replace_reference(
 pub fn rename_node(dir: &Path, project: &Project, old: &str, new: &str) -> EditResult<Change> {
     let node = project.get(old).ok_or_else(|| missing(old))?;
     transact(|tx| {
-        let text = std::fs::read_to_string(&node.path).map_err(|source| EditError::Io {
-            path: node.path.clone(),
-            source,
-        })?;
+        let text = tx.read(&node.path)?;
         // Create the new file first so an invalid or taken name fails before anything moves.
         add_raw(tx, dir, new, &text)?;
         tx.remove(&node.path)?;
 
-        let mut consumers: Vec<&str> = project
-            .consumers(old)
-            .iter()
-            .map(|c| c.node.as_str())
-            .collect();
-        consumers.dedup();
-        for consumer in consumers {
+        for consumer in consumer_ids(project, old, |_| true) {
             // A node that references itself now lives in the new file.
             let id = if consumer == old { new } else { consumer };
             tx.update(&node_path(dir, id), |doc| {
@@ -528,13 +502,7 @@ fn add_raw(tx: &mut Tx, dir: &Path, id: &str, text: &str) -> EditResult<()> {
 pub fn delete_node(dir: &Path, project: &Project, id: &str) -> EditResult<Change> {
     let node = project.get(id).ok_or_else(|| missing(id))?;
     transact(|tx| {
-        let mut consumers: Vec<&str> = project
-            .consumers(id)
-            .iter()
-            .map(|c| c.node.as_str())
-            .collect();
-        consumers.dedup();
-        for consumer in consumers.into_iter().filter(|c| *c != id) {
+        for consumer in consumer_ids(project, id, |c| c.node != id) {
             tx.update(&node_path(dir, consumer), |doc| {
                 remove_references(doc, |r| r.node == id);
                 Ok(())
@@ -801,9 +769,7 @@ fn rewrite_references(doc: &mut DocumentMut, f: impl Fn(&Reference) -> Option<Re
         else {
             return;
         };
-        let decor = v.decor().clone();
-        *v = reference_text(&new).into();
-        *v.decor_mut() = decor;
+        *v = with_decor(reference_text(&new).into(), v);
     };
     for (_, item) in inputs.iter_mut() {
         match item.as_value_mut() {
@@ -846,14 +812,7 @@ fn remove_references(doc: &mut DocumentMut, pred: impl Fn(&Reference) -> bool) {
 
 /// The `[params.<param>]` table of a node file, created if absent.
 fn entries_mut<'a>(doc: &'a mut DocumentMut, param: &str) -> EditResult<&'a mut dyn TableLike> {
-    let params = table_mut(doc, "params")?;
-    if params.get(param).is_none() {
-        params.insert(param, toml_edit::table());
-    }
-    params
-        .get_mut(param)
-        .and_then(Item::as_table_like_mut)
-        .ok_or_else(|| EditError::Invalid(format!("`{param}` is not a table")))
+    sub_table(table_mut(doc, "params")?, param)
 }
 
 fn check_entry_name(key: &str) -> EditResult<()> {
@@ -883,7 +842,7 @@ pub fn set_entries(
     transact(|tx| {
         let path = node_path(dir, node);
         if !path.exists() {
-            add_node_in(tx, dir, node, spec)?;
+            add_raw(tx, dir, node, &spec.template())?;
         }
         tx.update(&path, |doc| {
             let mut table = toml_edit::Table::new();
@@ -910,13 +869,7 @@ pub fn set_entry(
     let value = to_edit_value(value)?;
     transact(|tx| {
         tx.update(&node_path(dir, node), |doc| {
-            let table = entries_mut(doc, param)?;
-            match table.get_mut(key) {
-                Some(item) => replace_value(item, value),
-                None => {
-                    table.insert(key, Item::Value(value));
-                }
-            }
+            upsert(entries_mut(doc, param)?, key, value);
             Ok(())
         })
     })
@@ -952,8 +905,8 @@ pub fn rename_entry(
             }
             Ok(())
         })?;
-        for consumer in entry_consumers(project, node, old) {
-            tx.update(&node_path(dir, &consumer), |doc| {
+        for consumer in consumer_ids(project, node, |c| c.output == old && c.node != node) {
+            tx.update(&node_path(dir, consumer), |doc| {
                 rewrite_references(doc, |r| {
                     (r.node == node && r.port == old).then(|| Reference {
                         node: node.into(),
@@ -982,8 +935,8 @@ pub fn remove_entry(
                 .map(|_| ())
                 .ok_or_else(|| EditError::Invalid(format!("no entry `{key}`")))
         })?;
-        for consumer in entry_consumers(project, node, key) {
-            tx.update(&node_path(dir, &consumer), |doc| {
+        for consumer in consumer_ids(project, node, |c| c.output == key && c.node != node) {
+            tx.update(&node_path(dir, consumer), |doc| {
                 remove_references(doc, |r| r.node == node && r.port == key);
                 Ok(())
             })?;
@@ -992,13 +945,17 @@ pub fn remove_entry(
     })
 }
 
-/// Nodes (other than `node` itself) whose inputs use output `port` of `node`.
-fn entry_consumers(project: &Project, node: &str, port: &str) -> Vec<String> {
-    let mut ids: Vec<String> = project
+/// The distinct nodes among `node`'s consumers that `keep` accepts.
+fn consumer_ids<'a>(
+    project: &'a Project,
+    node: &str,
+    keep: impl Fn(&Consumer) -> bool,
+) -> Vec<&'a str> {
+    let mut ids: Vec<&str> = project
         .consumers(node)
         .iter()
-        .filter(|c| c.output == port && c.node != node)
-        .map(|c| c.node.clone())
+        .filter(|c| keep(c))
+        .map(|c| c.node.as_str())
         .collect();
     ids.dedup();
     ids

@@ -5,7 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Graph, GraphNode, Reference};
-use crate::node::{EvalCtx, GuiHost, Inputs, NodeSpec, ParamKind};
+use crate::node::{EvalCtx, GuiHost, Inputs, Node, NodeSpec, ParamKind};
 use crate::registry::Registry;
 use crate::value::Value;
 
@@ -83,7 +83,7 @@ impl Evaluator {
                 Some((fp, outputs)) if fp == fingerprint && !spec.gui => outputs,
                 _ => {
                     stats.evaluated += 1;
-                    eval_node(node, spec, registry, &graph.root, &values, gui)?
+                    eval_node(node, spec, node_impl, &graph.root, &values, gui)?
                 }
             };
             for (r, v) in &outputs {
@@ -183,14 +183,11 @@ fn fingerprint(
 fn eval_node(
     node: &GraphNode,
     spec: &NodeSpec,
-    registry: &Registry,
+    node_impl: &dyn Node,
     root: &Path,
     values: &Values,
     gui: &mut dyn GuiHost,
 ) -> Result<Vec<(Reference, Value)>, EvalError> {
-    let node_impl = registry
-        .get(&node.kind)
-        .expect("graph loaded with this registry");
     let mut inputs = HashMap::new();
     for (port, refs) in &node.inputs {
         let ty = spec.input(port).expect("port validated at load").ty;
@@ -240,13 +237,12 @@ fn eval_node(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use super::*;
     use crate::RgbaImage;
     use crate::graph::from_sources;
-    use crate::test_nodes::registry;
+    use crate::test_nodes::{registry, sources};
 
     #[derive(Default)]
     struct Recorder(Vec<(String, u32)>);
@@ -266,13 +262,7 @@ mod tests {
             // `items` takes layers: one real layer, one image coerced to a layer.
             ("s", "type = \"sink\"\n[inputs]\nitems = [\"w\", \"img\"]"),
         ];
-        let graph = from_sources(
-            files
-                .iter()
-                .map(|(id, t)| (PathBuf::from(format!("{id}.toml")), t.to_string())),
-            &reg,
-        )
-        .unwrap();
+        let graph = graph(&files);
 
         let mut gui = Recorder::default();
         let values = evaluate(&graph, &reg, &mut gui).unwrap();
@@ -283,13 +273,7 @@ mod tests {
     }
 
     fn graph(files: &[(&str, &str)]) -> Graph {
-        from_sources(
-            files
-                .iter()
-                .map(|(id, t)| (PathBuf::from(format!("{id}.toml")), t.to_string())),
-            &registry(),
-        )
-        .unwrap()
+        from_sources(sources(files), &registry()).unwrap()
     }
 
     #[test]

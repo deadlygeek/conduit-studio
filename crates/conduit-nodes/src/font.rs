@@ -4,32 +4,17 @@ use std::path::PathBuf;
 
 use conduit_core::{
     EvalCtx, FontData, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec,
-    Value, ValueType, parse_params,
+    Value, ValueType,
 };
 use cosmic_text::fontdb::{Database, Source};
-use serde::Deserialize;
 
-use crate::image::check_path;
+use crate::project_file::Params;
 
 /// A TrueType / OpenType font file from the project folder.
 pub struct Font;
 
 /// File extensions `font` reads (editors list files with these).
 pub const EXTENSIONS: &[&str] = &["ttf", "otf", "ttc"];
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Params {
-    path: String,
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        check_path(&p.path)?;
-        Ok(p)
-    }
-}
 
 /// The family names in a font file, or an error if it isn't one.
 pub fn families(font: &FontData) -> NodeResult<Vec<String>> {
@@ -68,9 +53,7 @@ impl Node for Font {
     }
 
     fn files(&self, params: &toml::Table) -> Vec<PathBuf> {
-        Params::parse(params)
-            .map(|p| vec![PathBuf::from(p.path)])
-            .unwrap_or_default()
+        Params::files(params)
     }
 
     fn eval(&self, _: &Inputs, params: &toml::Table, ctx: &mut EvalCtx) -> NodeResult<Outputs> {

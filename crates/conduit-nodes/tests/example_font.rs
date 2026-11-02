@@ -1,24 +1,20 @@
 //! Evaluates `examples/font` end to end: text set in a font file kept in the project.
 
-use std::path::PathBuf;
+mod common;
 
-use conduit_core::{EvalCtx, Inputs, Node, NullHost, Reference, Value, evaluate, load};
+use conduit_core::{EvalCtx, Inputs, Node, NullHost, Value, evaluate};
 use conduit_nodes::Text;
 use cosmic_text::fontdb::Database;
 
 #[test]
 fn title_uses_the_project_font() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/font");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
+    let (dir, registry, graph) = common::load_example("font");
     assert_eq!(
         graph.files(&registry),
         [dir.join("assets/fonts/DroidSans.ttf")]
     );
     let values = evaluate(&graph, &registry, &mut NullHost).unwrap();
-    let Value::Layer(title) = &values[&Reference::parse("title").unwrap()] else {
-        panic!("title.out should be a layer");
-    };
+    let title = common::layer(&values, "title");
 
     // The same text with Droid Sans as the only installed font, picked by name: identical,
     // whatever fonts this machine has.

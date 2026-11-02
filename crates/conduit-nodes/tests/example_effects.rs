@@ -1,25 +1,16 @@
 //! Evaluates `examples/effects` end to end.
 
-use std::path::PathBuf;
+mod common;
 
-use conduit_core::{Layer, NullHost, Reference, Rgba, Value, Values, adjust, evaluate, load};
+use common::{image, layer};
+use conduit_core::{Rgba, Values, adjust};
 
 const ACCENT: [u8; 4] = [0xe7, 0x6f, 0x51, 255];
 const TEAL: [u8; 4] = [0x2a, 0x9d, 0x8f, 255];
 const PRIMARY: [u8; 4] = [0x26, 0x46, 0x53, 255];
 
 fn render() -> Values {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/effects");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
-    evaluate(&graph, &registry, &mut NullHost).unwrap()
-}
-
-fn layer(values: &Values, id: &str) -> Layer {
-    match &values[&Reference::parse(id).unwrap()] {
-        Value::Layer(l) => l.clone(),
-        other => panic!("{id}: expected layer, got {other:?}"),
-    }
+    common::render("effects")
 }
 
 #[test]
@@ -37,9 +28,7 @@ fn tint_recolors_black_text_to_the_palette_accent() {
 #[test]
 fn hsl_and_invert_land_on_the_canvas() {
     let values = render();
-    let Value::Image(img) = &values[&Reference::parse("comp").unwrap()] else {
-        panic!("comp.out should be an image");
-    };
+    let img = image(&values, "comp");
     assert_eq!(img.dimensions(), (400, 300));
 
     let shifted = adjust(Rgba(TEAL), 180.0, 0.0, -10.0, 100.0);

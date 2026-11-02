@@ -30,26 +30,12 @@ impl Node for Invert {
 mod tests {
     use super::*;
     use crate::effect::test_support::check_layer_handling;
-    use crate::test_util::{image, run};
+    use crate::effect::test_support::pixel;
+    use crate::test_util::run;
 
     #[test]
     fn inverts_color_and_keeps_alpha() {
-        let out = run(
-            &Invert,
-            vec![(
-                "layer",
-                vec![Value::Layer(conduit_core::Layer::new(image(
-                    2,
-                    2,
-                    [255, 100, 0, 77],
-                )))],
-            )],
-            &Default::default(),
-        );
-        match out {
-            Ok(Value::Layer(l)) => assert_eq!(l.image.get_pixel(1, 1).0, [0, 155, 255, 77]),
-            other => panic!("expected layer, got {other:?}"),
-        }
+        assert_eq!(pixel(&Invert, [255, 100, 0, 77], ""), [0, 155, 255, 77]);
     }
 
     #[test]

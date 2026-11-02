@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use conduit_core::{EvalCtx, Inputs, Node, NodeResult, NullHost, Rgba, RgbaImage, Value};
+use conduit_core::{EvalCtx, Inputs, Layer, Node, NodeResult, NullHost, Rgba, RgbaImage, Value};
 
 pub fn params(toml_src: &str) -> toml::Table {
     toml::from_str(toml_src).expect("valid test toml")
@@ -39,4 +39,21 @@ pub fn run_in(
     };
     let mut outputs = node.eval(&Inputs::new(inputs), params, &mut ctx)?;
     Ok(outputs.values.remove("out").expect("node produced `out`"))
+}
+
+/// [`run`], expecting a layer.
+pub fn run_layer(
+    node: &dyn Node,
+    inputs: Vec<(&str, Vec<Value>)>,
+    params: &toml::Table,
+) -> NodeResult<Layer> {
+    match run(node, inputs, params)? {
+        Value::Layer(l) => Ok(l),
+        other => panic!("expected layer, got {other:?}"),
+    }
+}
+
+/// Runs `node` with `layer` as its `layer` input.
+pub fn on_layer(node: &dyn Node, layer: Layer, params: &toml::Table) -> NodeResult<Layer> {
+    run_layer(node, vec![("layer", vec![Value::Layer(layer)])], params)
 }

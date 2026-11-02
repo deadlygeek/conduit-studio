@@ -158,14 +158,10 @@ impl Node for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{image, params, run};
+    use crate::test_util::{image, params, run_layer};
 
     fn transform(input: Value, toml: &str) -> Layer {
-        let out = run(&Transform, vec![("layer", vec![input])], &params(toml)).unwrap();
-        let Value::Layer(layer) = out else {
-            panic!("expected layer")
-        };
-        layer
+        run_layer(&Transform, vec![("layer", vec![input])], &params(toml)).unwrap()
     }
 
     /// An image as the evaluator delivers it to a layer input.

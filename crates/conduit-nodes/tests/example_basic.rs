@@ -1,19 +1,11 @@
 //! Evaluates `examples/basic` end to end and checks the rendered pixels.
 
-use std::path::PathBuf;
-
-use conduit_core::{NullHost, Reference, Value, evaluate, load};
+mod common;
 
 #[test]
 fn black_square_on_white_canvas() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
-    let values = evaluate(&graph, &registry, &mut NullHost).unwrap();
-
-    let Value::Image(img) = &values[&Reference::parse("comp").unwrap()] else {
-        panic!("comp.out should be an image");
-    };
+    let values = common::render("basic");
+    let img = common::image(&values, "comp");
     assert_eq!(img.dimensions(), (800, 600));
 
     const WHITE: [u8; 4] = [255, 255, 255, 255];

@@ -1,15 +1,13 @@
 //! Evaluates `examples/image` end to end: a JPEG and a transparent PNG read from the
 //! project's `assets/` folder.
 
-use std::path::PathBuf;
+mod common;
 
-use conduit_core::{NullHost, Reference, Value, evaluate, load};
+use conduit_core::{NullHost, evaluate};
 
 #[test]
 fn badge_over_photo() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/image");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
+    let (dir, registry, graph) = common::load_example("image");
     assert_eq!(
         graph.files(&registry),
         [
@@ -18,9 +16,7 @@ fn badge_over_photo() {
         ]
     );
     let values = evaluate(&graph, &registry, &mut NullHost).unwrap();
-    let Value::Image(img) = &values[&Reference::parse("comp").unwrap()] else {
-        panic!("comp.out should be an image");
-    };
+    let img = common::image(&values, "comp");
     assert_eq!(img.dimensions(), (480, 320));
 
     let near = |(x, y): (u32, u32), want: [u8; 3]| {

@@ -322,10 +322,10 @@ impl Node for Text {
 fn render(fonts: &mut Fonts, p: &Params, linked: Option<String>) -> NodeResult<Layer> {
     let Fonts { system, cache, .. } = fonts;
     let generic = p.font.to_ascii_lowercase();
-    let named = match (linked, generic.as_str()) {
-        (Some(linked), _) => Some(linked),
-        (None, "sans-serif" | "serif" | "monospace") => None,
-        (None, _) => Some(find_family(system.db(), &p.font).ok_or_else(|| {
+    let named = match linked {
+        Some(linked) => Some(linked),
+        None if GENERIC_FAMILIES.contains(&generic.as_str()) => None,
+        None => Some(find_family(system.db(), &p.font).ok_or_else(|| {
             NodeError::new(format!(
                 "no installed font family \"{}\" (run `conduit fonts` to list them)",
                 p.font
@@ -408,7 +408,7 @@ fn render(fonts: &mut Fonts, p: &Params, linked: Option<String>) -> NodeResult<L
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{params, run};
+    use crate::test_util::{params, run_layer};
 
     fn fixture_fonts() -> Text {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fonts");
@@ -419,10 +419,7 @@ mod tests {
     }
 
     fn text(node: &Text, toml: &str) -> NodeResult<Layer> {
-        match run(node, vec![], &params(toml))? {
-            Value::Layer(l) => Ok(l),
-            other => panic!("expected layer, got {other:?}"),
-        }
+        run_layer(node, vec![], &params(toml))
     }
 
     fn ink(layer: &Layer) -> usize {
@@ -493,10 +490,7 @@ mod tests {
     }
 
     fn linked(node: &Text, font: Value, toml: &str) -> NodeResult<Layer> {
-        match run(node, vec![("font", vec![font])], &params(toml))? {
-            Value::Layer(l) => Ok(l),
-            other => panic!("expected layer, got {other:?}"),
-        }
+        run_layer(node, vec![("font", vec![font])], &params(toml))
     }
 
     #[test]

@@ -7,19 +7,13 @@ use serde::Deserialize;
 /// Shows its input image in a `conduit-preview` window (GUI process managed by the runner).
 pub struct Preview;
 
+/// Declared so typos in params are rejected. The runner reads `title` from the raw params
+/// when it launches the window.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PreviewParams {
-    /// Window title; defaults to the node id. Read by the runner from the raw params when it
-    /// launches the window; declared here so typos in params are rejected.
-    #[allow(dead_code)]
-    pub title: Option<String>,
-}
-
-impl PreviewParams {
-    pub fn parse(params: &toml::Table) -> NodeResult<Self> {
-        parse_params(params)
-    }
+struct Params {
+    #[serde(default, rename = "title")]
+    _title: Option<String>,
 }
 
 impl Node for Preview {
@@ -38,7 +32,7 @@ impl Node for Preview {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        PreviewParams::parse(params).map(|_| ())
+        parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, inputs: &Inputs, _: &toml::Table, ctx: &mut EvalCtx) -> NodeResult<Outputs> {
@@ -85,8 +79,7 @@ mod tests {
 
     #[test]
     fn title_param() {
-        let p = PreviewParams::parse(&params("title = \"Main\"")).unwrap();
-        assert_eq!(p.title.as_deref(), Some("Main"));
+        assert!(Preview.check_params(&params("title = \"Main\"")).is_ok());
         assert!(Preview.check_params(&params("size = 1")).is_err());
     }
 }

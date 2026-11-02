@@ -1,52 +1,22 @@
 //! `image`: loads a picture from the project folder (PNG, JPEG, WebP, GIF or BMP).
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use conduit_core::image::{DynamicImage, ImageDecoder, ImageReader, Limits};
 use conduit_core::{
     EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value,
-    ValueType, parse_params,
+    ValueType,
 };
-use serde::Deserialize;
 
 use crate::MAX_DIMENSION;
+use crate::project_file::Params;
 
 /// An image file from the project folder, at its own size.
 pub struct Image;
 
 /// File extensions `image` reads (editors list files with these).
 pub const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Params {
-    path: String,
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        check_path(&p.path)?;
-        Ok(p)
-    }
-}
-
-/// Paths stay inside the project folder, so a project can be moved or shared as a whole.
-pub(crate) fn check_path(path: &str) -> NodeResult<()> {
-    let inside = Path::new(path)
-        .components()
-        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-    if path.trim().is_empty() {
-        Err(NodeError::new("`path` is empty"))
-    } else if !inside {
-        Err(NodeError::new(format!(
-            "`path` must be relative to the project folder and stay inside it, got `{path}`"
-        )))
-    } else {
-        Ok(())
-    }
-}
 
 fn read(file: &Path, shown: &str) -> NodeResult<DynamicImage> {
     let error = |e: &dyn std::fmt::Display| NodeError::new(format!("cannot read `{shown}`: {e}"));
@@ -91,9 +61,7 @@ impl Node for Image {
     }
 
     fn files(&self, params: &toml::Table) -> Vec<PathBuf> {
-        Params::parse(params)
-            .map(|p| vec![PathBuf::from(p.path)])
-            .unwrap_or_default()
+        Params::files(params)
     }
 
     fn eval(&self, _: &Inputs, params: &toml::Table, ctx: &mut EvalCtx) -> NodeResult<Outputs> {

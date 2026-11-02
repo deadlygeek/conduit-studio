@@ -11,6 +11,7 @@ mod int;
 mod invert;
 mod palette;
 mod preview;
+mod project_file;
 mod realize;
 mod rect;
 pub mod text;
@@ -72,18 +73,16 @@ mod tests {
     /// actually validates its params.
     #[test]
     fn param_specs_match_validation() {
-        for spec in registry().specs() {
-            let node = spec;
+        let registry = registry();
+        for spec in registry.specs() {
+            let node = registry.get(spec.kind).unwrap();
             let check = |params: toml::Table| {
-                registry()
-                    .get(spec.kind)
-                    .unwrap()
-                    .check_params(&params)
+                node.check_params(&params)
                     .unwrap_or_else(|e| panic!("{}: {e}\nparams: {params}", spec.kind));
             };
 
             // A fresh template is valid.
-            let template: toml::Table = toml::from_str(&node.template()).unwrap();
+            let template: toml::Table = toml::from_str(&spec.template()).unwrap();
             check(
                 template
                     .get("params")
@@ -94,7 +93,7 @@ mod tests {
 
             // Every declared param (including optional ones) is accepted.
             let mut all = toml::Table::new();
-            for p in &node.params {
+            for p in &spec.params {
                 let literal = p.default.unwrap_or(p.example);
                 let value: toml::Table = toml::from_str(&format!("v = {literal}")).unwrap();
                 all.insert(p.name.to_string(), value["v"].clone());

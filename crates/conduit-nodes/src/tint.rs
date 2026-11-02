@@ -103,20 +103,10 @@ impl Node for Tint {
 mod tests {
     use super::*;
     use crate::effect::test_support::check_layer_handling;
-    use crate::test_util::{image, params, run};
+    use crate::test_util::params;
 
     fn pixel(rgba: [u8; 4], p: &str) -> [u8; 4] {
-        match run(
-            &Tint,
-            vec![(
-                "layer",
-                vec![Value::Layer(conduit_core::Layer::new(image(1, 1, rgba)))],
-            )],
-            &params(p),
-        ) {
-            Ok(Value::Layer(l)) => l.image.get_pixel(0, 0).0,
-            other => panic!("expected layer, got {other:?}"),
-        }
+        crate::effect::test_support::pixel(&Tint, rgba, p)
     }
 
     #[test]

@@ -1,9 +1,7 @@
 //! Evaluates `examples/text` end to end. It uses the machine's own fonts, so the checks
 //! are coarse: text in the right colors lands in the right areas.
 
-use std::path::PathBuf;
-
-use conduit_core::{NullHost, Reference, Value, evaluate, load};
+mod common;
 
 const BG: [u8; 4] = [0xf4, 0xf1, 0xea, 255];
 const TITLE: [u8; 4] = [0x26, 0x46, 0x53, 255];
@@ -11,13 +9,8 @@ const NOTE: [u8; 4] = [0xe7, 0x6f, 0x51, 255];
 
 #[test]
 fn title_and_note_are_drawn_where_placed() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/text");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
-    let values = evaluate(&graph, &registry, &mut NullHost).unwrap();
-    let Value::Image(img) = &values[&Reference::parse("comp").unwrap()] else {
-        panic!("comp.out should be an image");
-    };
+    let values = common::render("text");
+    let img = common::image(&values, "comp");
     assert_eq!(img.dimensions(), (600, 300));
 
     let found = |color: [u8; 4], ys: std::ops::Range<u32>| {

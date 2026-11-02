@@ -1,24 +1,15 @@
 //! Evaluates `examples/transform` end to end.
 
-use std::path::PathBuf;
+mod common;
 
-use conduit_core::{Layer, NullHost, Reference, RgbaImage, Value, Values, evaluate, load, raster};
+use common::{image, layer};
+use conduit_core::{Layer, RgbaImage, Values, raster};
 
 const BG: [u8; 4] = [0xf4, 0xf1, 0xea, 255];
 const BAR: [u8; 4] = [0x26, 0x46, 0x53, 255];
 
 fn render() -> Values {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/transform");
-    let registry = conduit_nodes::registry();
-    let graph = load(&dir, &registry).unwrap_or_else(|e| panic!("{e}"));
-    evaluate(&graph, &registry, &mut NullHost).unwrap()
-}
-
-fn layer(values: &Values, id: &str) -> Layer {
-    match &values[&Reference::parse(id).unwrap()] {
-        Value::Layer(l) => l.clone(),
-        other => panic!("{id}: expected layer, got {other:?}"),
-    }
+    common::render("transform")
 }
 
 fn draw(layer: &Layer) -> RgbaImage {
@@ -30,9 +21,7 @@ fn draw(layer: &Layer) -> RgbaImage {
 #[test]
 fn transformed_bars_land_where_expected() {
     let values = render();
-    let Value::Image(img) = &values[&Reference::parse("comp").unwrap()] else {
-        panic!("comp.out should be an image");
-    };
+    let img = image(&values, "comp");
     assert_eq!(img.dimensions(), (400, 300));
     // `turned` rotates about its center, (40 + 60, 40 + 20), so the unturned bar's
     // top-right corner is left empty; `grown` scales about that center after moving 150

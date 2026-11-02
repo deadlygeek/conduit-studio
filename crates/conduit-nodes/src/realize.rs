@@ -29,18 +29,11 @@ impl Node for Realize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{image, run};
+    use crate::test_util::{image, on_layer};
     use conduit_core::{Affine, Filter, Layer};
 
     fn realize(layer: Layer) -> NodeResult<Layer> {
-        match run(
-            &Realize,
-            vec![("layer", vec![Value::Layer(layer)])],
-            &Default::default(),
-        )? {
-            Value::Layer(l) => Ok(l),
-            other => panic!("expected layer, got {other:?}"),
-        }
+        on_layer(&Realize, layer, &Default::default())
     }
 
     #[test]

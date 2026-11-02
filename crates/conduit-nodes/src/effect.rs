@@ -46,15 +46,14 @@ pub fn map_pixels(inputs: &Inputs, f: impl Fn(Rgba<u8>) -> Rgba<u8>) -> NodeResu
 pub mod test_support {
     //! Checks every effect should pass.
 
-    use conduit_core::{Affine, Layer, Node, Value, raster};
+    use conduit_core::{Affine, Layer, Node, raster};
 
-    use crate::test_util::{image, params, run};
+    use crate::test_util::{image, on_layer, params};
 
-    fn layer(v: Value) -> Layer {
-        match v {
-            Value::Layer(l) => l,
-            other => panic!("expected layer, got {other:?}"),
-        }
+    /// The pixel `node` with params `p` makes of a 1×1 `rgba` image.
+    pub fn pixel(node: &dyn Node, rgba: [u8; 4], p: &str) -> [u8; 4] {
+        let out = on_layer(node, Layer::new(image(1, 1, rgba)), &params(p)).unwrap();
+        out.image.get_pixel(0, 0).0
     }
 
     /// `node` with `p` keeps an untransformed image's size and place, and realizes a
@@ -63,36 +62,15 @@ pub mod test_support {
         let p = params(p);
         let img = image(4, 2, [200, 40, 40, 255]);
 
-        let out = layer(
-            run(
-                node,
-                vec![("layer", vec![Value::Layer(Layer::new(img.clone()))])],
-                &p,
-            )
-            .unwrap(),
-        );
+        let out = on_layer(node, Layer::new(img.clone()), &p).unwrap();
         assert_eq!(out.image.dimensions(), (4, 2));
         assert_eq!(out.transform.whole_pixel_offset(), Some((0, 0)));
 
         let mut turned = Layer::new(img);
         turned.transform = Affine::translate(10.0, 5.0) * Affine::rotate(30.0);
-        let out = layer(
-            run(
-                node,
-                vec![("layer", vec![Value::Layer(turned.clone())])],
-                &p,
-            )
-            .unwrap(),
-        );
+        let out = on_layer(node, turned.clone(), &p).unwrap();
         assert!(out.transform.whole_pixel_offset().is_some());
-        let expected = layer(
-            run(
-                node,
-                vec![("layer", vec![Value::Layer(raster::realize(&turned))])],
-                &p,
-            )
-            .unwrap(),
-        );
+        let expected = on_layer(node, raster::realize(&turned), &p).unwrap();
         assert_eq!(
             out.transform.whole_pixel_offset(),
             expected.transform.whole_pixel_offset()

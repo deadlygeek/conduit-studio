@@ -241,12 +241,19 @@ impl App {
         }
     }
 
+    /// A side pane's tree and its collapsed nodes; `None` for the node pane.
+    fn tree(&self, pane: Pane) -> Option<(&[TreeItem], &BTreeSet<String>)> {
+        match pane {
+            Pane::Up => Some((&self.up, &self.collapsed[0])),
+            Pane::Down => Some((&self.down, &self.collapsed[1])),
+            Pane::Node => None,
+        }
+    }
+
     /// Indices into the pane's tree of the items not hidden by a collapsed ancestor.
     pub fn visible(&self, pane: Pane) -> Vec<usize> {
-        let (items, collapsed) = match pane {
-            Pane::Up => (&self.up, &self.collapsed[0]),
-            Pane::Down => (&self.down, &self.collapsed[1]),
-            Pane::Node => return (0..self.rows.len()).collect(),
+        let Some((items, collapsed)) = self.tree(pane) else {
+            return (0..self.rows.len()).collect();
         };
         let mut out = Vec::new();
         let mut hide_below: Option<usize> = None;
@@ -264,11 +271,8 @@ impl App {
     }
 
     pub fn is_collapsed(&self, pane: Pane, node: &str) -> bool {
-        match pane {
-            Pane::Up => self.collapsed[0].contains(node),
-            Pane::Down => self.collapsed[1].contains(node),
-            Pane::Node => false,
-        }
+        self.tree(pane)
+            .is_some_and(|(_, collapsed)| collapsed.contains(node))
     }
 
     fn pane_len(&self, pane: Pane) -> usize {
@@ -288,16 +292,16 @@ impl App {
         self.rows.get(self.cursor(Pane::Node))
     }
 
+    /// The current side pane's tree and the index of the item under its cursor.
+    fn current_tree_index(&self) -> Option<(&[TreeItem], usize)> {
+        let (tree, _) = self.tree(self.pane)?;
+        let i = *self.visible(self.pane).get(self.cursor(self.pane))?;
+        Some((tree, i))
+    }
+
     /// The tree item under the cursor in a side pane.
     fn current_item(&self) -> Option<&TreeItem> {
-        let tree = match self.pane {
-            Pane::Up => &self.up,
-            Pane::Down => &self.down,
-            Pane::Node => return None,
-        };
-        self.visible(self.pane)
-            .get(self.cursor(self.pane))
-            .map(|&i| &tree[i])
+        self.current_tree_index().map(|(tree, i)| &tree[i])
     }
 
     /// The node `D`, `X` and `m` act on: the highlighted row's in a tree, else the focus.
@@ -315,12 +319,7 @@ impl App {
     /// parent; in the used-by tree the parent feeds the row's node. The parent is the
     /// nearest row above at one less depth, or the focused node.
     fn tree_connection(&self) -> Option<conduit_core::edit::Connection> {
-        let tree = match self.pane {
-            Pane::Up => &self.up,
-            Pane::Down => &self.down,
-            Pane::Node => return None,
-        };
-        let i = *self.visible(self.pane).get(self.cursor(self.pane))?;
+        let (tree, i) = self.current_tree_index()?;
         let item = &tree[i];
         let parent = tree[..i]
             .iter()
@@ -545,13 +544,7 @@ impl App {
                 return None;
             }
             KeyCode::Enter => {
-                self.mode = Mode::Pick {
-                    purpose: purpose.clone(),
-                    query,
-                    selected,
-                };
-                let chosen = self.pick_matches().into_iter().nth(selected);
-                self.mode = Mode::Normal;
+                let chosen = self.matches_for(&purpose, &query).into_iter().nth(selected);
                 return chosen.and_then(|(key, _)| self.choose(purpose, key));
             }
             KeyCode::Down => selected += 1,
@@ -568,15 +561,12 @@ impl App {
             }
             _ => {}
         }
+        let count = self.matches_for(&purpose, &query).len();
         self.mode = Mode::Pick {
             purpose,
             query,
-            selected,
+            selected: selected.min(count.saturating_sub(1)),
         };
-        let count = self.pick_matches().len();
-        if let Mode::Pick { selected, .. } = &mut self.mode {
-            *selected = (*selected).min(count.saturating_sub(1));
-        }
         if let Some(param) = live {
             self.preview_pick(&param);
         }
@@ -1061,8 +1051,13 @@ pub(crate) mod tests {
         temp_project("basic")
     }
 
+    /// The keys of the picker's current matches.
+    fn pick_keys(app: &App) -> Vec<String> {
+        app.pick_matches().into_iter().map(|(k, _)| k).collect()
+    }
+
     /// An example project copied to a temp folder.
-    fn temp_project(name: &str) -> (tempfile::TempDir, App) {
+    pub(crate) fn temp_project(name: &str) -> (tempfile::TempDir, App) {
         let tmp = tempfile::tempdir().unwrap();
         let example = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples")
@@ -1169,7 +1164,7 @@ pub(crate) mod tests {
         goto(&mut app, "comp");
         select(&mut app, input("layers", Some(0)));
         press(&mut app, "c");
-        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let keys = pick_keys(&app);
         assert_eq!(keys.len(), 3, "{keys:?}"); // black_sq, placed, white_bg: not comp or preview
         press(&mut app, "white");
         key(&mut app, KeyCode::Enter);
@@ -1229,7 +1224,7 @@ pub(crate) mod tests {
         // `i` on a number param: feed it from a new int that starts at its value.
         select(&mut app, param("width"));
         press(&mut app, "i");
-        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let kinds = pick_keys(&app);
         assert_eq!(kinds, ["int"]);
         key(&mut app, KeyCode::Enter);
         assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "black_sq_width"));
@@ -1246,7 +1241,7 @@ pub(crate) mod tests {
         // `c` links another number param to an existing number output; only numbers fit.
         select(&mut app, param("height"));
         press(&mut app, "c");
-        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let keys = pick_keys(&app);
         assert_eq!(keys, ["black_sq_width.out"]);
         key(&mut app, KeyCode::Enter);
         assert_eq!(link(&app, "height"), Some(reference("black_sq_width")));
@@ -1509,7 +1504,7 @@ pub(crate) mod tests {
         goto(&mut app, "title");
         select(&mut app, param("font"));
         press(&mut app, "i");
-        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let keys = pick_keys(&app);
         assert_eq!(keys, ["font"]);
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Enter); // accept the suggested id
@@ -1809,7 +1804,7 @@ pub(crate) mod tests {
         goto(&mut app, "black_sq");
         select(&mut app, param("color"));
         press(&mut app, "i");
-        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let kinds = pick_keys(&app);
         assert_eq!(kinds, ["color"], "palettes only have named outputs");
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Enter); // `black_sq_color`
@@ -1824,7 +1819,7 @@ pub(crate) mod tests {
         goto(&mut app, "comp");
         select(&mut app, input("base", None));
         press(&mut app, "i");
-        let kinds: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        let kinds = pick_keys(&app);
         assert_eq!(kinds, ["composite"], "image → image: only composite fits");
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Enter); // accept `composite_1`

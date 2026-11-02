@@ -189,9 +189,14 @@ impl App {
 
     /// The picker's choices matching its query, best first.
     pub fn pick_matches(&self) -> Vec<(String, String)> {
-        let Mode::Pick { purpose, query, .. } = &self.mode else {
-            return Vec::new();
-        };
+        match &self.mode {
+            Mode::Pick { purpose, query, .. } => self.matches_for(purpose, query),
+            _ => Vec::new(),
+        }
+    }
+
+    /// `purpose`'s choices matching `query`, best first.
+    pub(super) fn matches_for(&self, purpose: &Pick, query: &str) -> Vec<(String, String)> {
         let items = self.pick_items(purpose);
         // Fonts (recent, generic, A–Z) and files (by path) are listed in a deliberate order;
         // keep it unfiltered.

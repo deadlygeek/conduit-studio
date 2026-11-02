@@ -736,7 +736,8 @@ fn draw_help(frame: &mut Frame) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -745,6 +746,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
+    use super::super::app::tests as app_tests;
     use super::*;
 
     fn render(app: &mut App, width: u16, height: u16) -> String {
@@ -761,25 +763,46 @@ mod tests {
             .join("\n")
     }
 
-    fn example() -> App {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
+    fn example_dir(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples")
+            .join(name)
+    }
+
+    /// An app on the project in `dir`, which it calls `shown`.
+    fn app_at(dir: &Path, shown: &Path) -> App {
         let registry = Arc::new(conduit_nodes::registry());
-        let project = inspect(&dir, &registry).unwrap();
-        App::new(Path::new("examples/basic").to_path_buf(), project, registry)
+        let project = inspect(dir, &registry).unwrap();
+        App::new(shown.to_path_buf(), project, registry)
+    }
+
+    fn example() -> App {
+        app_at(&example_dir("basic"), Path::new("examples/basic"))
+    }
+
+    fn palette_example() -> App {
+        let dir = example_dir("palette");
+        app_at(&dir, &dir)
+    }
+
+    fn rendered(
+        nodes: usize,
+        evaluated: usize,
+        ms: u64,
+        shown: HashMap<Reference, Shown>,
+    ) -> Event {
+        Event::Rendered {
+            stats: EvalStats { nodes, evaluated },
+            shown,
+            elapsed: Duration::from_millis(ms),
+        }
     }
 
     #[test]
     fn lineage_view() {
         let mut app = example();
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // focus comp
-        app.on_runner_event(Event::Rendered {
-            stats: EvalStats {
-                nodes: 5,
-                evaluated: 5,
-            },
-            shown: Default::default(),
-            elapsed: Duration::from_millis(18),
-        });
+        app.on_runner_event(rendered(5, 5, 18, Default::default()));
         let screen = render(&mut app, 120, 16);
         for expected in [
             "conduit edit examples/basic",
@@ -803,22 +826,15 @@ mod tests {
 
     #[test]
     fn linked_params_show_source_and_value() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/linked");
-        let registry = Arc::new(conduit_nodes::registry());
-        let project = inspect(&dir, &registry).unwrap();
-        let mut app = App::new(dir, project, registry);
-        for c in "/square".chars() {
-            app.handle_key(KeyEvent::from(KeyCode::Char(c)));
-        }
-        app.handle_key(KeyEvent::from(KeyCode::Enter));
-        app.on_runner_event(Event::Rendered {
-            stats: EvalStats {
-                nodes: 7,
-                evaluated: 1,
-            },
-            shown: [(Reference::parse("size").unwrap(), Shown::Number(120.0))].into(),
-            elapsed: Duration::from_millis(3),
-        });
+        let dir = example_dir("linked");
+        let mut app = app_at(&dir, &dir);
+        go(&mut app, "/square");
+        app.on_runner_event(rendered(
+            7,
+            1,
+            3,
+            [(Reference::parse("size").unwrap(), Shown::Number(120.0))].into(),
+        ));
         let screen = render(&mut app, 120, 16);
         for expected in [
             "par color      = \"#e63946\"",
@@ -856,16 +872,8 @@ mod tests {
 
     #[test]
     fn font_picker_overlay() {
-        let tmp = tempfile::tempdir().unwrap();
-        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/text");
-        for entry in std::fs::read_dir(example).unwrap() {
-            let path = entry.unwrap().path();
-            std::fs::copy(&path, tmp.path().join(path.file_name().unwrap())).unwrap();
-        }
-        let registry = Arc::new(conduit_nodes::registry());
-        let project = inspect(tmp.path(), &registry).unwrap();
-        let mut app = App::new(tmp.path().to_path_buf(), project, registry);
-        super::super::app::tests::open_font_picker_on(&mut app, "title");
+        let (_tmp, mut app) = app_tests::temp_project("text");
+        app_tests::open_font_picker_on(&mut app, "title");
         let screen = render(&mut app, 120, 30);
         assert!(screen.contains("font for title.font (6 of 6)"), "{screen}");
         assert!(screen.contains("Beta Mono  mono"), "{screen}");
@@ -876,9 +884,7 @@ mod tests {
     fn errors_are_visible() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("a.toml"), "type = \"transform\"\n").unwrap();
-        let registry = Arc::new(conduit_nodes::registry());
-        let project = inspect(tmp.path(), &registry).unwrap();
-        let mut app = App::new(tmp.path().to_path_buf(), project, registry);
+        let mut app = app_at(tmp.path(), tmp.path());
         app.on_runner_event(Event::Failed(
             "a.toml: required input `image` is not connected".into(),
         ));
@@ -894,14 +900,7 @@ mod tests {
         let mut app = example();
         app.handle_key(KeyEvent::from(KeyCode::Char('h'))); // focus comp
         app.handle_key(KeyEvent::from(KeyCode::Char('p'))); // probe comp.out
-        app.on_runner_event(Event::Rendered {
-            stats: EvalStats {
-                nodes: 5,
-                evaluated: 5,
-            },
-            shown: Default::default(),
-            elapsed: Duration::from_millis(18),
-        });
+        app.on_runner_event(rendered(5, 5, 18, Default::default()));
         let screen = render(&mut app, 60, 30);
         let line_of = |text: &str| screen.lines().position(|l| l.contains(text));
         // Full text fits, and the panes are stacked top to bottom.
@@ -959,13 +958,6 @@ mod tests {
         render(&mut app, 1, 1);
     }
 
-    fn palette_example() -> App {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/palette");
-        let registry = Arc::new(conduit_nodes::registry());
-        let project = inspect(&dir, &registry).unwrap();
-        App::new(dir, project, registry)
-    }
-
     /// Foreground color of the first cell of `text` on screen.
     fn color_at(app: &mut App, text: &str, offset: u16) -> Color {
         let (width, height) = (120, 24);
@@ -1015,18 +1007,16 @@ mod tests {
     fn linked_colors_show_their_value() {
         let mut app = palette_example();
         go(&mut app, "/square");
-        app.on_runner_event(Event::Rendered {
-            stats: EvalStats {
-                nodes: 9,
-                evaluated: 9,
-            },
-            shown: [(
+        app.on_runner_event(rendered(
+            9,
+            9,
+            3,
+            [(
                 Reference::parse("accent_dark").unwrap(),
                 Shown::Color(Rgba([0xcf, 0x40, 0x1d, 255])),
             )]
             .into(),
-            elapsed: Duration::from_millis(3),
-        });
+        ));
         let screen = render(&mut app, 120, 24);
         assert!(
             screen.contains("par color      ← accent_dark  ██ #cf401d"),

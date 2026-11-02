@@ -73,6 +73,7 @@ mod tests {
         let mut gui = Recorder::default();
         let mut ctx = EvalCtx {
             node_id: "prev",
+            root: std::path::Path::new(""),
             gui: &mut gui,
         };
         let out = Preview

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 use crate::graph::{Graph, GraphNode, Reference};
 use crate::node::{EvalCtx, GuiHost, Inputs, NodeSpec, ParamKind};
@@ -44,7 +45,8 @@ pub fn evaluate(
 }
 
 /// Evaluates graphs repeatedly, remembering each node's outputs. A node only runs again
-/// when its kind, params or (transitively) anything upstream of it changed. GUI nodes
+/// when its kind, params, the files it reads or (transitively) anything upstream of it
+/// changed. GUI nodes
 /// always run, so their windows get a fresh frame (e.g. after showing an error).
 #[derive(Default)]
 pub struct Evaluator {
@@ -70,14 +72,18 @@ impl Evaluator {
             let spec = registry
                 .spec(&node.kind)
                 .expect("graph loaded with this registry");
-            let fingerprint = fingerprint(node, &fingerprints);
+            let node_impl = registry
+                .get(&node.kind)
+                .expect("graph loaded with this registry");
+            let files = node_impl.files(&node.params);
+            let fingerprint = fingerprint(node, &graph.root, &files, &fingerprints);
             fingerprints.insert(&node.id, fingerprint);
 
             let outputs = match self.cache.remove(&node.id) {
                 Some((fp, outputs)) if fp == fingerprint && !spec.gui => outputs,
                 _ => {
                     stats.evaluated += 1;
-                    eval_node(node, spec, registry, &values, gui)?
+                    eval_node(node, spec, registry, &graph.root, &values, gui)?
                 }
             };
             for (r, v) in &outputs {
@@ -144,12 +150,25 @@ fn linked_params(
     Ok(params)
 }
 
-/// Identifies everything a node's outputs depend on: its kind, its params, and the
-/// fingerprints of its sources (which are computed first, in graph order).
-fn fingerprint(node: &GraphNode, fingerprints: &HashMap<&str, u64>) -> u64 {
+/// Identifies everything a node's outputs depend on: its kind, its params, the size and
+/// modification time of the files it reads, and the fingerprints of its sources (which are
+/// computed first, in graph order).
+fn fingerprint(
+    node: &GraphNode,
+    root: &Path,
+    files: &[PathBuf],
+    fingerprints: &HashMap<&str, u64>,
+) -> u64 {
     let mut h = DefaultHasher::new();
     node.kind.hash(&mut h);
     node.params.to_string().hash(&mut h);
+    for file in files {
+        file.hash(&mut h);
+        std::fs::metadata(root.join(file))
+            .ok()
+            .map(|m| (m.len(), m.modified().ok()))
+            .hash(&mut h);
+    }
     for (port, refs) in &node.inputs {
         port.hash(&mut h);
         for r in refs {
@@ -164,6 +183,7 @@ fn eval_node(
     node: &GraphNode,
     spec: &NodeSpec,
     registry: &Registry,
+    root: &Path,
     values: &Values,
     gui: &mut dyn GuiHost,
 ) -> Result<Vec<(Reference, Value)>, EvalError> {
@@ -190,6 +210,7 @@ fn eval_node(
     let params = linked_params(node, spec, &inputs).map_err(node_error)?;
     let mut ctx = EvalCtx {
         node_id: &node.id,
+        root,
         gui,
     };
     let outputs = node_impl

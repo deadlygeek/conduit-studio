@@ -1,0 +1,5 @@
+# A PNG with transparency (120x120)
+type = "image"
+
+[params]
+path = "assets/images/badge.png"

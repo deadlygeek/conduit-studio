@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use image::RgbaImage;
@@ -373,6 +374,12 @@ pub trait Node: Send + Sync {
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, ctx: &mut EvalCtx)
     -> NodeResult<Outputs>;
+
+    /// Files this node reads (relative to the project folder), besides its node file. When
+    /// one changes, the node re-runs and `conduit run` re-renders.
+    fn files(&self, _params: &toml::Table) -> Vec<PathBuf> {
+        Vec::new()
+    }
 }
 
 /// Deserializes a node's `[params]` table into its typed params struct.
@@ -463,6 +470,8 @@ impl GuiHost for NullHost {
 
 pub struct EvalCtx<'a> {
     pub node_id: &'a str,
+    /// The project folder (see [`crate::Graph::root`]).
+    pub root: &'a Path,
     pub gui: &'a mut dyn GuiHost,
 }
 

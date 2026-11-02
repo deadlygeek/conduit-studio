@@ -5,6 +5,7 @@ mod color;
 mod composite;
 mod effect;
 mod hsl;
+mod image;
 mod int;
 mod invert;
 mod palette;
@@ -23,6 +24,7 @@ use conduit_core::Registry;
 pub use color::ColorNode;
 pub use composite::Composite;
 pub use hsl::Hsl;
+pub use image::Image;
 pub use int::Int;
 pub use invert::Invert;
 pub use palette::Palette;
@@ -38,6 +40,7 @@ pub const MAX_DIMENSION: u32 = 16_384;
 
 pub fn register_all(registry: &mut Registry) {
     registry.register(Rect);
+    registry.register(Image);
     registry.register(Transform);
     registry.register(Realize);
     registry.register(Hsl);

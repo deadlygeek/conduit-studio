@@ -1,0 +1,10 @@
+# The badge at half size (about its center) near the top-left corner
+type = "transform"
+
+[inputs]
+layer = "badge"
+
+[params]
+x = 20
+y = 20
+scale = 0.5

@@ -7,5 +7,9 @@ license.workspace = true
 [dependencies]
 conduit-core = { version = "0.1.0", path = "../conduit-core" }
 cosmic-text = "0.19"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -1,0 +1,5 @@
+type = "composite"
+
+[inputs]
+base = "photo"
+layers = ["badge_at"]

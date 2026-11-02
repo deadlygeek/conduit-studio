@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use conduit_core::{EvalCtx, Inputs, Node, NodeResult, NullHost, Rgba, RgbaImage, Value};
@@ -17,12 +18,23 @@ pub fn run(
     inputs: Vec<(&str, Vec<Value>)>,
     params: &toml::Table,
 ) -> NodeResult<Value> {
+    run_in(Path::new(""), node, inputs, params)
+}
+
+/// [`run`] with `root` as the project folder.
+pub fn run_in(
+    root: &Path,
+    node: &dyn Node,
+    inputs: Vec<(&str, Vec<Value>)>,
+    params: &toml::Table,
+) -> NodeResult<Value> {
     let inputs = inputs
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect::<HashMap<_, _>>();
     let mut ctx = EvalCtx {
         node_id: "test",
+        root,
         gui: &mut NullHost,
     };
     let mut outputs = node.eval(&Inputs::new(inputs), params, &mut ctx)?;

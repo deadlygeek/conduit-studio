@@ -1,0 +1,5 @@
+# A JPEG from the project folder, at its own size (480x320)
+type = "image"
+
+[params]
+path = "assets/images/sunset.jpg"

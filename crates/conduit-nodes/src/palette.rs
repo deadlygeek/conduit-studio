@@ -76,6 +76,7 @@ mod tests {
         let p = params("[colors]\nprimary = \"#264653\"\naccent = \"red\"");
         let mut ctx = conduit_core::EvalCtx {
             node_id: "brand",
+            root: std::path::Path::new(""),
             gui: &mut conduit_core::NullHost,
         };
         let out = Palette.eval(&Inputs::default(), &p, &mut ctx).unwrap();

@@ -71,11 +71,31 @@ pub struct GraphNode {
 #[derive(Debug, Clone, Default)]
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
+    /// The project folder. Files that nodes read (e.g. `image`'s `path`) are relative to
+    /// it. Empty (the current directory) for graphs not loaded from a folder.
+    pub root: PathBuf,
 }
 
 impl Graph {
     pub fn get(&self, id: &str) -> Option<&GraphNode> {
         self.nodes.iter().find(|n| n.id == id)
+    }
+
+    /// Every file the nodes read besides their own node files (see [`Node::files`]),
+    /// joined to [`Graph::root`]. The graph must have been loaded with this registry.
+    ///
+    /// [`Node::files`]: crate::Node::files
+    pub fn files(&self, registry: &Registry) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = self
+            .nodes
+            .iter()
+            .filter_map(|n| registry.get(&n.kind).map(|k| k.files(&n.params)))
+            .flatten()
+            .map(|f| self.root.join(f))
+            .collect();
+        files.sort();
+        files.dedup();
+        files
     }
 }
 
@@ -177,7 +197,10 @@ impl fmt::Display for LoadErrors {
 pub fn load(dir: &Path, registry: &Registry) -> Result<Graph, LoadErrors> {
     let (sources, mut errors) = read_sources(dir).map_err(|e| LoadErrors(vec![e]))?;
     match from_sources(sources, registry) {
-        Ok(graph) if errors.is_empty() => Ok(graph),
+        Ok(graph) if errors.is_empty() => Ok(Graph {
+            root: dir.to_path_buf(),
+            ..graph
+        }),
         Ok(_) => Err(LoadErrors(errors)),
         Err(LoadErrors(more)) => {
             errors.extend(more);
@@ -467,6 +490,7 @@ fn topo_sort(mut nodes: BTreeMap<String, GraphNode>) -> Result<Graph, LoadError>
             .iter()
             .map(|id| nodes.remove(id).expect("node present"))
             .collect(),
+        root: PathBuf::new(),
     })
 }
 

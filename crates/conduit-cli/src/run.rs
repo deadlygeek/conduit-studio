@@ -1,5 +1,5 @@
 //! The renderer behind `conduit run` and `conduit edit`: watches a project folder, re-renders
-//! when node files change, feeds GUI windows, and can "probe" any node's output into a
+//! when node files or the files they read (e.g. images) change, feeds GUI windows, and can "probe" any node's output into a
 //! window of its own. Runs on a background thread; talk to it through a [`RunnerHandle`].
 
 use std::collections::{BTreeMap, HashMap};
@@ -30,8 +30,8 @@ pub enum Command {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// Node files changed on disk (an editor should re-read the project). Sent before the
-    /// re-render.
+    /// Node files, or files they read, changed on disk (an editor should re-read the
+    /// project). Sent before the re-render.
     FilesChanged,
     Rendered {
         stats: EvalStats,
@@ -103,9 +103,10 @@ pub fn spawn(
     let mut watcher = new_debouncer(DEBOUNCE, move |result| {
         let _ = files_tx.send(Input::Files(result));
     })?;
+    // Recursive, so images in subfolders (e.g. `assets/`) are noticed too.
     watcher
         .watcher()
-        .watch(dir, RecursiveMode::NonRecursive)
+        .watch(dir, RecursiveMode::Recursive)
         .map_err(|e| anyhow::anyhow!("cannot watch {}: {e}", dir.display()))?;
 
     let save_dir = dir.join("out");
@@ -118,7 +119,8 @@ pub fn spawn(
         probe: None,
         evaluator: Evaluator::default(),
         values: None,
-        last: snapshot(dir),
+        files: Vec::new(),
+        last: Snapshot::new(),
         events: event_tx,
     };
     let thread = std::thread::spawn(move || runner.run(input_rx));
@@ -178,6 +180,9 @@ struct Runner {
     evaluator: Evaluator,
     /// Outputs of the last successful render.
     values: Option<Values>,
+    /// Files the nodes read, as of the last graph that loaded.
+    files: Vec<PathBuf>,
+    /// Node files and `files` as of the last render.
     last: Snapshot,
     events: Sender<Event>,
 }
@@ -187,17 +192,15 @@ impl Runner {
         self.render();
         for input in inputs {
             match input {
-                Input::Files(Ok(events)) if events.iter().any(|e| is_node_file(&e.path)) => {
-                    // The watcher also reports our own reads of the files, so only re-render
-                    // when something about them actually changed.
-                    let current = snapshot(&self.dir);
-                    if current != self.last {
-                        self.last = current;
+                Input::Files(Ok(_)) => {
+                    // The watcher also reports our own reads of the files and unrelated files
+                    // (saved PNGs, swap files), so only re-render when something we read
+                    // actually changed.
+                    if snapshot(&self.dir, &self.files) != self.last {
                         self.emit(Event::FilesChanged);
                         self.render();
                     }
                 }
-                Input::Files(Ok(_)) => {}
                 Input::Files(Err(e)) => self.emit(Event::Warning(format!("watch error: {e}"))),
                 Input::Command(Command::Probe(target)) => {
                     self.probe = Some(target);
@@ -215,7 +218,13 @@ impl Runner {
 
     fn render(&mut self) {
         let start = Instant::now();
-        let result = load(&self.dir, &self.registry)
+        let graph = load(&self.dir, &self.registry);
+        if let Ok(graph) = &graph {
+            self.files = graph.files(&self.registry);
+        }
+        // Taken before evaluating, so a file changed while rendering is noticed.
+        self.last = snapshot(&self.dir, &self.files);
+        let result = graph
             .map_err(|errors| errors.to_string())
             .and_then(|graph| {
                 self.gui.sync(&graph, &self.registry);
@@ -290,16 +299,18 @@ impl Runner {
 
 type Snapshot = BTreeMap<PathBuf, (u64, Option<SystemTime>)>;
 
-/// Size and modification time of every node file. Uses metadata only: reading the
-/// files would itself generate watch events.
-fn snapshot(dir: &Path) -> Snapshot {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return BTreeMap::new();
-    };
-    entries
+/// Size and modification time of every node file and of `files` (missing ones are left
+/// out, so creating one counts as a change). Uses metadata only: reading the files would
+/// itself generate watch events.
+fn snapshot(dir: &Path, files: &[PathBuf]) -> Snapshot {
+    let node_files = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| is_node_file(p))
+        .filter(|p| is_node_file(p));
+    node_files
+        .chain(files.iter().cloned())
         .filter_map(|p| {
             let meta = std::fs::metadata(&p).ok()?;
             Some((p, (meta.len(), meta.modified().ok())))
@@ -431,6 +442,39 @@ mod tests {
 
         handle.send(Command::ProbeOff);
         drop(handle); // stops the runner thread and closes windows
+    }
+
+    /// Changing an image a node reads re-renders, like changing a node file.
+    #[test]
+    fn rerenders_when_an_image_changes() {
+        let (_tmp, project, script) = setup();
+        std::fs::create_dir(project.join("assets")).unwrap();
+        let png = project.join("assets/sq.png");
+        RgbaImage::new(5, 5).save(&png).unwrap();
+        std::fs::write(
+            project.join("black_sq.toml"),
+            "type = \"image\"\n[params]\npath = \"assets/sq.png\"",
+        )
+        .unwrap();
+        let options = Options {
+            preview_program: script,
+            quiet: true,
+        };
+        let handle = spawn(&project, Arc::new(conduit_nodes::registry()), options).unwrap();
+        expect_event(
+            &handle,
+            "first render",
+            |e| matches!(e, Event::Rendered { stats, .. } if stats.nodes == 5),
+        );
+
+        RgbaImage::new(9, 5).save(&png).unwrap();
+        expect_event(&handle, "files changed", |e| *e == Event::FilesChanged);
+        // Only the image node and what depends on it re-run.
+        expect_event(
+            &handle,
+            "re-render",
+            |e| matches!(e, Event::Rendered { stats, .. } if stats.evaluated == 4),
+        );
     }
 
     #[test]

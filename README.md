@@ -204,6 +204,7 @@ onto a canvas (`composite`) or realized (`realize`).
 | Type | Inputs | Params | Output `out` |
 |---|---|---|---|
 | `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
+| `image` | — | `path` (relative to the project folder) — see [Images](#images) | image: the file's pixels at its own size |
 | `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |
 | `text` | — | `text`, `font` (default `sans-serif`), `size` (px, default 48), `color` (default black), `weight` (100–900, default 400), `style` (`normal` / `italic`) — see [Text](#text) | layer: the text on a transparent background |
 | `realize` | `layer`: layer | — | the layer rendered onto its own bounding box, moved by whole pixels only |
@@ -280,6 +281,32 @@ rotated and stacked like any other layer: put a `transform` after it, then `comp
 
 `examples/text` shows a bold title colored from a `color` node and a two-line italic
 note rotated by a `transform`.
+
+### Images
+
+`image` reads a picture from the project folder and outputs it as an **image** at its own
+size, so it can be a `composite`'s `base` or, like any image, go wherever a layer does
+(`transform`, the color effects, `composite`'s `layers`).
+
+```toml
+# photo.toml
+type = "image"
+
+[params]
+path = "assets/images/cat.jpg"
+```
+
+- PNG, JPEG, WebP, GIF (the first frame) and BMP are supported; transparency is kept, and
+  photos are turned upright using their EXIF orientation.
+- `path` is relative to the project folder and must stay inside it (no absolute paths or
+  `..`), so a project folder can be moved or shared as a whole. Any subfolder works;
+  `assets/` is just a convention.
+- A missing or unreadable file is a render error that names the file. Images larger than
+  16384 px on a side are refused.
+- `conduit run` and `conduit edit` re-render when an image a node reads changes on disk,
+  and only that node and what depends on it re-run.
+
+`examples/image` puts a half-size transparent PNG badge over a JPEG.
 
 `examples/transform` shows a rotated bar, the same bar moved and scaled by a second
 transform, a squashed and skewed bar with `filter = "nearest"`, and `realize`.
@@ -434,16 +461,19 @@ examples/palette   colors from an imported palette, adjusted with a `color` node
 examples/transform rotate, scale, skew and realize layers
 examples/text      text in system fonts, colored and transformed
 examples/effects   hsl, tint and invert, including after a rotation
+examples/image     image files from the project's assets/ folder
 ```
 
-- Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks
-  the graph, then evaluates nodes in dependency order. Nodes whose type, params and
-  upstream nodes are unchanged since the last render reuse their previous outputs (a
-  fingerprint per node, chained through its sources); GUI nodes always run so their
-  windows stay current. The status shows e.g. `rendered 7 nodes (5 unchanged) in 3 ms`.
+- Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks the
+  graph, then evaluates nodes in dependency order. Nodes whose type, params and upstream
+  nodes are unchanged since the last render reuse their previous outputs (a fingerprint
+  per node, chained through its sources; it also covers the size and modification time of
+  any files the node reads, from `Node::files`); GUI nodes always run so their windows
+  stay current. The status shows e.g. `rendered 7 nodes (5 unchanged) in 3 ms`.
 - The renderer (`conduit-cli/src/run.rs`) runs on a background thread: it watches the
-  folder, re-renders only when node files actually change, and reports events. `conduit run`
-  prints them; `conduit edit` shows them in its status line and sends it probe commands.
+  folder (recursively), re-renders only when node files or the files they read actually
+  change, and reports events. `conduit run` prints them; `conduit edit` shows them in its
+  status line and sends it probe commands.
 - A node marked `gui` sends its image to a `GuiHost`. The runner's host starts one
   `conduit-preview` process per GUI node (plus one for the probe) and streams frames to
   its stdin. Under `conduit check` the images are discarded.
@@ -545,6 +575,9 @@ Things to know:
   evaluation fails otherwise.
 - Images are `Arc<RgbaImage>`, so passing them along is cheap; clone the pixels only
   when you change them.
+- A node that reads a file from the project should resolve it against `ctx.root` and
+  return it from `Node::files`, so its output is refreshed (and `conduit run` re-renders)
+  when the file changes. See `image.rs`.
 - Add unit tests next to the node; `crates/conduit-nodes/src/test_util.rs` has helpers
   for building images and running a node directly.
 

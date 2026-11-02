@@ -5,7 +5,7 @@ use std::path::Path;
 
 use conduit_core::{FontData, ParamKind};
 
-use super::{App, Mode, Pick, Prompt, Row};
+use super::{App, Pick, Prompt, Row};
 
 /// Folders deeper than this aren't searched.
 const MAX_DEPTH: usize = 8;
@@ -19,12 +19,7 @@ impl App {
         let Some(Row::Param { name, .. }) = self.current_row().cloned() else {
             return false;
         };
-        let extensions = match self
-            .focused()
-            .and_then(|n| n.spec.as_ref())
-            .and_then(|s| s.param(&name))
-            .map(|p| &p.kind)
-        {
+        let extensions = match self.param_spec(&name).map(|p| &p.kind) {
             Some(ParamKind::File { extensions }) => *extensions,
             _ => return false,
         };
@@ -49,18 +44,7 @@ impl App {
                 (path, label)
             })
             .collect();
-        // A new session: its writes undo together, separately from earlier edits.
-        self.nudging = None;
-        let selected = self
-            .files
-            .iter()
-            .position(|(path, _)| Some(path) == current.as_ref())
-            .unwrap_or(0);
-        self.mode = Mode::Pick {
-            purpose: Pick::File { param: name },
-            query: String::new(),
-            selected,
-        };
+        self.open_live_pick(Pick::File { param: name }, current.as_deref());
         true
     }
 }

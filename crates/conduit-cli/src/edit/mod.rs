@@ -1,5 +1,5 @@
-//! `conduit edit`: a keyboard-driven terminal UI for exploring (and, later, editing) a
-//! project, with the renderer running alongside it.
+//! `conduit edit`: a keyboard-driven terminal UI for exploring and editing a project, with
+//! the renderer running alongside it.
 
 mod app;
 mod finder;
@@ -41,10 +41,7 @@ pub fn edit(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
 
             while let Ok(event) = runner.events().try_recv() {
                 if event == Event::FilesChanged {
-                    match inspect(dir, &registry) {
-                        Ok(project) => app.reload(project),
-                        Err(e) => app.message = Some(e.to_string()),
-                    }
+                    app.reload_from_disk();
                 }
                 app.on_runner_event(event);
             }

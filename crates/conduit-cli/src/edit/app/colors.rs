@@ -85,10 +85,8 @@ impl App {
         };
         let (target, start) = match self.current_row() {
             Some(Row::Param { name, link }) => {
-                let is_color = node
-                    .spec
-                    .as_ref()
-                    .and_then(|s| s.param(name))
+                let is_color = self
+                    .param_spec(name)
                     .is_some_and(|p| p.kind == ParamKind::Color);
                 if !is_color {
                     return false;
@@ -191,26 +189,50 @@ impl App {
                 ops::set_entry(&self.dir, node, param, key, &hex)
             }
         };
-        match result {
-            Ok(change) => {
-                let label = format!("set {} = {hex}", edit.target.label());
-                self.record_coalesced(format!("color {}", edit.target.label()), label, change);
-                edit.changed = true;
-            }
-            Err(e) => self.message = Some(format!("error: {e}")),
+        let label = format!("set {} = {hex}", edit.target.label());
+        if self.write_session(format!("color {}", edit.target.label()), label, result) {
+            edit.changed = true;
         }
     }
 
     /// `esc`: put back what was there before the editor opened (including a link).
     fn revert_color(&mut self, edit: &ColorEdit) {
-        let key = format!("color {}", edit.target.label());
-        if !edit.changed || self.nudging.as_ref() != Some(&key) {
+        if edit.changed {
+            let what = edit.target.label();
+            self.revert_session(&format!("color {what}"), &what);
+        }
+    }
+
+    /// Records one write of the coalesced session `key` (see [`Self::record_coalesced`]),
+    /// or reports its error. Returns whether it was written.
+    pub(super) fn write_session(
+        &mut self,
+        key: String,
+        label: String,
+        result: ops::EditResult<Change>,
+    ) -> bool {
+        match result {
+            Ok(change) => {
+                self.record_coalesced(key, label, change);
+                true
+            }
+            Err(e) => {
+                self.message = Some(format!("error: {e}"));
+                false
+            }
+        }
+    }
+
+    /// `esc` in a session: undoes everything session `key` wrote, if it is still the
+    /// latest edit, and reports `what` as reverted.
+    pub(super) fn revert_session(&mut self, key: &str, what: &str) {
+        if self.nudging.as_deref() != Some(key) {
             return;
         }
         if let Some((_, change)) = self.undo.pop() {
             self.nudging = None;
             match change.undo() {
-                Ok(()) => self.message = Some(format!("reverted {}", edit.target.label())),
+                Ok(()) => self.message = Some(format!("reverted {what}")),
                 Err(e) => self.message = Some(format!("revert failed: {e}")),
             }
             self.reload_from_disk();
@@ -236,10 +258,8 @@ impl App {
         let node = self.focused()?;
         let (name, table) = match self.current_row() {
             Some(Row::Param { name, .. })
-                if node
-                    .spec
-                    .as_ref()
-                    .and_then(|s| s.param(name))
+                if self
+                    .param_spec(name)
                     .is_some_and(|p| p.kind == ParamKind::Color) =>
             {
                 (name.clone(), None)
@@ -303,12 +323,8 @@ impl App {
             self.message = Some("move the cursor to a palette color to remove it".into());
             return;
         };
-        let users: Vec<String> = self
-            .project
-            .consumers(&focus)
-            .iter()
+        let users: Vec<_> = (self.project.consumers(&focus).iter())
             .filter(|c| c.output == key)
-            .map(|c| format!("{}.{}", c.node, c.port))
             .collect();
         if users.is_empty() {
             self.remove_entry(&param, &key);
@@ -316,7 +332,7 @@ impl App {
             self.mode = Mode::Confirm {
                 question: format!(
                     "Remove `{focus}.{key}`? This disconnects {}.",
-                    users.join(", ")
+                    super::uses(users)
                 ),
                 purpose: Confirm::RemoveEntry { param, key },
             };

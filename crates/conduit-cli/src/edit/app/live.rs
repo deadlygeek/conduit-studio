@@ -4,7 +4,7 @@
 
 use conduit_core::edit as ops;
 
-use super::{App, Mode};
+use super::{App, Mode, Pick};
 
 impl App {
     /// The focused node's text param as written (or its default).
@@ -44,28 +44,30 @@ impl App {
         if self.text_value(param).as_deref() == Some(value) {
             return;
         }
-        match ops::set_param(&self.dir, &node, param, &toml::Value::String(value.into())) {
-            Ok(change) => {
-                let label = format!("set {node}.{param} = \"{value}\"");
-                self.record_coalesced(Self::session_key(param, &node), label, change);
-            }
-            Err(e) => self.message = Some(format!("error: {e}")),
-        }
+        let result = ops::set_param(&self.dir, &node, param, &toml::Value::String(value.into()));
+        let label = format!("set {node}.{param} = \"{value}\"");
+        self.write_session(Self::session_key(param, &node), label, result);
     }
 
     /// `esc`: put back the value from before the picker opened.
     pub(super) fn revert_pick(&mut self, param: &str) {
         let node = self.focus.clone().unwrap_or_default();
-        if self.nudging.as_deref() != Some(Self::session_key(param, &node).as_str()) {
-            return;
-        }
-        if let Some((_, change)) = self.undo.pop() {
-            self.nudging = None;
-            match change.undo() {
-                Ok(()) => self.message = Some(format!("reverted {node}.{param}")),
-                Err(e) => self.message = Some(format!("revert failed: {e}")),
-            }
-            self.reload_from_disk();
-        }
+        self.revert_session(&Self::session_key(param, &node), &format!("{node}.{param}"));
+    }
+
+    /// Opens a picker session on `purpose`, with `current` highlighted.
+    pub(super) fn open_live_pick(&mut self, purpose: Pick, current: Option<&str>) {
+        // A new session: its writes undo together, separately from earlier edits.
+        self.nudging = None;
+        let selected = self
+            .pick_items(&purpose)
+            .iter()
+            .position(|(key, _)| Some(key.as_str()) == current)
+            .unwrap_or(0);
+        self.mode = Mode::Pick {
+            purpose,
+            query: String::new(),
+            selected,
+        };
     }
 }

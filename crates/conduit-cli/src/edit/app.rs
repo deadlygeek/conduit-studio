@@ -10,13 +10,15 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use conduit_core::{Change, ParamKind, Project, ProjectNode, Reference, Registry, TreeItem};
+use conduit_core::{
+    Change, ParamKind, ParamSpec, PortSpec, Project, ProjectNode, Reference, Registry, TreeItem,
+};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use crate::run::{Event, Shown};
 pub use colors::ColorEdit;
-pub use edits::{Confirm, Pick, Prompt};
+pub use edits::{Confirm, Pick, Prompt, uses};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -177,6 +179,16 @@ impl App {
 
     pub fn focused(&self) -> Option<&ProjectNode> {
         self.focus.as_deref().and_then(|id| self.project.get(id))
+    }
+
+    /// The focused node's declared param `name`.
+    pub(super) fn param_spec(&self, name: &str) -> Option<&ParamSpec> {
+        self.focused()?.spec.as_ref()?.param(name)
+    }
+
+    /// The focused node's declared input `port`.
+    pub(super) fn input_spec(&self, port: &str) -> Option<&PortSpec> {
+        self.focused()?.spec.as_ref()?.input(port)
     }
 
     /// Replaces the project after files changed, keeping focus and history where possible.
@@ -407,11 +419,7 @@ impl App {
             return None;
         };
         let action = self.focus_on(&c.node);
-        let multi = self
-            .focused()
-            .and_then(|n| n.spec.as_ref())
-            .and_then(|s| s.input(&c.port))
-            .is_some_and(|p| p.multi);
+        let multi = self.input_spec(&c.port).is_some_and(|p| p.multi);
         let index = multi.then_some(c.index);
         self.select_row(|r| match r {
             Row::Input { port, index: i, .. } => *port == c.port && *i == index,

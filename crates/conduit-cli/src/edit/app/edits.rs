@@ -95,10 +95,9 @@ impl Prompt {
     pub fn label(&self, focus: &str) -> String {
         match self {
             Prompt::Param { name } => format!("{focus}.{name} (empty = default)"),
-            Prompt::AddId { kind } => format!("id for new {kind}"),
-            Prompt::InsertId { kind, .. } | Prompt::FeedId { kind, .. } => {
-                format!("id for new {kind}")
-            }
+            Prompt::AddId { kind }
+            | Prompt::InsertId { kind, .. }
+            | Prompt::FeedId { kind, .. } => format!("id for new {kind}"),
             Prompt::Rename => format!("rename {focus} to"),
             Prompt::AddEntry { .. } => format!("name for the new color in {focus}"),
             Prompt::RenameEntry { key, .. } => format!("rename {focus}.{key} to"),
@@ -462,11 +461,7 @@ impl App {
                 return;
             }
         };
-        let multi = self
-            .focused()
-            .and_then(|n| n.spec.as_ref())
-            .and_then(|s| s.input(&port))
-            .is_some_and(|p| p.multi);
+        let multi = self.input_spec(&port).is_some_and(|p| p.multi);
         self.open_pick(Pick::Connect { port, multi });
     }
 
@@ -685,16 +680,13 @@ impl App {
 
     /// The type of the input that feeds the focused node's param `name`, if linkable.
     fn param_input_type(&self, name: &str) -> Option<ValueType> {
-        let input = self.focused()?.spec.as_ref()?.input(name)?;
+        let input = self.input_spec(name)?;
         input.param.then_some(input.ty)
     }
 
     /// Whether the focused node's param `name` can be fed from another node.
     fn linkable(&self, name: &str) -> bool {
-        self.focused()
-            .and_then(|n| n.spec.as_ref())
-            .and_then(|s| s.input(name))
-            .is_some_and(|p| p.param)
+        self.param_input_type(name).is_some()
     }
 
     pub(super) fn start_rename(&mut self) {
@@ -717,16 +709,11 @@ impl App {
 
     pub(super) fn start_delete(&mut self) {
         let Some(id) = self.target_node() else { return };
-        let users: Vec<String> = self
-            .project
-            .consumers(&id)
-            .iter()
-            .map(|c| format!("{}.{}", c.node, c.port))
-            .collect();
+        let users = self.project.consumers(&id);
         let effect = if users.is_empty() {
             String::new()
         } else {
-            format!(" This disconnects {}.", users.join(", "))
+            format!(" This disconnects {}.", uses(users))
         };
         self.mode = Mode::Confirm {
             question: format!("Delete `{id}`?{effect}"),
@@ -950,9 +937,9 @@ impl App {
 }
 
 /// `a.items, b.image` for a list of uses.
-fn uses(consumers: &[Consumer]) -> String {
+pub fn uses<'a>(consumers: impl IntoIterator<Item = &'a Consumer>) -> String {
     consumers
-        .iter()
+        .into_iter()
         .map(|c| format!("{}.{}", c.node, c.port))
         .collect::<Vec<_>>()
         .join(", ")

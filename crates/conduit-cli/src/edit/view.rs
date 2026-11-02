@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-use super::app::{App, ColorEdit, Mode, Pane, Pick, Row};
+use super::app::{App, ColorEdit, Mode, Pane, Pick, Row, uses};
 use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -376,18 +376,14 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
 
 /// `→ a.color, b.color` for the users of `node.port` (`→ (unused)` unless `quiet`).
 fn users_spans(app: &App, node: &str, port: &str, quiet: bool) -> Vec<Span<'static>> {
-    let users: Vec<String> = app
-        .project
-        .consumers(node)
-        .iter()
+    let users: Vec<_> = (app.project.consumers(node).iter())
         .filter(|c| c.output == port)
-        .map(|c| format!("{}.{}", c.node, c.port))
         .collect();
     match (users.is_empty(), quiet) {
         (true, true) => vec![],
         (true, false) => vec![Span::styled("→ (unused)", DIM)],
-        (false, true) => vec![Span::styled("  → ", DIM), Span::raw(users.join(", "))],
-        (false, false) => vec![Span::styled("→ ", DIM), Span::raw(users.join(", "))],
+        (false, true) => vec![Span::styled("  → ", DIM), Span::raw(uses(users))],
+        (false, false) => vec![Span::styled("→ ", DIM), Span::raw(uses(users))],
     }
 }
 

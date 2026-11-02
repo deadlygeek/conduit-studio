@@ -6,7 +6,7 @@ use std::sync::Arc;
 use conduit_core::ParamKind;
 use conduit_nodes::text::{FontFamily, GENERIC_FAMILIES};
 
-use super::{App, Mode, Pick, Row};
+use super::{App, Pick, Row};
 
 /// How many recently chosen fonts are listed first.
 const RECENT: usize = 5;
@@ -18,9 +18,7 @@ impl App {
             return false;
         };
         let is_font = self
-            .focused()
-            .and_then(|n| n.spec.as_ref())
-            .and_then(|s| s.param(&name))
+            .param_spec(&name)
             .is_some_and(|p| p.kind == ParamKind::Font);
         if !is_font {
             return false;
@@ -29,22 +27,8 @@ impl App {
         if self.fonts.is_none() {
             self.fonts = Some(Arc::new(conduit_nodes::text::font_families()));
         }
-        // A new session: its writes undo together, separately from earlier edits.
-        self.nudging = None;
-        let purpose = Pick::Font {
-            param: name.clone(),
-        };
         let current = self.text_value(&name);
-        let selected = self
-            .pick_items(&purpose)
-            .iter()
-            .position(|(key, _)| Some(key) == current.as_ref())
-            .unwrap_or(0);
-        self.mode = Mode::Pick {
-            purpose,
-            query: String::new(),
-            selected,
-        };
+        self.open_live_pick(Pick::Font { param: name }, current.as_deref());
         true
     }
 

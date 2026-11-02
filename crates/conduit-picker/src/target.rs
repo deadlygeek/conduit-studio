@@ -10,13 +10,22 @@ use conduit_core::{
     to_hex,
 };
 
-#[derive(Debug, Clone)]
+/// Also the picker's command line.
+#[derive(Debug, Clone, clap::Parser)]
+#[command(
+    name = "conduit-picker",
+    version,
+    about = "Color picker for Conduit Studio"
+)]
 pub struct Target {
+    /// Project folder.
     pub dir: PathBuf,
+    /// Node id.
     pub node: String,
-    /// The param, or the palette color's name when `table` is set.
+    /// The color param, or the palette color's name with `--table`.
     pub name: String,
-    /// The table param holding palette colors (`colors`), for a palette color.
+    /// The palette's table param (`colors`) when picking a palette color.
+    #[arg(long)]
     pub table: Option<String>,
 }
 

@@ -82,15 +82,17 @@ pub fn read_msg(r: &mut impl Read) -> io::Result<Option<Msg>> {
     let mut body = vec![0u8; len as usize];
     r.read_exact(&mut body)?;
 
-    let (tag, payload) = body.split_first().expect("len > 0");
-    match *tag {
+    // The payload follows the tag byte; reuse `body` for it instead of allocating a copy.
+    let tag = body[0];
+    match tag {
         TAG_FRAME => {
-            let header = payload
-                .get(..8)
+            let header = body
+                .get(1..9)
                 .ok_or_else(|| invalid("frame header truncated"))?;
             let width = u32::from_le_bytes(header[..4].try_into().expect("4 bytes"));
             let height = u32::from_le_bytes(header[4..].try_into().expect("4 bytes"));
-            let rgba = payload[8..].to_vec();
+            body.drain(..9);
+            let rgba = body;
             if rgba.len() as u64 != u64::from(width) * u64::from(height) * 4 {
                 return Err(invalid("frame size does not match width * height * 4"));
             }
@@ -100,9 +102,12 @@ pub fn read_msg(r: &mut impl Read) -> io::Result<Option<Msg>> {
                 rgba,
             }))
         }
-        TAG_ERROR => String::from_utf8(payload.to_vec())
-            .map(|s| Some(Msg::Error(s)))
-            .map_err(|_| invalid("error message is not UTF-8")),
+        TAG_ERROR => {
+            body.remove(0);
+            let message =
+                String::from_utf8(body).map_err(|_| invalid("error message is not UTF-8"))?;
+            Ok(Some(Msg::Error(message)))
+        }
         TAG_CLOSE => Ok(Some(Msg::Close)),
         other => Err(invalid(format!("unknown message tag {other}"))),
     }

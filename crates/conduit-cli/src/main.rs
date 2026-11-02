@@ -63,20 +63,8 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let registry = conduit_nodes::registry();
     match cli.command {
-        Command::Run { dir } => match run::run(&dir, Arc::new(registry)) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{e:#}");
-                ExitCode::FAILURE
-            }
-        },
-        Command::Edit { dir } => match edit::edit(&dir, Arc::new(registry)) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{e:#}");
-                ExitCode::FAILURE
-            }
-        },
+        Command::Run { dir } => exit_code(run::run(&dir, Arc::new(registry))),
+        Command::Edit { dir } => exit_code(edit::edit(&dir, Arc::new(registry))),
         Command::Check { dir } => check(&dir, &registry),
         Command::Nodes => {
             print_nodes(&registry);
@@ -93,13 +81,18 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Command::Palette(PaletteCommand::Import { dir, id, source }) => {
-            match import_palette(&dir, &id, &source.join(" "), &registry) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("{e}");
-                    ExitCode::FAILURE
-                }
-            }
+            exit_code(import_palette(&dir, &id, &source.join(" "), &registry))
+        }
+    }
+}
+
+/// `SUCCESS`, or `FAILURE` after printing the error (with its causes).
+fn exit_code(result: Result<(), impl std::fmt::Display>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e:#}");
+            ExitCode::FAILURE
         }
     }
 }

@@ -1,7 +1,7 @@
-//! Launching and feeding GUI node processes (`conduit-preview`).
+//! Launching and feeding GUI node processes (`conduit-preview`), and finding the color
+//! picker (`conduit-picker`).
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Arc;
@@ -9,10 +9,10 @@ use std::sync::Arc;
 use conduit_core::{Graph, GuiHost, Registry, RgbaImage};
 
 /// Overrides the GUI program; used by tests and handy for trying alternative previewers.
-pub const PROGRAM_ENV: &str = "CONDUIT_PREVIEW_BIN";
+const PROGRAM_ENV: &str = "CONDUIT_PREVIEW_BIN";
 
 /// Overrides the color picker program.
-pub const PICKER_ENV: &str = "CONDUIT_PICKER_BIN";
+const PICKER_ENV: &str = "CONDUIT_PICKER_BIN";
 
 /// Finds `conduit-preview`: `$CONDUIT_PREVIEW_BIN`, else next to this executable, else `$PATH`.
 pub fn preview_program() -> PathBuf {
@@ -114,15 +114,8 @@ impl GuiProcesses {
 
     /// Shows an error in every open window (they keep their last good image).
     pub fn show_error(&mut self, message: &str) {
-        let mut failed = Vec::new();
-        for (id, gui) in &mut self.children {
-            if conduit_ipc::write_error(&mut gui.stdin, message).is_err() {
-                failed.push(id.clone());
-            }
-        }
-        for id in failed {
-            self.children.remove(&id);
-        }
+        self.children
+            .retain(|_, gui| conduit_ipc::write_error(&mut gui.stdin, message).is_ok());
     }
 
     /// Returns a live process for `node_id`, spawning one if needed.
@@ -141,16 +134,9 @@ impl GuiProcesses {
 
     fn spawn(&mut self, node_id: &str) -> Option<GuiChild> {
         let title = self.titles.get(node_id).map_or(node_id, String::as_str);
-        let args: [OsString; 6] = [
-            "--node-id".into(),
-            node_id.into(),
-            "--title".into(),
-            title.into(),
-            "--save-dir".into(),
-            self.save_dir.clone().into(),
-        ];
         let mut child = match Command::new(&self.program)
-            .args(&args)
+            .args(["--node-id", node_id, "--title", title, "--save-dir"])
+            .arg(&self.save_dir)
             .stdin(Stdio::piped())
             .stderr(if self.quiet {
                 Stdio::null()

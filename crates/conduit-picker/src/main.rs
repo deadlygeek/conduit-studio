@@ -4,7 +4,6 @@
 
 mod target;
 
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -19,32 +18,8 @@ const WRITE_DELAY: Duration = Duration::from_millis(100);
 const KEY_HINTS: &str =
     "h s l r g b a channel   ←/→ ±1 (shift ±10)   # hex   1–9 swatch   ⏎/q done   esc revert";
 
-#[derive(Parser)]
-#[command(
-    name = "conduit-picker",
-    version,
-    about = "Color picker for Conduit Studio"
-)]
-struct Args {
-    /// Project folder.
-    dir: PathBuf,
-    /// Node id.
-    node: String,
-    /// The color param, or the palette color's name with `--table`.
-    name: String,
-    /// The palette's table param (`colors`) when picking a palette color.
-    #[arg(long)]
-    table: Option<String>,
-}
-
 fn main() -> eframe::Result {
-    let args = Args::parse();
-    let target = Target {
-        dir: args.dir,
-        node: args.node,
-        name: args.name,
-        table: args.table,
-    };
+    let target = Target::parse();
     let registry = conduit_nodes::registry();
     let loaded = match target.load(&registry) {
         Ok(loaded) => loaded,

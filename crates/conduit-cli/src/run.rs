@@ -1,6 +1,7 @@
 //! The renderer behind `conduit run` and `conduit edit`: watches a project folder, re-renders
-//! when node files or the files they read (e.g. images) change, feeds GUI windows, and can "probe" any node's output into a
-//! window of its own. Runs on a background thread; talk to it through a [`RunnerHandle`].
+//! when node files or the files they read (e.g. images) change, feeds GUI windows, and can
+//! "probe" any node's output into a window of its own. Runs on a background thread; talk to
+//! it through a [`RunnerHandle`].
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -318,7 +319,8 @@ fn snapshot(dir: &Path, files: &[PathBuf]) -> Snapshot {
         .collect()
 }
 
-/// Only node files trigger a re-render, not editor swap files or saved PNGs.
+/// Whether a file in the project folder is a node file. Other files there (editor swap
+/// files, saved PNGs) only trigger a re-render when a node reads them.
 fn is_node_file(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "toml")
 }

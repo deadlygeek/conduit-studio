@@ -1,6 +1,6 @@
 use conduit_core::{
     Affine, EvalCtx, Filter, Inputs, Layer, Node, NodeError, NodeResult, NodeSpec, Outputs,
-    ParamSpec, PortSpec, Value, ValueType, parse_params,
+    ParamSpec, PortSpec, Value, ValueType,
 };
 use serde::Deserialize;
 
@@ -15,40 +15,23 @@ const MAX_SKEW: f64 = 89.0;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
-    #[serde(default)]
     x: f64,
-    #[serde(default)]
     y: f64,
-    #[serde(default)]
     rotate: f64,
-    #[serde(default = "one")]
     scale: f64,
-    #[serde(default = "one")]
     scale_x: f64,
-    #[serde(default = "one")]
     scale_y: f64,
-    #[serde(default)]
     skew_x: f64,
-    #[serde(default)]
     skew_y: f64,
-    #[serde(default = "half")]
     anchor_x: f64,
-    #[serde(default = "half")]
     anchor_y: f64,
     filter: Option<Filter>,
 }
 
-fn one() -> f64 {
-    1.0
-}
-
-fn half() -> f64 {
-    0.5
-}
-
 impl Params {
+    /// Also rejects infinities, which the open ranges of most params let through.
     fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Params = parse_params(params)?;
+        let p: Params = Transform.spec().parse_params(params)?;
         let numbers = [
             ("x", p.x),
             ("y", p.y),
@@ -64,13 +47,6 @@ impl Params {
         for (name, v) in numbers {
             if !v.is_finite() {
                 return Err(NodeError::new(format!("`{name}` must be a finite number")));
-            }
-        }
-        for (name, v) in [("skew_x", p.skew_x), ("skew_y", p.skew_y)] {
-            if v.abs() > MAX_SKEW {
-                return Err(NodeError::new(format!(
-                    "`{name}` must be between -{MAX_SKEW} and {MAX_SKEW} degrees"
-                )));
             }
         }
         Ok(p)
@@ -143,10 +119,7 @@ impl Node for Transform {
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
         let p = Params::parse(params)?;
-        let layer = *inputs
-            .layers("layer")?
-            .first()
-            .ok_or_else(|| NodeError::new("input `layer` is not connected"))?;
+        let layer = inputs.layer("layer")?;
         Ok(Outputs::out(Value::Layer(Layer {
             image: layer.image.clone(),
             transform: p.matrix(layer) * layer.transform,

@@ -5,7 +5,8 @@ use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
 use conduit_core::{
-    Consumer, NodeSpec, ParamKind, Project, ProjectNode, Reference, ValueType, float_value, inspect,
+    Consumer, NodeSpec, ParamKind, ParamSpec, Project, ProjectNode, Reference, ValueType,
+    float_value, inspect,
 };
 
 use super::{Action, App, Mode, Row};
@@ -154,7 +155,7 @@ impl App {
                 self.project
                     .compatible_sources(focus, port)
                     .into_iter()
-                    .map(|r| (r.to_string(), format!("{}  {}", short(&r), kind(&r.node))))
+                    .map(|r| (r.to_string(), format!("{}  {}", r.short(), kind(&r.node))))
                     .collect()
             }
             Pick::AddType => self
@@ -216,7 +217,7 @@ impl App {
                 let (Some(focus), Ok(source)) = (self.focus.clone(), Reference::parse(&key)) else {
                     return None;
                 };
-                let label = format!("connected {focus}.{port} ← {}", short(&source));
+                let label = format!("connected {focus}.{port} ← {}", source.short());
                 self.apply_or_report(label, |dir, _| {
                     ops::connect(dir, &focus, &port, &source, multi)
                 });
@@ -396,8 +397,7 @@ impl App {
         if let Some(value) = node.params.get(name) {
             return Some(value.clone());
         }
-        let spec = node.spec.as_ref()?.param(name)?;
-        spec.default.map(parse_literal)
+        node.spec.as_ref()?.param(name)?.default_value()
     }
 
     /// Initial text for editing a param: its current value, else its default.
@@ -481,7 +481,7 @@ impl App {
             Some(focus),
         ) = (self.current_row().cloned(), self.focus.clone())
         {
-            let label = format!("unlinked {focus}.{name} from {}", short(&link));
+            let label = format!("unlinked {focus}.{name} from {}", link.short());
             self.apply_or_report(label, |dir, _| ops::disconnect(dir, &focus, &name, None));
             return;
         }
@@ -497,7 +497,7 @@ impl App {
             self.message = Some("move the cursor to a connected input to disconnect it".into());
             return;
         };
-        let label = format!("disconnected {focus}.{port} ← {}", short(&source));
+        let label = format!("disconnected {focus}.{port} ← {}", source.short());
         self.apply_or_report(label, |dir, _| ops::disconnect(dir, &focus, &port, index));
     }
 
@@ -526,7 +526,7 @@ impl App {
             self.message = Some(format!("{focus}.{port}[{i}] is already {end}"));
             return;
         };
-        let label = format!("moved {focus}.{port} ← {} to [{j}]", short(&source));
+        let label = format!("moved {focus}.{port} ← {} to [{j}]", source.short());
         if self.apply_or_report(label, |dir, _| {
             ops::swap_connections(dir, &focus, &port, i, j)
         }) {
@@ -605,7 +605,7 @@ impl App {
                     _ => {
                         return Err(format!(
                             "`{name}` is linked to {}; nudge it there",
-                            short(&link)
+                            link.short()
                         ));
                     }
                 }
@@ -619,7 +619,7 @@ impl App {
             .params
             .get(&name)
             .cloned()
-            .or_else(|| spec.as_ref().and_then(|p| p.default).map(parse_literal));
+            .or_else(|| spec.as_ref().and_then(ParamSpec::default_value));
         let no_value = || format!("`{name}` has no number to nudge");
         let (current, new): (toml::Value, toml::Value) = match kind {
             Some(ParamKind::Int { min, max }) => {
@@ -738,7 +738,7 @@ impl App {
         };
         let mut question = format!("Dissolve `{id}`?");
         if let (Some((_, through)), false) = (&plan.through, plan.reconnect.is_empty()) {
-            question += &format!(" Connects {} → {}.", short(through), uses(&plan.reconnect));
+            question += &format!(" Connects {} → {}.", through.short(), uses(&plan.reconnect));
         }
         if !plan.disconnect.is_empty() {
             question += &format!(" Disconnects {}.", uses(&plan.disconnect));
@@ -758,7 +758,7 @@ impl App {
             Confirm::Dissolve(id) => {
                 let through = ops::bypass_plan(&self.project, &id)
                     .ok()
-                    .and_then(|p| p.through.map(|(_, r)| format!(" ({} → …)", short(&r))))
+                    .and_then(|p| p.through.map(|(_, r)| format!(" ({} → …)", r.short())))
                     .unwrap_or_default();
                 self.remove_node(format!("dissolved {id}{through}"), &id, ops::dissolve_node);
             }
@@ -811,7 +811,7 @@ impl App {
         };
         let label = format!(
             "moved {id} to {} → {}.{}",
-            short(&target.source),
+            target.source.short(),
             target.node,
             target.port
         );
@@ -950,15 +950,6 @@ pub fn uses<'a>(consumers: impl IntoIterator<Item = &'a Consumer>) -> String {
         .join(", ")
 }
 
-/// `"node"` for the default output, `"node.port"` otherwise.
-pub(super) fn short(r: &Reference) -> String {
-    if r.port == "out" {
-        r.node.clone()
-    } else {
-        r.to_string()
-    }
-}
-
 fn type_label(spec: &NodeSpec) -> String {
     let ports = |ports: &[conduit_core::PortSpec]| {
         ports
@@ -1001,10 +992,7 @@ fn insertable(spec: &NodeSpec, source_ty: ValueType, target_ty: ValueType) -> bo
 
 /// A TOML literal (`300`, `"text"`, `true`), or the text itself if it isn't one.
 fn parse_literal(input: &str) -> toml::Value {
-    toml::from_str::<toml::Table>(&format!("v = {input}"))
-        .ok()
-        .and_then(|mut t| t.remove("v"))
-        .unwrap_or_else(|| toml::Value::String(input.to_string()))
+    conduit_core::parse_literal(input).unwrap_or_else(|| toml::Value::String(input.to_string()))
 }
 
 /// A number as shown in messages (`360`, `2.5`).

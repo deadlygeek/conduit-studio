@@ -95,8 +95,8 @@ mod tests {
             let mut all = toml::Table::new();
             for p in &spec.params {
                 let literal = p.default.unwrap_or(p.example);
-                let value: toml::Table = toml::from_str(&format!("v = {literal}")).unwrap();
-                all.insert(p.name.to_string(), value["v"].clone());
+                let value = conduit_core::parse_literal(literal).unwrap();
+                all.insert(p.name.to_string(), value);
             }
             check(all);
         }

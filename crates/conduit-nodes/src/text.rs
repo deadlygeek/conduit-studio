@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use conduit_core::{
     Color, EvalCtx, FontData, Inputs, Layer, Node, NodeError, NodeResult, NodeSpec, Outputs,
-    ParamSpec, PortSpec, Rgba, RgbaImage, Value, ValueType, parse_params, raster,
+    ParamSpec, PortSpec, Rgba, RgbaImage, Value, ValueType, raster,
 };
 use cosmic_text::fontdb::{self, Database, Source};
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
@@ -225,51 +225,11 @@ enum Style {
 #[serde(deny_unknown_fields)]
 struct Params {
     text: String,
-    #[serde(default = "default_font")]
     font: String,
-    #[serde(default = "default_size")]
     size: f64,
-    #[serde(default = "default_color")]
     color: Color,
-    #[serde(default = "default_weight")]
     weight: u16,
-    #[serde(default)]
     style: Style,
-}
-
-fn default_font() -> String {
-    "sans-serif".into()
-}
-
-fn default_size() -> f64 {
-    48.0
-}
-
-fn default_color() -> Color {
-    Color(Rgba([0, 0, 0, 255]))
-}
-
-fn default_weight() -> u16 {
-    400
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        if !(1.0..=MAX_SIZE).contains(&p.size) {
-            return Err(NodeError::new(format!(
-                "`size` must be between 1 and {MAX_SIZE}, got {}",
-                p.size
-            )));
-        }
-        if !(100..=900).contains(&p.weight) {
-            return Err(NodeError::new(format!(
-                "`weight` must be between 100 and 900, got {}",
-                p.weight
-            )));
-        }
-        Ok(p)
-    }
 }
 
 impl Node for Text {
@@ -301,11 +261,11 @@ impl Node for Text {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        Params::parse(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p = Params::parse(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         let mut fonts = self.fonts().lock().unwrap_or_else(|e| e.into_inner());
         // A linked font file replaces the `font` param.
         let linked = match inputs.get("font") {

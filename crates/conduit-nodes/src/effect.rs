@@ -7,15 +7,6 @@ use conduit_core::{Inputs, Layer, NodeError, NodeResult, Rgba, raster};
 
 use crate::MAX_DIMENSION;
 
-/// The layer connected to the input `layer`.
-pub fn input_layer(inputs: &Inputs) -> NodeResult<&Layer> {
-    inputs
-        .layers("layer")?
-        .first()
-        .copied()
-        .ok_or_else(|| NodeError::new("input `layer` is not connected"))
-}
-
 /// `layer` rendered onto its own bounding box (see [`raster::realize`]), refusing results
 /// too large to allocate. Layers that only move by whole pixels come back unchanged.
 pub fn realized(layer: &Layer) -> NodeResult<Layer> {
@@ -33,7 +24,7 @@ pub fn realized(layer: &Layer) -> NodeResult<Layer> {
 /// Applies `f` to every pixel of the input layer. A rotated, scaled or skewed layer is
 /// realized first, so the effect sees the pixels as they would be drawn.
 pub fn map_pixels(inputs: &Inputs, f: impl Fn(Rgba<u8>) -> Rgba<u8>) -> NodeResult<Layer> {
-    let mut layer = realized(input_layer(inputs)?)?;
+    let mut layer = realized(inputs.layer("layer")?)?;
     let mut image = (*layer.image).clone();
     for px in image.pixels_mut() {
         *px = f(*px);

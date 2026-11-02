@@ -1,6 +1,6 @@
 use conduit_core::{
-    EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value,
-    ValueType, adjust, parse_params,
+    EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value, ValueType,
+    adjust,
 };
 use serde::Deserialize;
 
@@ -13,37 +13,10 @@ pub struct Hsl;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
-    #[serde(default)]
     hue: i64,
-    #[serde(default)]
     saturation: i64,
-    #[serde(default)]
     lightness: i64,
-    #[serde(default = "full")]
     alpha: i64,
-}
-
-fn full() -> i64 {
-    100
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        for (name, v, min, max) in [
-            ("hue", p.hue, -180, 180),
-            ("saturation", p.saturation, -100, 100),
-            ("lightness", p.lightness, -100, 100),
-            ("alpha", p.alpha, 0, 100),
-        ] {
-            if !(min..=max).contains(&v) {
-                return Err(NodeError::new(format!(
-                    "`{name}` must be between {min} and {max}, got {v}"
-                )));
-            }
-        }
-        Ok(p)
-    }
 }
 
 impl Node for Hsl {
@@ -71,11 +44,11 @@ impl Node for Hsl {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        Params::parse(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p = Params::parse(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         let (h, s, l, a) = (
             p.hue as f64,
             p.saturation as f64,

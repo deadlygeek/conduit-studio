@@ -54,8 +54,8 @@ impl PortSpec {
     }
 }
 
-/// What kind of value a param holds. Used by editors and templates; nodes still validate
-/// their params themselves (see [`Node::check_params`]).
+/// What kind of value a param holds. Used by editors and templates, and for defaults and
+/// range checks in [`NodeSpec::parse_params`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamKind {
     Int {
@@ -178,6 +178,39 @@ impl ParamSpec {
         self
     }
 
+    /// The default as a value, if the param has one.
+    pub fn default_value(&self) -> Option<toml::Value> {
+        self.default.and_then(parse_literal)
+    }
+
+    /// Checks a number param's value against its range. Other params, and values of the
+    /// wrong type (left for deserializing to report), pass.
+    pub fn check_range(&self, value: &toml::Value) -> Result<(), String> {
+        let out_of_range = |min: &dyn fmt::Display, max: &dyn fmt::Display| {
+            Err(format!(
+                "`{}` must be between {min} and {max}, got {value}",
+                self.name
+            ))
+        };
+        match (&self.kind, value) {
+            (ParamKind::Int { min, max }, toml::Value::Integer(v)) if !(min..=max).contains(&v) => {
+                out_of_range(min, max)
+            }
+            (ParamKind::Float { min, max }, toml::Value::Integer(_) | toml::Value::Float(_)) => {
+                let v = value
+                    .as_float()
+                    .unwrap_or_else(|| value.as_integer().unwrap() as f64);
+                // Written so NaN fails too.
+                if v >= *min && v <= *max {
+                    Ok(())
+                } else {
+                    out_of_range(min, max)
+                }
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Parses user input (as typed in an editor) into a TOML value of this param's kind.
     /// Text and colors are taken literally, without quotes.
     pub fn parse_input(&self, input: &str) -> Result<toml::Value, String> {
@@ -210,6 +243,12 @@ impl ParamSpec {
             ParamKind::Colors => Err("edit the colors one at a time".into()),
         }
     }
+}
+
+/// Parses a single TOML literal (`5`, `"text"`, `{ a = 1 }`).
+pub fn parse_literal(literal: &str) -> Option<toml::Value> {
+    let mut table: toml::Table = toml::from_str(&format!("v = {literal}")).ok()?;
+    table.remove("v")
 }
 
 /// A float param's value as written to a node file: whole numbers without the `.0`
@@ -320,15 +359,31 @@ impl NodeSpec {
         let mut params = params.clone();
         for name in linked {
             let Some(p) = self.param(name) else { continue };
-            if self.input(name).is_some_and(|i| i.param) && !params.contains_key(name) {
-                let example: Option<toml::Table> =
-                    toml::from_str(&format!("v = {}", p.example)).ok();
-                if let Some(v) = example.and_then(|mut t| t.remove("v")) {
-                    params.insert(name.to_string(), v);
-                }
+            if self.input(name).is_some_and(|i| i.param)
+                && !params.contains_key(name)
+                && let Some(v) = parse_literal(p.example)
+            {
+                params.insert(name.to_string(), v);
             }
         }
         params
+    }
+
+    /// Deserializes `params` into a node's typed params struct, after filling in every
+    /// missing param that has a default and checking number params against their ranges.
+    pub fn parse_params<T: DeserializeOwned>(&self, params: &toml::Table) -> NodeResult<T> {
+        let mut params = params.clone();
+        for p in &self.params {
+            match params.get(p.name) {
+                Some(v) => p.check_range(v).map_err(NodeError)?,
+                None => {
+                    if let Some(v) = p.default_value() {
+                        params.insert(p.name.to_string(), v);
+                    }
+                }
+            }
+        }
+        parse_params(&params)
     }
 
     /// Contents for a new node file of this kind: required params get their example value,
@@ -360,8 +415,7 @@ impl NodeSpec {
         // Tables get a section each: `[params.colors]` with one line per entry.
         for p in tables {
             out.push_str(&format!("\n[params.{}]\n", p.name));
-            let example: Option<toml::Table> = toml::from_str(&format!("v = {}", p.example)).ok();
-            let entries = example.and_then(|mut t| t.remove("v"));
+            let entries = parse_literal(p.example);
             for (k, v) in entries.iter().filter_map(|v| v.as_table()).flatten() {
                 out.push_str(&format!("{k} = {v}\n"));
             }
@@ -435,6 +489,13 @@ impl Inputs {
         }
     }
 
+    pub fn layer(&self, port: &str) -> NodeResult<&Layer> {
+        match self.get(port) {
+            Some(Value::Layer(l)) => Ok(l),
+            other => Err(type_error(port, "layer", other)),
+        }
+    }
+
     pub fn layers(&self, port: &str) -> NodeResult<Vec<&Layer>> {
         self.all(port)
             .iter()
@@ -497,6 +558,48 @@ pub struct EvalCtx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_params_fills_defaults_and_checks_ranges() {
+        #[derive(serde::Deserialize, Debug, PartialEq)]
+        struct P {
+            n: i64,
+            f: f64,
+            c: String,
+        }
+        let spec = NodeSpec {
+            kind: "k",
+            inputs: vec![],
+            outputs: vec![],
+            params: vec![
+                ParamSpec::int("n", 0, 10, "1").default("3"),
+                ParamSpec::float("f", -1.0, 1.0, "0").default("0.5"),
+                ParamSpec::color("c", "\"red\"").default("\"white\""),
+            ],
+            gui: false,
+        };
+        let parse = |s: &str| spec.parse_params::<P>(&toml::from_str(s).unwrap());
+        assert_eq!(
+            parse("n = 7"),
+            Ok(P {
+                n: 7,
+                f: 0.5,
+                c: "white".into()
+            })
+        );
+        assert_eq!(parse("f = 1").map(|p| p.f), Ok(1.0));
+        assert_eq!(
+            parse("n = 11").unwrap_err().0,
+            "`n` must be between 0 and 10, got 11"
+        );
+        assert_eq!(
+            parse("f = -1.5").unwrap_err().0,
+            "`f` must be between -1 and 1, got -1.5"
+        );
+        assert!(parse("f = nan").is_err());
+        // Wrong types are left for serde to report.
+        assert!(parse("n = \"x\"").unwrap_err().0.contains("invalid type"));
+    }
 
     #[test]
     fn parse_input_by_kind() {

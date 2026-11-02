@@ -1,6 +1,5 @@
 use conduit_core::{
     EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value, ValueType,
-    parse_params,
 };
 use serde::Deserialize;
 
@@ -10,7 +9,6 @@ pub struct Int;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
-    #[serde(default)]
     value: i64,
 }
 
@@ -30,11 +28,11 @@ impl Node for Int {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        parse_params::<Params>(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, _: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p: Params = parse_params(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         Ok(Outputs::out(Value::Number(p.value as f64)))
     }
 }

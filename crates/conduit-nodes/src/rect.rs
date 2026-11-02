@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use conduit_core::{
-    Color, EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec,
-    RgbaImage, Value, ValueType, parse_params,
+    Color, EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, RgbaImage,
+    Value, ValueType,
 };
 use serde::Deserialize;
 
@@ -15,28 +15,8 @@ pub struct Rect;
 #[serde(deny_unknown_fields)]
 struct Params {
     color: Color,
-    #[serde(default = "default_size")]
     width: u32,
-    #[serde(default = "default_size")]
     height: u32,
-}
-
-fn default_size() -> u32 {
-    100
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        for (name, v) in [("width", p.width), ("height", p.height)] {
-            if v == 0 || v > MAX_DIMENSION {
-                return Err(NodeError::new(format!(
-                    "`{name}` must be between 1 and {MAX_DIMENSION}, got {v}"
-                )));
-            }
-        }
-        Ok(p)
-    }
 }
 
 impl Node for Rect {
@@ -59,11 +39,11 @@ impl Node for Rect {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        Params::parse(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, _: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p = Params::parse(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         let image = RgbaImage::from_pixel(p.width, p.height, p.color.0);
         Ok(Outputs::out(Value::Image(Arc::new(image))))
     }

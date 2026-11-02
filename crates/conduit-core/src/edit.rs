@@ -142,15 +142,6 @@ fn node_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.toml"))
 }
 
-/// How a reference is written in a node file: `"node"` for the default `out` port.
-fn reference_text(r: &Reference) -> String {
-    if r.port == "out" {
-        r.node.clone()
-    } else {
-        r.to_string()
-    }
-}
-
 /// The `[name]` sub-table of `table`, created if absent.
 fn sub_table<'a>(table: &'a mut dyn TableLike, name: &str) -> EditResult<&'a mut dyn TableLike> {
     table
@@ -253,7 +244,7 @@ fn connect_in(
     source: &Reference,
     multi: bool,
 ) -> EditResult<()> {
-    let text = reference_text(source);
+    let text = source.short();
     let inputs = table_mut(doc, "inputs")?;
     match inputs.get_mut(port) {
         Some(item) if multi => {
@@ -445,7 +436,7 @@ fn replace_reference(
     index: usize,
     new: &Reference,
 ) -> EditResult<()> {
-    let text = reference_text(new);
+    let text = new.short();
     let item = table_mut(doc, "inputs")?
         .get_mut(port)
         .ok_or_else(|| invalid_input(port))?;
@@ -769,7 +760,7 @@ fn rewrite_references(doc: &mut DocumentMut, f: impl Fn(&Reference) -> Option<Re
         else {
             return;
         };
-        *v = with_decor(reference_text(&new).into(), v);
+        *v = with_decor(new.short().into(), v);
     };
     for (_, item) in inputs.iter_mut() {
         match item.as_value_mut() {

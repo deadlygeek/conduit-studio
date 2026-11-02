@@ -23,7 +23,7 @@ pub use eval::{EvalError, EvalStats, Evaluator, Values, evaluate};
 pub use graph::{Graph, GraphNode, LoadError, LoadErrors, Reference, load};
 pub use node::{
     EvalCtx, GuiHost, Inputs, Node, NodeError, NodeResult, NodeSpec, NullHost, Outputs, ParamKind,
-    ParamSpec, PortSpec, float_value, parse_params,
+    ParamSpec, PortSpec, float_value, parse_literal, parse_params,
 };
 pub use palette::parse_palette;
 pub use project::{Consumer, Project, ProjectNode, inspect, inspect_sources};

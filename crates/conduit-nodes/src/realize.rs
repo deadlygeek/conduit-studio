@@ -21,7 +21,7 @@ impl Node for Realize {
     }
 
     fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let layer = effect::realized(effect::input_layer(inputs)?)?;
+        let layer = effect::realized(inputs.layer("layer")?)?;
         Ok(Outputs::out(Value::Layer(layer)))
     }
 }

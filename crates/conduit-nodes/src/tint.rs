@@ -1,6 +1,6 @@
 use conduit_core::{
-    Color, EvalCtx, Inputs, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec,
-    Rgba, Value, ValueType, luminance, parse_params,
+    Color, EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Rgba, Value,
+    ValueType, luminance,
 };
 use serde::Deserialize;
 
@@ -14,37 +14,9 @@ pub struct Tint;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
-    #[serde(default = "black")]
     black: Color,
-    #[serde(default = "white")]
     white: Color,
-    #[serde(default = "full")]
     amount: i64,
-}
-
-fn black() -> Color {
-    Color(Rgba([0, 0, 0, 255]))
-}
-
-fn white() -> Color {
-    Color(Rgba([255, 255, 255, 255]))
-}
-
-fn full() -> i64 {
-    100
-}
-
-impl Params {
-    fn parse(params: &toml::Table) -> NodeResult<Self> {
-        let p: Self = parse_params(params)?;
-        if !(0..=100).contains(&p.amount) {
-            return Err(NodeError::new(format!(
-                "`amount` must be between 0 and 100, got {}",
-                p.amount
-            )));
-        }
-        Ok(p)
-    }
 }
 
 fn lerp(a: u8, b: u8, t: f64) -> f64 {
@@ -88,11 +60,11 @@ impl Node for Tint {
     }
 
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        Params::parse(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p = Params::parse(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         let amount = p.amount as f64 / 100.0;
         let layer = effect::map_pixels(inputs, |c| tint(c, p.black.0, p.white.0, amount))?;
         Ok(Outputs::out(Value::Layer(layer)))

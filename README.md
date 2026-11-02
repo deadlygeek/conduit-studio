@@ -548,7 +548,7 @@ use std::sync::Arc;
 
 use conduit_core::{
     EvalCtx, Inputs, Node, NodeResult, NodeSpec, Outputs, ParamSpec, PortSpec, Value,
-    ValueType, parse_params,
+    ValueType,
 };
 use serde::Deserialize;
 
@@ -557,12 +557,7 @@ pub struct Opacity;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)] // reject typos in [params]
 struct Params {
-    #[serde(default = "one")]
     amount: f32, // 0.0 = invisible, 1.0 = unchanged
-}
-
-fn one() -> f32 {
-    1.0
 }
 
 impl Node for Opacity {
@@ -582,15 +577,16 @@ impl Node for Opacity {
     }
 
     // Called at load time, so bad params are reported before anything renders.
+    // `NodeSpec::parse_params` fills in defaults and checks ranges from the spec above.
     fn check_params(&self, params: &toml::Table) -> NodeResult<()> {
-        parse_params::<Params>(params).map(|_| ())
+        self.spec().parse_params::<Params>(params).map(|_| ())
     }
 
     fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
-        let p: Params = parse_params(params)?;
+        let p: Params = self.spec().parse_params(params)?;
         let mut image = inputs.image("image")?.as_ref().clone();
         for pixel in image.pixels_mut() {
-            pixel[3] = (f32::from(pixel[3]) * p.amount.clamp(0.0, 1.0)).round() as u8;
+            pixel[3] = (f32::from(pixel[3]) * p.amount).round() as u8;
         }
         Ok(Outputs::out(Value::Image(Arc::new(image))))
     }
@@ -600,13 +596,15 @@ impl Node for Opacity {
 Things to know:
 
 - Inputs arrive already converted to the declared port type. Use `inputs.image(..)`,
-  `inputs.layers(..)` or `inputs.all(..)` to read them.
+  `inputs.layer(..)`, `inputs.layers(..)` or `inputs.all(..)` to read them.
 - `PortSpec::new(..).multi()` accepts a list of connections; `.optional()` allows leaving
   the input unconnected.
 - List every param in `params` with a `ParamSpec` constructor (`int`, `float`, `color`,
   `text`, `font`, or `file` with the extensions its picker lists);
   `.default("…")` makes one optional. `conduit edit` uses these for its forms and for new
-  nodes, and a test in `conduit-nodes` fails if they drift from what `check_params` accepts.
+  nodes, and `NodeSpec::parse_params` uses them to fill in defaults and check int and float
+  ranges, so the serde struct needs no defaults or range checks of its own. A test in
+  `conduit-nodes` fails if the specs drift from what `check_params` accepts.
 - **Int and float params must have a default** (registration panics otherwise), because
   each one automatically gets an optional `number` input of the same name: when it's
   connected, the incoming value (rounded for ints, range-checked) replaces the param before

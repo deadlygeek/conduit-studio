@@ -18,6 +18,16 @@ pub struct Reference {
 }
 
 impl Reference {
+    /// How the reference is written: `"node"` for the default `out` port, else
+    /// `"node.port"`.
+    pub fn short(&self) -> String {
+        if self.port == "out" {
+            self.node.clone()
+        } else {
+            self.to_string()
+        }
+    }
+
     pub fn parse(s: &str) -> Result<Self, String> {
         let (node, port) = s.split_once('.').unwrap_or((s, "out"));
         if !is_ident(node) {

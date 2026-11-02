@@ -127,15 +127,6 @@ fn has_errors(app: &App, id: &str) -> bool {
     !app.project.errors_for(id).is_empty()
 }
 
-/// `"node"` for the default output, `"node.port"` otherwise.
-fn short(r: &Reference) -> String {
-    if r.port == "out" {
-        r.node.clone()
-    } else {
-        r.to_string()
-    }
-}
-
 fn draw_tree(frame: &mut Frame, app: &mut App, pane: Pane, area: Rect) {
     let (tree, title) = match pane {
         Pane::Up => (&app.up, "← inputs"),
@@ -202,7 +193,7 @@ fn tree_line(app: &App, pane: Pane, tree: &[TreeItem], i: usize) -> Line<'static
                 node: item.node.clone(),
                 port: item.output.clone(),
             };
-            spans.push(Span::styled(short(&source), name_style));
+            spans.push(Span::styled(source.short(), name_style));
         }
         // `node.port`: this node's `port` takes its parent.
         _ => {
@@ -279,7 +270,7 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
                         ERROR
                     };
                     spans.push(Span::styled("← ", DIM));
-                    spans.push(Span::styled(short(s), style));
+                    spans.push(Span::styled(s.short(), style));
                 }
                 None => {
                     let optional = node
@@ -307,7 +298,7 @@ fn row_line(app: &App, node: &ProjectNode, row: &Row) -> Line<'static> {
                 ERROR
             };
             spans.push(Span::styled("← ", DIM));
-            spans.push(Span::styled(short(link), style));
+            spans.push(Span::styled(link.short(), style));
             match app.linked_value(link) {
                 Some(Shown::Number(n)) => spans.push(Span::styled(format!("  = {n}"), DIM)),
                 Some(Shown::Color(c)) => {

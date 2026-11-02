@@ -309,7 +309,21 @@ impl App {
                 self.apply(label, |dir, _| {
                     ops::add_feeding(dir, input, &spec, &params, &output, &focus, &param)
                 })?;
-                Ok(None)
+                // A node that reads a file (e.g. `font` feeding `text.font`) needs one chosen
+                // before it's any use: go to it and open the file picker.
+                let file_param = spec
+                    .params
+                    .iter()
+                    .find(|p| matches!(p.kind, ParamKind::File { .. }));
+                let Some(file_param) = file_param else {
+                    return Ok(None);
+                };
+                let action = self.focus_on(input);
+                self.select_row(
+                    |r| matches!(r, Row::Param { name, .. } if name == file_param.name),
+                );
+                self.open_file_picker();
+                Ok(action)
             }
             Prompt::AddEntry { param } => {
                 let color = self.entry_color().unwrap_or_else(|| "#808080".into());

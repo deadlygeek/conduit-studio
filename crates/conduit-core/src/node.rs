@@ -17,7 +17,7 @@ pub struct PortSpec {
     pub multi: bool,
     /// May be left unconnected. Inputs only.
     pub optional: bool,
-    /// Feeds the number or color param of the same name, overriding its value (see
+    /// Feeds the number, color or font param of the same name, overriding its value (see
     /// [`NodeSpec::with_param_inputs`]). Inputs only.
     pub param: bool,
     /// Outputs only: stands for one output per entry of the table param with the same
@@ -274,9 +274,10 @@ impl NodeSpec {
         self.params.iter().find(|p| p.name == name)
     }
 
-    /// Adds an optional input for every number and color param (a `number` or `color`
-    /// input of the same name), so the value can be typed into the node file or fed from
-    /// another node's output. The registry applies this to every kind. Number params must
+    /// Adds an optional input for every number, color and font param (a `number`, `color`
+    /// or `font` input of the same name), so the value can be typed into the node file or
+    /// fed from another node's output. Number and color inputs are written over the param
+    /// before `eval`; a font input is left for the node to read from its inputs. The registry applies this to every kind. Number params must
     /// have a default.
     ///
     /// Panics if a number param has no default or a param's name clashes with an input.
@@ -285,9 +286,8 @@ impl NodeSpec {
             let ty = match p.kind {
                 ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
                 ParamKind::Color => ValueType::Color,
-                ParamKind::Text | ParamKind::Font | ParamKind::File { .. } | ParamKind::Colors => {
-                    continue;
-                }
+                ParamKind::Font => ValueType::Font,
+                ParamKind::Text | ParamKind::File { .. } | ParamKind::Colors => continue,
             };
             assert!(
                 ty != ValueType::Number || p.default.is_some(),

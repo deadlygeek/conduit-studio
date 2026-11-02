@@ -1489,6 +1489,37 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn feeding_a_font_param_adds_a_font_node_and_picks_its_file() {
+        let (tmp, mut app) = temp_project("text");
+        let fonts = tmp.path().join("assets/fonts");
+        std::fs::create_dir_all(&fonts).unwrap();
+        let droid = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/conduit-nodes/tests/fixtures/fonts/DroidSans.ttf");
+        std::fs::copy(droid, fonts.join("DroidSans.ttf")).unwrap();
+
+        // `i` on text.font offers node types with a font output.
+        goto(&mut app, "title");
+        select(&mut app, param("font"));
+        press(&mut app, "i");
+        let keys: Vec<String> = app.pick_matches().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["font"]);
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Enter); // accept the suggested id
+
+        // The new node is focused with the file picker open on its path.
+        assert_eq!(app.focus.as_deref(), Some("title_font"));
+        let matches = app.pick_matches();
+        assert_eq!(matches.len(), 1, "{matches:?}");
+        assert_eq!(matches[0].0, "assets/fonts/DroidSans.ttf");
+        assert!(matches[0].1.contains("Droid Sans · 190 KB"), "{matches:?}");
+        key(&mut app, KeyCode::Enter);
+        assert!(read(&app, "title_font").contains("path = \"assets/fonts/DroidSans.ttf\""));
+        assert!(read(&app, "title").contains("font = \"title_font\""));
+        let title = app.project.get("title").unwrap();
+        assert_eq!(title.inputs["font"][0].node, "title_font");
+    }
+
+    #[test]
     fn file_picker_without_files_opens_a_prompt() {
         let (_tmp, mut app) = temp_project("image");
         goto(&mut app, "photo");

@@ -178,6 +178,10 @@ fn describe(value: &Value) -> String {
         Value::Layer(l) => format!("layer {l}"),
         Value::Number(n) => format!("number {n}"),
         Value::Color(c) => format!("color {}", conduit_core::to_hex(*c)),
+        Value::Font(font) => match conduit_nodes::font::families(font) {
+            Ok(families) => format!("font {} ({})", font.name, families.join(", ")),
+            Err(_) => format!("font {}", font.name),
+        },
     }
 }
 

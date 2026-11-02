@@ -33,7 +33,7 @@ impl Params {
 }
 
 /// Paths stay inside the project folder, so a project can be moved or shared as a whole.
-fn check_path(path: &str) -> NodeResult<()> {
+pub(crate) fn check_path(path: &str) -> NodeResult<()> {
     let inside = Path::new(path)
         .components()
         .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));

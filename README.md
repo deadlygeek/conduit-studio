@@ -194,6 +194,7 @@ Connections carry typed values:
 | `layer` | an image plus where it goes in a parent canvas (a 2D transform), ready to composite |
 | `number` | a number (from `int`); feeds number params |
 | `color` | an RGBA color (from `color` or a palette); feeds color params |
+| `font` | a font file's contents (from `font`); feeds font params (`text.font`) |
 
 An `image` can be connected where a `layer` is expected; it becomes an untransformed layer at
 (0, 0). A `layer` can't be used as an `image`: it has no pixels of its own until it is drawn
@@ -205,8 +206,9 @@ onto a canvas (`composite`) or realized (`realize`).
 |---|---|---|---|
 | `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
 | `image` | — | `path` (relative to the project folder) — see [Images](#images) | image: the file's pixels at its own size |
+| `font` | — | `path` (relative to the project folder) — see [Project fonts](#project-fonts) | font: to link into `text`'s `font` |
 | `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |
-| `text` | — | `text`, `font` (default `sans-serif`), `size` (px, default 48), `color` (default black), `weight` (100–900, default 400), `style` (`normal` / `italic`) — see [Text](#text) | layer: the text on a transparent background |
+| `text` | — | `text`, `font` (default `sans-serif`, or linked from a `font` node), `size` (px, default 48), `color` (default black), `weight` (100–900, default 400), `style` (`normal` / `italic`) — see [Text](#text) | layer: the text on a transparent background |
 | `realize` | `layer`: layer | — | the layer rendered onto its own bounding box, moved by whole pixels only |
 | `hsl` | `layer`: layer | `hue`, `saturation`, `lightness`, `alpha` (as on `color`) — see [Color effects](#color-effects) | layer: every pixel adjusted |
 | `tint` | `layer`: layer | `black` (default black), `white` (default white), `amount` (0–100, default 100) — see [Color effects](#color-effects) | layer: each pixel's lightness mapped between `black` and `white` |
@@ -309,6 +311,43 @@ path = "assets/images/cat.jpg"
   and only that node and what depends on it re-run.
 
 `examples/image` puts a half-size transparent PNG badge over a JPEG.
+
+### Project fonts
+
+To use a font that isn't installed, keep the file in the project and load it with a `font`
+node, then link it into a `text` node's `font`:
+
+```toml
+# brand_font.toml
+type = "font"
+
+[params]
+path = "assets/fonts/my_font.ttf"
+```
+
+```toml
+# title.toml
+type = "text"
+
+[inputs]
+font = "brand_font"
+
+[params]
+text = "Hello"
+```
+
+- TrueType and OpenType files (`.ttf`, `.otf`, `.ttc`) are supported. `path` follows the
+  same rules as `image`'s, and editing the file re-renders.
+- A linked font replaces the `font` param. It is used as is, even if an installed family
+  has the same name; installed fonts still fill in characters it lacks. `weight` and
+  `style` choose between the faces in the file when it has several (a `.ttc`).
+- In `conduit edit`, `⏎` on `path` opens the file picker, listing the project's fonts with
+  their family names. On a `text` node's `font`, `i` adds a `font` node feeding it and opens
+  the picker on its path, and `c` links an existing one. `⏎` there picks an installed font
+  instead (replacing the link).
+- `conduit check` shows each font output with its family name.
+
+`examples/font` sets a title in Droid Sans from `assets/fonts/`.
 
 `examples/transform` shows a rotated bar, the same bar moved and scaled by a second
 transform, a squashed and skewed bar with `filter = "nearest"`, and `realize`.
@@ -465,6 +504,7 @@ examples/transform rotate, scale, skew and realize layers
 examples/text      text in system fonts, colored and transformed
 examples/effects   hsl, tint and invert, including after a rotation
 examples/image     image files from the project's assets/ folder
+examples/font      text in a font file kept in the project
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks the
@@ -572,6 +612,8 @@ Things to know:
   connected, the incoming value (rounded for ints, range-checked) replaces the param before
   `eval` sees it. Color params get a `color` input the same way (written in as hex), and
   may stay required. Nothing else is needed for a node's numbers and colors to be linkable.
+  Font params get a `font` input too, but it isn't written over the param: read it with
+  `inputs.get("font")` (a `Value::Font`) and prefer it when connected, as `text` does.
 - For outputs that depend on the node's file, like a palette's colors, use
   `PortSpec::new("colors", ValueType::Color).entries()` with a `ParamSpec::colors("colors", …)`
   table param, and return one output per table key.

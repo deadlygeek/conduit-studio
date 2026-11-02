@@ -12,6 +12,7 @@ pub enum ValueType {
     Layer,
     Number,
     Color,
+    Font,
 }
 
 impl ValueType {
@@ -28,6 +29,7 @@ impl fmt::Display for ValueType {
             ValueType::Layer => "layer",
             ValueType::Number => "number",
             ValueType::Color => "color",
+            ValueType::Font => "font",
         };
         f.write_str(name)
     }
@@ -81,12 +83,36 @@ impl fmt::Display for Layer {
     }
 }
 
+/// A font file's contents (TrueType / OpenType), e.g. from a `font` node.
+#[derive(Clone)]
+pub struct FontData {
+    /// Where it came from, for messages (e.g. `assets/fonts/my_font.ttf`).
+    pub name: String,
+    pub data: Arc<Vec<u8>>,
+    /// Identifies the contents: equal for the same bytes.
+    pub hash: u64,
+}
+
+impl FontData {
+    pub fn new(name: impl Into<String>, data: Vec<u8>) -> Self {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        data.hash(&mut h);
+        Self {
+            name: name.into(),
+            data: Arc::new(data),
+            hash: h.finish(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Value {
     Image(Arc<RgbaImage>),
     Layer(Layer),
     Number(f64),
     Color(Rgba<u8>),
+    Font(FontData),
 }
 
 impl Value {
@@ -96,6 +122,7 @@ impl Value {
             Value::Layer(_) => ValueType::Layer,
             Value::Number(_) => ValueType::Number,
             Value::Color(_) => ValueType::Color,
+            Value::Font(_) => ValueType::Font,
         }
     }
 
@@ -118,6 +145,7 @@ impl fmt::Debug for Value {
             Value::Layer(l) => write!(f, "Layer({l})"),
             Value::Number(n) => write!(f, "Number({n})"),
             Value::Color(c) => write!(f, "Color({:?})", c.0),
+            Value::Font(font) => write!(f, "Font({})", font.name),
         }
     }
 }

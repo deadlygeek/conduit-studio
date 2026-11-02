@@ -1,12 +1,14 @@
-//! The `text` node: text set in an installed font, as a layer.
+//! The `text` node: text set in an installed font, or a font file linked from a `font`
+//! node, as a layer.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use conduit_core::{
-    Color, EvalCtx, Inputs, Layer, Node, NodeError, NodeResult, NodeSpec, Outputs, ParamSpec,
-    PortSpec, Rgba, RgbaImage, Value, ValueType, parse_params, raster,
+    Color, EvalCtx, FontData, Inputs, Layer, Node, NodeError, NodeResult, NodeSpec, Outputs,
+    ParamSpec, PortSpec, Rgba, RgbaImage, Value, ValueType, parse_params, raster,
 };
-use cosmic_text::fontdb::{self, Database};
+use cosmic_text::fontdb::{self, Database, Source};
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
 use serde::Deserialize;
 
@@ -16,7 +18,8 @@ use crate::MAX_DIMENSION;
 const LINE_HEIGHT: f32 = 1.2;
 const MAX_SIZE: f64 = 2048.0;
 
-/// Renders text with an installed font. The layer's origin is the top-left of the text
+/// Renders text with an installed font, or with the font linked into its `font` input
+/// (from a `font` node). The layer's origin is the top-left of the text
 /// box (the lines' boxes, as in CSS), so a `transform` positions and pivots it
 /// predictably; glyphs that poke outside the box (italic overhangs, accents) are kept.
 pub struct Text {
@@ -26,6 +29,9 @@ pub struct Text {
 struct Fonts {
     system: FontSystem,
     cache: SwashCache,
+    /// Font files from `font` nodes already added to `system`, by content hash → the
+    /// family name they were added under.
+    linked: HashMap<u64, String>,
 }
 
 impl Text {
@@ -61,7 +67,36 @@ impl Fonts {
         Self {
             system: FontSystem::new_with_locale_and_db("en-US".into(), db),
             cache: SwashCache::new(),
+            linked: HashMap::new(),
         }
+    }
+
+    /// Adds a linked font file (once per distinct contents) under a family name of its
+    /// own, so it can't be confused with an installed family of the same name, and returns
+    /// that name. Installed fonts still fill in characters the file lacks.
+    fn linked_family(&mut self, font: &FontData) -> NodeResult<String> {
+        if let Some(name) = self.linked.get(&font.hash) {
+            return Ok(name.clone());
+        }
+        let name = format!("conduit linked font {:016x}", font.hash);
+        let db = self.system.db_mut();
+        let ids = db.load_font_source(Source::Binary(font.data.clone()));
+        if ids.is_empty() {
+            return Err(NodeError::new(format!(
+                "`{}` is not a TrueType or OpenType font",
+                font.name
+            )));
+        }
+        for id in ids {
+            let Some(mut face) = db.face(id).cloned() else {
+                continue;
+            };
+            db.remove_face(id);
+            face.families = vec![(name.clone(), fontdb::Language::English_UnitedStates)];
+            db.push_face_info(face);
+        }
+        self.linked.insert(font.hash, name.clone());
+        Ok(name)
     }
 }
 
@@ -247,7 +282,7 @@ impl Node for Text {
                 ParamSpec::text("text", "\"Hello\"").doc("the text; \\n starts a new line"),
                 ParamSpec::font("font", "\"sans-serif\"")
                     .default("\"sans-serif\"")
-                    .doc("an installed family (see `conduit fonts`), or serif / sans-serif / monospace"),
+                    .doc("an installed family (see `conduit fonts`), serif / sans-serif / monospace, or linked from a `font` node"),
                 ParamSpec::float("size", 1.0, MAX_SIZE, "48")
                     .default("48")
                     .doc("font size in pixels"),
@@ -269,20 +304,28 @@ impl Node for Text {
         Params::parse(params).map(|_| ())
     }
 
-    fn eval(&self, _: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
+    fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
         let p = Params::parse(params)?;
         let mut fonts = self.fonts().lock().unwrap_or_else(|e| e.into_inner());
-        let layer = render(&mut fonts, &p)?;
+        // A linked font file replaces the `font` param.
+        let linked = match inputs.get("font") {
+            Some(Value::Font(font)) => Some(fonts.linked_family(font)?),
+            _ => None,
+        };
+        let layer = render(&mut fonts, &p, linked)?;
         Ok(Outputs::out(Value::Layer(layer)))
     }
 }
 
-fn render(fonts: &mut Fonts, p: &Params) -> NodeResult<Layer> {
-    let Fonts { system, cache } = fonts;
+/// Sets `p.text`, in `linked` (a family added by [`Fonts::linked_family`]) if given, else
+/// in `p.font`.
+fn render(fonts: &mut Fonts, p: &Params, linked: Option<String>) -> NodeResult<Layer> {
+    let Fonts { system, cache, .. } = fonts;
     let generic = p.font.to_ascii_lowercase();
-    let named = match generic.as_str() {
-        "sans-serif" | "serif" | "monospace" => None,
-        _ => Some(find_family(system.db(), &p.font).ok_or_else(|| {
+    let named = match (linked, generic.as_str()) {
+        (Some(linked), _) => Some(linked),
+        (None, "sans-serif" | "serif" | "monospace") => None,
+        (None, _) => Some(find_family(system.db(), &p.font).ok_or_else(|| {
             NodeError::new(format!(
                 "no installed font family \"{}\" (run `conduit fonts` to list them)",
                 p.font
@@ -442,6 +485,51 @@ mod tests {
             err.0,
             "no installed font family \"Nope Sans\" (run `conduit fonts` to list them)"
         );
+    }
+
+    fn droid(file: &str) -> Value {
+        let path = format!("{}/tests/fixtures/fonts/{file}", env!("CARGO_MANIFEST_DIR"));
+        Value::Font(FontData::new(file, std::fs::read(path).unwrap()))
+    }
+
+    fn linked(node: &Text, font: Value, toml: &str) -> NodeResult<Layer> {
+        match run(node, vec![("font", vec![font])], &params(toml))? {
+            Value::Layer(l) => Ok(l),
+            other => panic!("expected layer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_linked_font_replaces_the_font_param() {
+        // No installed fonts at all: only the linked file can draw anything.
+        let node = Text::with_fonts(Database::new());
+        let layer = linked(&node, droid("DroidSans.ttf"), "text = \"Hello\"").unwrap();
+        assert!(ink(&layer) > 100);
+        // The param is ignored, even when it names a family that isn't installed.
+        let again = linked(
+            &node,
+            droid("DroidSans.ttf"),
+            "text = \"Hello\"\nfont = \"Nope Sans\"",
+        )
+        .unwrap();
+        assert_eq!(again.image.as_raw(), layer.image.as_raw());
+        // Each distinct file is added once.
+        let faces = || node.fonts().lock().unwrap().system.db().len();
+        assert_eq!(faces(), 1);
+        linked(&node, droid("DroidSans-Bold.ttf"), "text = \"Hello\"").unwrap();
+        assert_eq!(faces(), 2);
+    }
+
+    #[test]
+    fn a_linked_font_is_not_confused_with_an_installed_family() {
+        // "Droid Sans" is installed (regular and bold); the linked bold file is used as is,
+        // at weight 400, rather than looked up by its family name.
+        let node = fixture_fonts();
+        let bold = text(&node, "text = \"Hello\"\nweight = 700").unwrap();
+        let regular = text(&node, "text = \"Hello\"").unwrap();
+        let link = linked(&node, droid("DroidSans-Bold.ttf"), "text = \"Hello\"").unwrap();
+        assert_eq!(link.image.as_raw(), bold.image.as_raw());
+        assert_ne!(link.image.as_raw(), regular.image.as_raw());
     }
 
     #[test]

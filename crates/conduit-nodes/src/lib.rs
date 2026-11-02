@@ -4,6 +4,7 @@
 mod color;
 mod composite;
 mod effect;
+pub mod font;
 mod hsl;
 pub mod image;
 mod int;
@@ -23,6 +24,7 @@ use conduit_core::Registry;
 
 pub use color::ColorNode;
 pub use composite::Composite;
+pub use font::Font;
 pub use hsl::Hsl;
 pub use image::Image;
 pub use int::Int;
@@ -52,6 +54,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(ColorNode);
     registry.register(Palette);
     registry.register(Text::system());
+    registry.register(Font);
 }
 
 /// A registry containing every built-in node.

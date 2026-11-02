@@ -1,0 +1,7 @@
+# 600x200 canvas
+type = "rect"
+
+[params]
+color = "#f4f1ea"
+width = 600
+height = 200

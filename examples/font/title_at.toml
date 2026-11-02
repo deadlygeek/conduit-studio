@@ -1,0 +1,8 @@
+type = "transform"
+
+[inputs]
+layer = "title"
+
+[params]
+x = 40
+y = 60

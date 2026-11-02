@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use conduit_core::ParamKind;
+use conduit_core::{FontData, ParamKind};
 
 use super::{App, Mode, Pick, Prompt, Row};
 
@@ -65,7 +65,7 @@ impl App {
     }
 }
 
-/// `480×320 · 8 KB` for an image, else just the size.
+/// `480×320 · 8 KB` for an image, `Droid Sans · 190 KB` for a font, else just the size.
 fn describe(path: &Path) -> String {
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     let size = match size {
@@ -73,10 +73,19 @@ fn describe(path: &Path) -> String {
         1_000..1_000_000 => format!("{} KB", size / 1_000),
         _ => format!("{:.1} MB", size as f64 / 1e6),
     };
-    match conduit_core::image::image_dimensions(path) {
-        Ok((w, h)) => format!("{w}×{h} · {size}"),
-        Err(_) => size,
+    if let Ok((w, h)) = conduit_core::image::image_dimensions(path) {
+        return format!("{w}×{h} · {size}");
     }
+    let is_font = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        conduit_nodes::font::EXTENSIONS.contains(&e.to_ascii_lowercase().as_str())
+    });
+    if is_font
+        && let Ok(data) = std::fs::read(path)
+        && let Ok(families) = conduit_nodes::font::families(&FontData::new("", data))
+    {
+        return format!("{} · {size}", families.join(", "));
+    }
+    size
 }
 
 /// Files under `dir` with one of `extensions` (case doesn't matter), as `/`-separated paths

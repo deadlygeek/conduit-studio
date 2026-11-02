@@ -1,0 +1,5 @@
+# A font file kept with the project (Droid Sans, Apache-2.0)
+type = "font"
+
+[params]
+path = "assets/fonts/DroidSans.ttf"

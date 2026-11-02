@@ -98,7 +98,7 @@ impl Evaluator {
 }
 
 /// The node's params with linked inputs written over them: colors as hex, numbers checked
-/// against the param's range (ints are rounded).
+/// against the param's range (ints are rounded). Fonts are left to the node.
 fn linked_params(
     node: &GraphNode,
     spec: &NodeSpec,
@@ -120,7 +120,8 @@ fn linked_params(
                 params.insert(port.name.to_string(), toml::Value::String(hex));
                 continue;
             }
-            _ => unreachable!("param inputs are numbers or colors"),
+            Value::Font(_) => continue,
+            _ => unreachable!("param inputs are numbers, colors or fonts"),
         };
         let value = match param.kind {
             ParamKind::Int { min, max } => {

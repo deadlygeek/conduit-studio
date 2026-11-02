@@ -1,0 +1,10 @@
+# Set in the project's own font, linked from `brand_font`
+type = "text"
+
+[inputs]
+font = "brand_font"
+
+[params]
+text = "Project fonts"
+size = 64
+color = "#264653"

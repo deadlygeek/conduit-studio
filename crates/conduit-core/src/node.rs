@@ -70,6 +70,11 @@ pub enum ParamKind {
     Text,
     /// A text param naming an installed font family; editors offer a font picker.
     Font,
+    /// A text param holding a path relative to the project folder; editors offer the
+    /// project's files with these extensions (lowercase, without the dot).
+    File {
+        extensions: &'static [&'static str],
+    },
     /// A table of named colors (`[params.colors]`), each also an output.
     Colors,
 }
@@ -88,6 +93,7 @@ impl fmt::Display for ParamKind {
             ParamKind::Color => f.write_str("color"),
             ParamKind::Text => f.write_str("text"),
             ParamKind::Font => f.write_str("font"),
+            ParamKind::File { .. } => f.write_str("file"),
             ParamKind::Colors => f.write_str("named colors"),
         }
     }
@@ -145,6 +151,15 @@ impl ParamSpec {
         Self::new(name, ParamKind::Font, example)
     }
 
+    /// A path relative to the project folder (text, with a file picker in editors).
+    pub fn file(
+        name: &'static str,
+        extensions: &'static [&'static str],
+        example: &'static str,
+    ) -> Self {
+        Self::new(name, ParamKind::File { extensions }, example)
+    }
+
     /// Makes the param optional with the given default (a TOML literal).
     pub fn default(mut self, default: &'static str) -> Self {
         self.required = false;
@@ -189,7 +204,9 @@ impl ParamSpec {
             ParamKind::Color => {
                 crate::color::parse_color(input).map(|_| toml::Value::String(input.to_string()))
             }
-            ParamKind::Text | ParamKind::Font => Ok(toml::Value::String(input.to_string())),
+            ParamKind::Text | ParamKind::Font | ParamKind::File { .. } => {
+                Ok(toml::Value::String(input.to_string()))
+            }
             ParamKind::Colors => Err("edit the colors one at a time".into()),
         }
     }
@@ -268,7 +285,9 @@ impl NodeSpec {
             let ty = match p.kind {
                 ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
                 ParamKind::Color => ValueType::Color,
-                ParamKind::Text | ParamKind::Font | ParamKind::Colors => continue,
+                ParamKind::Text | ParamKind::Font | ParamKind::File { .. } | ParamKind::Colors => {
+                    continue;
+                }
             };
             assert!(
                 ty != ValueType::Number || p.default.is_some(),

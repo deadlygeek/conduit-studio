@@ -450,7 +450,7 @@ fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
     let hints = match (&app.mode, app.pane) {
         (
             Mode::Pick {
-                purpose: Pick::Font { .. },
+                purpose: Pick::Font { .. } | Pick::File { .. },
                 ..
             },
             _,
@@ -620,8 +620,8 @@ const HELP: &[(&str, &str)] = &[
         "insert a node into a connection or tree row; number: feed from int",
     ),
     (
-        "⏎ on a font",
-        "pick a font; the preview shows each one as you move",
+        "⏎ on a font / file",
+        "pick a font or project file (e.g. an image); the preview shows each as you move",
     ),
     (
         "K / J",

@@ -5,7 +5,7 @@ mod color;
 mod composite;
 mod effect;
 mod hsl;
-mod image;
+pub mod image;
 mod int;
 mod invert;
 mod palette;

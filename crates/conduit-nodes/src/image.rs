@@ -15,6 +15,9 @@ use crate::MAX_DIMENSION;
 /// An image file from the project folder, at its own size.
 pub struct Image;
 
+/// File extensions `image` reads (editors list files with these).
+pub const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
@@ -76,7 +79,7 @@ impl Node for Image {
             inputs: vec![],
             outputs: vec![PortSpec::new("out", ValueType::Image)],
             params: vec![
-                ParamSpec::text("path", "\"assets/images/cat.jpg\"")
+                ParamSpec::file("path", EXTENSIONS, "\"assets/images/cat.jpg\"")
                     .doc("image file, relative to the project folder"),
             ],
             gui: false,

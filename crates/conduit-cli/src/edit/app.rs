@@ -2,7 +2,9 @@
 
 mod colors;
 mod edits;
+mod files;
 mod fonts;
+mod live;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -125,6 +127,8 @@ pub struct App {
     fonts: Option<Arc<Vec<conduit_nodes::text::FontFamily>>>,
     /// Fonts chosen in this session, most recent last; listed first in the picker.
     recent_fonts: Vec<String>,
+    /// The open file picker's choices (path, label), listed when it opens.
+    files: Vec<(String, String)>,
     /// A node picked up with `m`, to be put into the next connection chosen.
     pub carrying: Option<String>,
 }
@@ -153,6 +157,7 @@ impl App {
             probe_follow: false,
             fonts: None,
             recent_fonts: Vec::new(),
+            files: Vec::new(),
             carrying: None,
         };
         app.focus = app.default_focus();
@@ -519,14 +524,15 @@ impl App {
         mut selected: usize,
     ) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let font = match &purpose {
-            Pick::Font { param } => Some(param.clone()),
+        // Pickers that write the highlighted value as you move.
+        let live = match &purpose {
+            Pick::Font { param } | Pick::File { param } => Some(param.clone()),
             _ => None,
         };
         match key.code {
             KeyCode::Esc => {
-                if let Some(param) = font {
-                    self.revert_font(&param);
+                if let Some(param) = live {
+                    self.revert_pick(&param);
                 }
                 return None;
             }
@@ -563,8 +569,8 @@ impl App {
         if let Mode::Pick { selected, .. } = &mut self.mode {
             *selected = (*selected).min(count.saturating_sub(1));
         }
-        if let Some(param) = font {
-            self.preview_font(&param);
+        if let Some(param) = live {
+            self.preview_pick(&param);
         }
         None
     }
@@ -1404,6 +1410,99 @@ pub(crate) mod tests {
         let first = app.pick_matches().into_iter().next().unwrap();
         assert_eq!(first.1, "Beta Mono  recent · mono");
         key(&mut app, KeyCode::Esc);
+    }
+
+    /// `examples/image` with its images, plus `assets/other.png`.
+    fn temp_image_project() -> (tempfile::TempDir, App) {
+        let (tmp, app) = temp_project("image");
+        let images =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/image/assets/images");
+        std::fs::create_dir_all(tmp.path().join("assets/images")).unwrap();
+        for name in ["badge.png", "sunset.jpg"] {
+            std::fs::copy(
+                images.join(name),
+                tmp.path().join("assets/images").join(name),
+            )
+            .unwrap();
+        }
+        conduit_core::RgbaImage::new(3, 2)
+            .save(tmp.path().join("assets/other.png"))
+            .unwrap();
+        (tmp, app)
+    }
+
+    fn path_line(app: &App) -> Option<String> {
+        read(app, "photo")
+            .lines()
+            .find(|l| l.starts_with("path ="))
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn file_picker_previews_in_place_and_reverts() {
+        let (_tmp, mut app) = temp_image_project();
+        let original = read(&app, "photo");
+        goto(&mut app, "photo");
+        select(&mut app, param("path"));
+        key(&mut app, KeyCode::Enter);
+        // Every image in the project by path, with its size; the current file is selected.
+        let matches = app.pick_matches();
+        let keys: Vec<&str> = matches.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "assets/images/badge.png",
+                "assets/images/sunset.jpg",
+                "assets/other.png"
+            ]
+        );
+        assert!(
+            matches[1].1.contains("480×320 · 8 KB · current"),
+            "{matches:?}"
+        );
+        assert!(
+            matches[2].1.starts_with("assets/other.png  3×2 · "),
+            "{matches:?}"
+        );
+        assert!(matches!(app.mode, Mode::Pick { selected: 1, .. }));
+
+        // Moving writes the highlighted path straight away; esc puts it back.
+        key(&mut app, KeyCode::Down);
+        assert_eq!(
+            path_line(&app).as_deref(),
+            Some("path = \"assets/other.png\"")
+        );
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(read(&app, "photo"), original);
+
+        // Filter, keep with ⏎; the session undoes in one step.
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "badge");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(
+            app.message.as_deref(),
+            Some("set photo.path = \"assets/images/badge.png\"")
+        );
+        press(&mut app, "u");
+        assert_eq!(read(&app, "photo"), original);
+    }
+
+    #[test]
+    fn file_picker_without_files_opens_a_prompt() {
+        let (_tmp, mut app) = temp_project("image");
+        goto(&mut app, "photo");
+        select(&mut app, param("path"));
+        key(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(&app.mode, Mode::Prompt { input, .. } if input == "assets/images/sunset.jpg"),
+            "{:?}",
+            app.mode
+        );
+        assert_eq!(
+            app.message.as_deref(),
+            Some("no .png/.jpg/.jpeg/.webp/.gif/.bmp files in the project folder; type a path")
+        );
     }
 
     #[test]

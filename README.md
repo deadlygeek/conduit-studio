@@ -298,6 +298,8 @@ path = "assets/images/cat.jpg"
 
 - PNG, JPEG, WebP, GIF (the first frame) and BMP are supported; transparency is kept, and
   photos are turned upright using their EXIF orientation.
+- In `conduit edit`, `⏎` on `path` opens a file picker listing the project's images; the
+  preview shows each one as you move through the list.
 - `path` is relative to the project folder and must stay inside it (no absolute paths or
   `..`), so a project folder can be moved or shared as a whole. Any subfolder works;
   `assets/` is just a convention.
@@ -378,6 +380,7 @@ edit.
 | `i` on a number or color param | feed it from a new node: pick a type (`int`, `color`), accept the suggested id `<node>_<param>`, and the new node starts at the param's current value |
 | `⏎` on a color | open the **color editor** (below) |
 | `⏎` on a font | open the **font picker**: fonts you chose this session, then `sans-serif` / `serif` / `monospace`, then every installed family (marked `mono`, or `no italic` when the node is italic and the family has none). Moving through the list writes the highlighted font to the file, so the preview shows it in place; `⏎` keeps it, `esc` puts back the original. The whole session undoes in one `u`. |
+| `⏎` on a file | open the **file picker** (e.g. on `image`'s `path`): every file in the project folder with a matching extension, by path, with its size (and an image's dimensions). Hidden files and the `out/` folder are skipped. Like the font picker, it previews in place, `⏎` keeps, `esc` puts back, and one `u` undoes it. With no matching files it opens the usual prompt instead. |
 | `C` on a color | open the **color picker** window (below) |
 | `c` / `d` on a color param | link it to a color output (a palette color or `color` node) / unlink it |
 | `r` / `o` / `x` on a palette color | rename it (links follow) / add a color (a copy of this one) / remove it (asks first if it's used) |
@@ -560,7 +563,8 @@ Things to know:
   `inputs.layers(..)` or `inputs.all(..)` to read them.
 - `PortSpec::new(..).multi()` accepts a list of connections; `.optional()` allows leaving
   the input unconnected.
-- List every param in `params` with `ParamSpec::int / float / color / text(name, …, example)`;
+- List every param in `params` with a `ParamSpec` constructor (`int`, `float`, `color`,
+  `text`, `font`, or `file` with the extensions its picker lists);
   `.default("…")` makes one optional. `conduit edit` uses these for its forms and for new
   nodes, and a test in `conduit-nodes` fails if they drift from what `check_params` accepts.
 - **Int and float params must have a default** (registration panics otherwise), because

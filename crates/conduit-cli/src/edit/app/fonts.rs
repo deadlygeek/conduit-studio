@@ -1,11 +1,9 @@
-//! The font picker: `⏎` on a font param lists the installed families. Moving through the
-//! list writes the highlighted font to the node file, so the preview shows it in place;
-//! `⏎` keeps it and `esc` puts back what was there. One session undoes as one step.
+//! The font picker: `⏎` on a font param lists the installed families, previewed in place
+//! (see `live.rs`).
 
 use std::sync::Arc;
 
 use conduit_core::ParamKind;
-use conduit_core::edit as ops;
 use conduit_nodes::text::{FontFamily, GENERIC_FAMILIES};
 
 use super::{App, Mode, Pick, Row};
@@ -36,7 +34,7 @@ impl App {
         let purpose = Pick::Font {
             param: name.clone(),
         };
-        let current = self.font_value(&name);
+        let current = self.text_value(&name);
         let selected = self
             .pick_items(&purpose)
             .iter()
@@ -54,7 +52,7 @@ impl App {
     /// installed family. Labels are "name  notes" (the notes are dimmed and searchable).
     pub(super) fn font_items(&self, param: &str) -> Vec<(String, String)> {
         let families = self.fonts.clone().unwrap_or_default();
-        let current = self.font_value(param);
+        let current = self.text_value(param);
         let italic = self
             .focused()
             .is_some_and(|n| n.params.get("style").and_then(|v| v.as_str()) == Some("italic"));
@@ -114,70 +112,13 @@ impl App {
         items
     }
 
-    /// The focused node's font param as written (or its default).
-    fn font_value(&self, param: &str) -> Option<String> {
-        match self.current_value(param) {
-            Some(toml::Value::String(s)) => Some(s),
-            _ => None,
-        }
-    }
-
-    fn session_key(param: &str, node: &str) -> String {
-        format!("font {node}.{param}")
-    }
-
-    /// Writes the highlighted font so the preview shows it. Called after every move.
-    pub(super) fn preview_font(&mut self, param: &str) {
-        let Mode::Pick { selected, .. } = &self.mode else {
-            return;
-        };
-        if let Some((name, _)) = self.pick_matches().into_iter().nth(*selected) {
-            self.write_font(param, &name);
-        }
-    }
-
-    /// `⏎`: keep the chosen font (already written while previewing).
+    /// `⏎`: keep the chosen font, and list it first next time.
     pub(super) fn choose_font(&mut self, param: &str, name: String) {
-        self.write_font(param, &name);
+        self.keep_pick(param, &name);
         self.recent_fonts.retain(|f| *f != name);
-        self.recent_fonts.push(name.clone());
+        self.recent_fonts.push(name);
         if self.recent_fonts.len() > RECENT {
             self.recent_fonts.remove(0);
-        }
-        let node = self.focus.clone().unwrap_or_default();
-        self.message = Some(format!("set {node}.{param} = \"{name}\""));
-    }
-
-    /// Writes `param = name` as part of this picker session (one undo step).
-    fn write_font(&mut self, param: &str, name: &str) {
-        let Some(node) = self.focus.clone() else {
-            return;
-        };
-        if self.font_value(param).as_deref() == Some(name) {
-            return;
-        }
-        match ops::set_param(&self.dir, &node, param, &toml::Value::String(name.into())) {
-            Ok(change) => {
-                let label = format!("set {node}.{param} = \"{name}\"");
-                self.record_coalesced(Self::session_key(param, &node), label, change);
-            }
-            Err(e) => self.message = Some(format!("error: {e}")),
-        }
-    }
-
-    /// `esc`: put back the font from before the picker opened.
-    pub(super) fn revert_font(&mut self, param: &str) {
-        let node = self.focus.clone().unwrap_or_default();
-        if self.nudging.as_deref() != Some(Self::session_key(param, &node).as_str()) {
-            return;
-        }
-        if let Some((_, change)) = self.undo.pop() {
-            self.nudging = None;
-            match change.undo() {
-                Ok(()) => self.message = Some(format!("reverted {node}.{param}")),
-                Err(e) => self.message = Some(format!("revert failed: {e}")),
-            }
-            self.reload_from_disk();
         }
     }
 }

@@ -37,6 +37,10 @@ pub enum Pick {
     Font {
         param: String,
     },
+    /// A project file for the focused node's file param, previewed live.
+    File {
+        param: String,
+    },
 }
 
 impl Pick {
@@ -48,6 +52,7 @@ impl Pick {
             Pick::InsertType { node, port, .. } => format!("insert before {node}.{port}: type"),
             Pick::FeedType { param } => format!("feed {focus}.{param} from a new"),
             Pick::Font { param } => format!("font for {focus}.{param}"),
+            Pick::File { param } => format!("file for {focus}.{param}"),
         }
     }
 }
@@ -179,6 +184,7 @@ impl App {
                     .collect()
             }
             Pick::Font { param } => self.font_items(param),
+            Pick::File { .. } => self.files.clone(),
         }
     }
 
@@ -188,8 +194,9 @@ impl App {
             return Vec::new();
         };
         let items = self.pick_items(purpose);
-        // Fonts are listed in a deliberate order (recent, generic, A–Z); keep it unfiltered.
-        if matches!(purpose, Pick::Font { .. }) && query.trim().is_empty() {
+        // Fonts (recent, generic, A–Z) and files (by path) are listed in a deliberate order;
+        // keep it unfiltered.
+        if matches!(purpose, Pick::Font { .. } | Pick::File { .. }) && query.trim().is_empty() {
             return items;
         }
         finder::rank(
@@ -232,6 +239,7 @@ impl App {
                 self.open_prompt(Prompt::FeedId { kind: key, param }, id);
             }
             Pick::Font { param } => self.choose_font(&param, key),
+            Pick::File { param } => self.keep_pick(&param, &key),
         }
         None
     }
@@ -411,7 +419,7 @@ impl App {
     /// `⏎` in the node panel: edit a param (typing a value replaces a link), or pick a
     /// source for an input.
     pub(super) fn edit_row(&mut self) {
-        if self.open_color_editor() || self.open_font_picker() {
+        if self.open_color_editor() || self.open_font_picker() || self.open_file_picker() {
             return;
         }
         match self.current_row().cloned() {

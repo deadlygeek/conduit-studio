@@ -207,7 +207,7 @@ them.
 | background | black | every cell |
 | standard | white | borders, labels, ids, conduits, the action bar's words |
 | **focus** (primary highlight) | green, bold | the one thing in focus (§5.2) |
-| **related** (secondary highlight) | **[proposed]** magenta | what the focus points at or belongs to (§5.3); the node being moved |
+| **related** (secondary highlight) | magenta | what the focus points at or belongs to (§5.3); the node being moved |
 | dim | grey | `(default)`, `·` unconnected optional inputs, the action bar's `global` label |
 | error | red | `✕` unconnected required inputs, broken nodes (§5.4) |
 | swatch | the colour itself (true colour) | colour values and palette rows |
@@ -228,7 +228,7 @@ Taken from the sketches, cell by cell:
 | **Edit view row** | The value; on the name row the id and its `► ◄` markers. | The row's label (`name:`, `scale`). | `node-edit` |
 | **Action bar** | The bracketed key of each focus action, `(e)`. | The rest of the word. | all |
 
-### 5.3 Related (magenta) **[proposed]**
+### 5.3 Related (magenta) **[decided]**
 
 The secondary colour answers "what does this focus mean?" without having to read the
 status line:
@@ -260,7 +260,7 @@ the message is usually truncated.
 **C. A as well as an errors section in the edit view.** The edit view lists every error in
 full, under the outputs, with the row it concerns (a param, an input) also in red.
 
-**[proposed]** Two additions on top of C:
+**[decided]** Two additions on top of C:
 
 - A `▣` whose off-flow node is broken is drawn red, so problems outside the flow are
   still visible.
@@ -551,12 +551,10 @@ has room, shows everything.
 
 Decided in draft 4: palettes (§7.1); global keys always in the action bar (§6.4); black
 background, white standard colour, two highlight colours (§5.1); a "too small" message
-instead of a cramped layout (§4.6); errors option C (§5.4).
+instead of a cramped layout (§4.6); errors option C with a red `▣` for broken off-flow
+nodes and an error count (§5.4); magenta as the secondary highlight (§5.1, §5.3).
 
-1. **Error additions** — red `▣` for broken off-flow nodes, and an error count in the
-   status line (§5.4)?
-2. **Moving nodes** — do `H`/`L` slides plus `m` pick-up-and-drop work (§6.5)? Should a
+1. **Moving nodes** — do `H`/`L` slides plus `m` pick-up-and-drop work (§6.5)? Should a
    slide refuse when the node's output has other users?
-3. **Secondary colour** — magenta, and the uses in §5.3?
-4. **Global keys styling** — own line, `global` label, square brackets, white keys (§6.4)?
-5. **Minimum size** — is 80×24 right (§4.6)?
+2. **Global keys styling** — own line, `global` label, square brackets, white keys (§6.4)?
+3. **Minimum size** — is 80×24 right (§4.6)?

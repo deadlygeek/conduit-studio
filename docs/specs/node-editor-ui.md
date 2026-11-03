@@ -1,13 +1,19 @@
-# Node editor UI — flow view (spec, draft 5)
+# Node editor UI — flow view (spec, draft 6)
 
-Status: **draft 5**, 2026-11-02 — all open questions resolved. Derived from the durdraw sketches in `scratch-pad/`
+Status: **draft 6**, 2026-11-02 — no open questions. Derived from the durdraw
+sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
-with the code, this document decides; decisions are marked **[decided]**. The questions
-raised along the way and their answers are summarised in [§10](#10-decision-log).
+with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
+[§10](#10-decision-log). User stories that walk through the spec screen by screen are in
+[`../stories/`](../stories/).
 
-Changes from draft 4: moving nodes (§6.5), global-key styling (§6.4) and the 80×24
-minimum (§4.6) decided; no open questions remain.
+Changes from draft 5, from walking story 1 (`../stories/01-first-image.md`): screen
+layout and title line (§4.7), the empty project (§4.8), a new node becomes the anchor
+(§4.2), the `Input Actions` bar (§6.3), unavailable actions hidden, globals included
+(§6.4), popups (§6.6), the edit view opens on the name row with the flow hidden (§7); and
+`►` `◄` markers dropped (§5.2); `c` and `i` redraw the flow through the conduit they
+make (§4.4).
 
 ## 1. Goal
 
@@ -91,6 +97,7 @@ cap is one constant, so it's easy to tune.
 | Port names `image`, `layer` (as an output), `background` — none exist. `rect` and `transform` output `out`; `composite` takes `base` and `layers`. | **[decided]** Real port names from the node spec. |
 | List entries numbered `layer[1]`, `layer[3]`, `layer[2]`. | **[decided]** Real name, 0-based, in list order: `layers[0]`, `layers[1]`, `layers[2]`. |
 | Conduit bar `(d)issolve (i)insert`, titled `Conduit Focus Actions`. | **[decided]** See §6.3. |
+| `node-edit` wraps the focused value in `► ◄`. | **[decided]** No markers: the focus colour (green, bold) is enough. |
 | `node-edit` labels rows with the connected node's name for some ports and the port name for others. | **[decided]** Port name in the flow view, port and connected node in the edit view (§8). |
 
 ## 4. Flows
@@ -137,6 +144,11 @@ A flow is built around one node, the **anchor**:
 On start-up the anchor is the first sink (e.g. `preview`), or the first node if there is
 none. `/` (find) makes the found node the anchor and rebuilds the flow around it.
 
+**[decided]** Adding a node with `a` makes the new node the anchor and the focus, and the
+flow is rebuilt around it. A new node has no connections, so the flow is just that node,
+and the previous flow leaves the screen until it is connected to (it stays in focus
+history, so `[` returns to it).
+
 **[decided]** No branch memory: a rebuilt flow always takes "first" as above. The way back
 to an earlier flow is focus history (`[`).
 
@@ -153,8 +165,8 @@ to an earlier flow is focus history (`[`).
 ### 4.4 Redrawing the flow through a `▣`
 
 **[decided]** Focusing a `▣` end and pressing `f` (or `⏎`) brings that conduit into the
-flow and redraws **only the side it points to**. Nothing else redraws the flow except `/`
-and focus history — in particular not `h`/`l`.
+flow and redraws **only the side it points to**. Apart from `c` and `i` (below), only `/`
+and focus history redraw the flow — in particular not `h`/`l`.
 
 - **`▣` on an input row** of node *N*: *N* and everything downstream of it stay; the
   upstream part is replaced by the path through this input's source (built as in §4.2).
@@ -163,6 +175,12 @@ and focus history — in particular not `h`/`l`.
 
 Focus stays on the same end, which now draws its line. Each redraw is a step in focus
 history, so `[` returns to the previous flow.
+
+**[decided]** Connecting also redraws the flow. When `c` (or `i`) from a conduit end
+makes a conduit — e.g. a second `layers` entry, which isn't the node's first connected
+input — the flow is redrawn through it exactly as `f` would, and focus stays on that end.
+You see what you just connected without pressing `f`. (When the new conduit is the
+node's first connected input, as in story 1, the result is the same either way.)
 
 ### 4.5 Scrolling
 
@@ -190,6 +208,43 @@ screen is replaced by a message:
 - Growing the window back restores the flow and focus exactly as they were.
 - The edit view has its own minimum (its widest row plus borders); if it doesn't fit, the
   same message shows until the window grows or `esc` closes the edit view.
+
+### 4.7 Screen layout **[decided]**
+
+Top to bottom, at the 80×24 minimum:
+
+| Rows | What |
+|---|---|
+| 1 | Title line: ` conduit edit <dir>  ·  <n> nodes`, as today. |
+| 2 – 17 | The flow canvas (or the edit view over it). |
+| 18 | Status line: the last edit or render result, the focus's full names, `⇄ moving …`, the error count. |
+| 19 | blank |
+| 20 – 23 | Action bar (§6.4): title rule, blank row, focus actions, global keys. |
+| 24 | blank |
+
+A taller or wider terminal gives the extra space to the canvas.
+
+### 4.8 Empty project **[decided]**
+
+With no nodes there is no flow and no focus. The canvas shows a centred hint and the bar
+has no focus actions, only the global keys that work without a node:
+
+```
+ conduit edit story  ·  0 nodes
+
+
+
+
+                        This project has no nodes yet.
+                        Press a to add one.
+
+
+  Project Actions ─────────────────────────────────────────────────────────────
+
+  global  [a]dd [u]ndo [/]find [?]help [q]uit
+```
+
+`a` adds the first node, which becomes the anchor (§4.2).
 
 ## 5. Colours and focus
 
@@ -223,7 +278,7 @@ Taken from the sketches, cell by cell:
 | **Node** | The whole box: all four borders and corners, the type, the id, dividers, every port label, and every stub `─┼─` with its marker (`▣`, `·`, `✕`). | The conduit lines between boxes. | `node-graph-node-focus` |
 | **Conduit** | The line itself, from just outside the output stub to just outside the input stub, including its corners (`─╮ │ ╰────`). | Both nodes, including the `┼` where the line crosses each border. | `node-graph-conduit-focus` |
 | **Conduit end** | That row's marker and stub, through the border: `▣─┼─`, `·─┼─`, `─┼─▣`. | The port label, the rest of the box, and the line. | `node-graph-conduit-end-focus` |
-| **Edit view row** | The value; on the name row the id and its `► ◄` markers. | The row's label (`name:`, `scale`). | `node-edit` |
+| **Edit view row** | The value; on the name row the id. | The row's label (`name:`, `scale`). | `node-edit` |
 | **Action bar** | The bracketed key of each focus action, `(e)`. | The rest of the word. | all |
 
 ### 5.3 Related (magenta) **[decided]**
@@ -273,7 +328,8 @@ concerns in red. Options A and B are kept above for reference.
 ## 6. Keys
 
 **[decided]** The aim is one small grammar: the same key means the same idea whatever is
-focused, and keys that don't apply to the focus do nothing (and aren't listed in the bar).
+focused, and keys that don't apply right now do nothing and aren't listed in the bar
+(§6.4).
 
 ### 6.1 Moving (same everywhere)
 
@@ -319,7 +375,7 @@ Shifted movement keys move the focused thing instead of the focus: `J`/`K` a lis
 | Conduit | **`(c)onnect`** `(i)nsert` `(d)isconnect` — `c` re-picks the source feeding the downstream end |
 | Conduit end, `▣` | **`(f)ocus`** `(c)onnect` `(i)nsert` `(d)isconnect`, plus `(K)/(J)` on a list entry |
 | Conduit end, in flow | **`(c)onnect`** `(i)nsert` `(d)isconnect`, plus `(K)/(J)` on a list entry |
-| Unconnected input | **`(c)onnect`** `(i)nsert` |
+| Unconnected input (bar title `Input Actions`) | **`(c)onnect`** `(i)nsert` |
 | Output row with no users | none of its own; global keys only |
 
 A conduit and either of its ends offer the same `c`/`i`/`d`: an end stands for its
@@ -347,8 +403,14 @@ focus actions **[decided]**:
 If the line doesn't fit, it keeps the keys in the order above and ends with `[?]more`;
 `?` lists everything.
 
-Titles: `Node Actions`, `Conduit Actions`, `Conduit End Actions`, and in the edit view
-`Name Actions`, `Param Actions`, `Colour Actions`. The status line (render result, probe,
+**[decided]** Actions that can't apply right now are left out of the bar, focus actions
+and global keys alike. For example: `(H)/(L)` on a node with nothing to slide past,
+`(d)efault` on a value that already is the default, and `[r]ename`, `[D]elete`, `[p]robe`
+in an empty project.
+
+Titles: `Node Actions`, `Conduit Actions`, `Conduit End Actions`, `Input Actions`
+(unconnected input), `Project Actions` (empty project), and in the edit view
+`Name Actions`, `Param Actions`, `Colour Actions`; popups have their own (§6.6). The status line (render result, probe,
 `⇄ moving …`, the focus's full names, the error count) sits above the bar.
 
 ### 6.5 Moving nodes **[decided]**
@@ -384,15 +446,39 @@ A slide is allowed even when the node's output has other users (`▣` rows). The
 connected to the node, so after the slide they receive its output with the neighbour's
 change included; one `u` puts it back.
 
+### 6.6 Popups **[decided]**
+
+Pickers (add type, connect, insert, find, font, file), prompts (ids, values, renames) and
+the colour editor keep today's behaviour and look: a centred overlay with a thick border
+(`┏━┓`), its title in the top border.
+
+```
+        ┏ connect comp.base to (1 of 1) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ / ▏                                                          ┃
+        ┃ blue_rect  rect                                              ┃
+        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- They are placed clear of the focused node where the screen allows, so you can still see
+  what you're acting on.
+- While one is open the action bar shows **its** keys and drops the global line, since
+  global keys don't work in a popup:
+
+| Popup | Bar title | Keys |
+|---|---|---|
+| Picker | `Picker Actions` | type to filter · `(↑/↓)` choose · `(⏎)` pick · `(esc)` cancel |
+| Prompt | `Prompt Actions` | type to replace · `(→)` keep and edit · `(⏎)` accept · `(esc)` cancel |
+| Colour editor | `Colour Editor Actions` | `(j/k)` channel · `(+ - > < } {)` nudge · `(tab)` RGB · `(#)` hex · `(⏎)` keep · `(esc)` revert |
+
 ## 7. Edit view
 
-`e` on a node opens it enlarged, centred over the flow (`node-edit`), at full width with no
-cap on names:
+`e` on a node opens it enlarged (`node-edit`), at full width with no cap on names.
+**[decided]** The flow is hidden while it is open, and focus starts on the name row:
 
 ```
             ╭─ transform ───────────────────────────────────────╮
             │                                                   │
-            │ name: ►helloWorldTransform◄                       │
+            │ name: helloWorldTransform                         │
             │───────────────────────────────────────────────────│
          ▣──┼─ layer ← helloWorldLayer                          │
          ▣──┼─ x     ← offset                                   │
@@ -417,7 +503,8 @@ Port rows are labelled `port ← source` / `port → user` (§8); `x` and `y` ar
 
 - **Rows**: name, then input rows (as in §3.1), then every unlinked param, then output
   rows. Empty sections are omitted.
-- **Name row**: `name: <id>`. The focused field is wrapped in `► ◄` in the focus colour.
+- **Name row**: `name: <id>`. The focused value is shown in the focus colour; there are no
+  other markers (§5.2).
 - **Params**: `name = value`, names padded so `=` lines up. A value at its default is
   followed by `(default)`, dimmed; an optional param with no value shows `unset (default)`.
   Colors keep their true-colour swatch.
@@ -564,4 +651,13 @@ No open questions remain. Answers given while drafting:
 | Colours | Black background, white standard, green focus, magenta related (§5). |
 | Moving nodes | `H`/`L` slide along the flow, `m` pick up and drop; slides allowed when the output has other users (§6.5). |
 | Small terminals | Below 80×24, a message to enlarge the window or edit the files by hand (§4.6). |
+| `► ◄` around the focused value in the edit view | Dropped; the focus colour is enough (§5.2). |
 | Errors | Option C, plus red `▣` for broken off-flow nodes and a project-wide error count (§5.4). |
+| Screen layout | Title line, canvas, status line, action bar (§4.7). |
+| Empty project | A centred hint and a `Project Actions` bar with only the usable globals (§4.8). |
+| Adding a node | The new node becomes the anchor and focus; the previous flow is a `[` away (§4.2). |
+| Bar on an unconnected input | `Input Actions` (§6.3). |
+| Unavailable actions | Left out of the bar, globals included (§6.4). |
+| Popups | Today's pickers, prompts and colour editor; the bar shows the popup's keys, no globals (§6.6). |
+| Edit view | Opens on the name row; the flow is hidden behind it (§7). |
+| Does `c` redraw the flow? | Yes, through the new conduit, as `f` would; so does `i` (§4.4). |

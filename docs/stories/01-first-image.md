@@ -687,10 +687,10 @@ through `image` to `comp`, then through `comp`'s first connected input, `base`, 
     ╭─ rect ────╮      ╭─ composite ─╮      ╭─ preview ─╮
     │ blue_rect │      │ comp        │      │ preview   │
     │───────────│      │─────────────│      │───────────│
-    │       out─┼──────┼─base        │ ╭────┼─image     │
-    ╰───────────╯    ·─┼─layers      │ │    ╰───────────╯
-                       │─────────────│ │
-                       │         out─┼─╯
+    │       out─┼──────┼─base        │  ╭───┼─image     │
+    ╰───────────╯    ·─┼─layers      │  │   ╰───────────╯
+                       │─────────────│  │
+                       │         out─┼──╯
                        ╰─────────────╯
 
 

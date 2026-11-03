@@ -1,0 +1,199 @@
+# Story 2 — exploring an existing project: `▣`, `f` and history
+
+Spec: [`../specs/node-editor-ui.md`](../specs/node-editor-ui.md) (draft 7).
+
+**As** someone opening a project I didn't build, **I want** to walk through it one flow at
+a time, follow branches into the flow, and get back to where I was, **so that** I can
+understand how the image is made before changing it.
+
+Mostly `examples/effects` (13 nodes): a background, three layers on a composite, and a
+palette feeding colours to three nodes. Step 8 uses `examples/transform`, where one node
+reaches the composite twice.
+
+Screens are 80×24. Under each: what's **green** (the focus) and **magenta** (related).
+Everything else is white on black. The project has no errors, so nothing is red.
+
+## 1. Open the project
+
+```sh
+conduit edit examples/effects
+```
+
+{{start}}
+
+The anchor is the first sink, `preview` (§4.2). Upstream, `preview.image` leads to `comp`,
+and `comp`'s first connected input is `base`, so the flow is `bg → comp → preview`. The
+three layers are `▣`: connected, but not drawn in this flow.
+
+- Green: the `preview` box. Magenta: the conduit into it.
+- No `(H)/(L)` slide: `preview` has no output, so it can't swap with `comp`.
+
+## 2. Walk the flow
+
+**`h`** moves upstream onto the conduit.
+
+{{conduit}}
+
+- Green: the line from `comp` to `preview`. Magenta: `out` on `comp`, `image` on `preview`.
+
+**`h`** again, onto `comp`.
+
+{{comp}}
+
+- No slide: `bg` has no input to take `comp`'s place, and `preview` has no output.
+
+**`j`** goes into the box, onto `base`; **`j`** again, onto `layers[0]`.
+
+{{layer0}}
+
+- Green: `▣─┼─` on `layers[0]`. Magenta: `layers[0]`.
+- `(f)ocus` is the primary action (`⏎`) on a `▣`.
+- `(J)later` but no `(K)earlier`: `layers[0]` is already first.
+
+## 3. Follow a layer
+
+**`f`** brings `layers[0]` into the flow. It's an input, so only the upstream side is
+redrawn (§4.4): `comp` and `preview` stay, and `bg` is replaced by the path through
+`logo_at`: `logo_at ← logo_tinted ← logo` (`logo_tinted`'s first input is `layer`, before
+its linked param `black`).
+
+{{flow_b}}
+
+- Focus stays on `comp.layers[0]`, which now draws its line. `base` has become `▣`.
+- The flow is now five boxes, wider than the screen. This was a flow change, so the view
+  re-centres on the focus, stopping at the flow's right end (§4.5). `logo` is off the left
+  edge; the line into `logo_tinted` shows the flow carries on.
+
+**`h`** five times: onto the conduit, `logo_at`, the conduit, `logo_tinted`. Then **`j`**
+**`j`** to `black`.
+
+{{black}}
+
+- `black` is `logo_tinted`'s colour param, linked to the palette, so it's an input row
+  like any other (§3.1).
+- Walking scrolls as little as possible: just enough to bring `logo` in as the box to
+  spare on the left.
+
+## 4. Follow the colour into the palette
+
+**`f`**. Upstream of `logo_tinted` is now the path through `black`: the palette `brand`.
+
+{{flow_c}}
+
+- Re-centring on `logo_tinted.black` would scroll past the start of the flow, so the view
+  stops at the start, with `brand` in view.
+- `brand` has one row per colour per user, each with its swatch (§7.1): `primary` and
+  `teal` are used by nodes outside the flow (`▣`), `sand` and `orange` aren't used, and
+  `accent` is in the flow.
+- `layer` on `logo_tinted` has become `▣`: `logo` is no longer drawn.
+
+**`h`** **`h`** to `brand`, then **`j`** to `primary`.
+
+{{primary}}
+
+- Green: `─┼─▣` on `primary`. Magenta: `██ primary`.
+- `(c)onnect to` on an output end connects this output to another input as well (§6.3).
+
+## 5. Follow it downstream
+
+**`f`**. `primary` is an output, so this time only the **downstream** side is redrawn:
+`brand` stays, and everything to its right is replaced by the path through `bar`.
+
+{{flow_d}}
+
+- `bar.color` is the flow input: `bar` is a rect whose colour comes from the palette.
+- `comp` and `preview` are now off the right edge, beyond `bar_inverted`.
+
+## 6. Back and forward
+
+**`[`** returns to the flow before the last redraw, with the focus where it was when you
+left it.
+
+{{back}}
+
+**`[`** again would return to the `logo` flow with the focus on `logo_tinted.black`, and
+once more to the start. **`]`** goes forward again.
+
+## 7. Jump with find
+
+**`/`**, type **`swsh`**.
+
+{{find}}
+
+**`⏎`**. `swatch_shifted` becomes the anchor and the flow is built around it (§4.2):
+upstream through `swatch`, whose only connected input is its linked `color`, to
+`brand.teal`; downstream through `swatch_at` to `comp.layers[1]` and `preview`.
+
+{{flow_e}}
+
+- Green: the `swatch_shifted` box. Magenta: its conduits in and out.
+- Re-centred on `swatch_shifted`; `brand` is cut by the left edge.
+- Only `(L)slide`. Sliding upstream would put `swatch_shifted` after `brand.teal`, a
+  colour, which its `layer` input can't take. Downstream works: `swatch → swatch_at →
+  swatch_shifted → comp` keeps every type.
+
+## 8. One node, two places
+
+In `examples/transform`, `turned` reaches `comp` twice: directly as `layers[0]`, and
+through `grown` and `baked` as `layers[2]`.
+
+```sh
+conduit edit examples/transform
+```
+
+{{tr_start}}
+
+**`h`** **`h`** to `comp`, **`k`** to its last row, `layers[2]`, then **`f`**.
+
+{{tr_flow}}
+
+- `bar` is off the left edge; the line into `turned` shows the flow carries on.
+- `turned` has two `out` rows: its users in id order, `comp` (`▣`) then `grown` (in the
+  flow).
+- `(K)earlier` but no `(J)later`: `layers[2]` is last.
+
+Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`'s first
+`out` row and `comp`'s `layers[0]`, each drawn as `▣`, because a flow is a single path.
+
+**`h`** six times to `turned`, then **`j`** **`j`** to its first `out` row.
+
+{{tr_turned}}
+
+- The view scrolls left just enough to keep a box to spare, so `bar` shows: it has two
+  users, `slanted` (`▣`) and `turned` (the flow).
+- Magenta: `out`, and `layers[0]` on `comp`, the other end, because `comp` is in the
+  flow (§5.3). It's off screen at this scroll position.
+
+**`f`**: downstream from `turned` is now the path through `comp.layers[0]`.
+
+{{tr_flow2}}
+
+## Result
+
+| Step | Keys |
+|---|---|
+| Open, walk to `comp.layers[0]` | `h` `h` `j` `j` |
+| Follow the layer | `f` |
+| To `logo_tinted.black`, follow it | `h` `h` `h` `h` `h` `j` `j` `f` |
+| To `brand.primary`, follow it | `h` `h` `j` `f` |
+| Back | `[` |
+| Find `swatch_shifted` | `/` "swsh" `⏎` |
+| `examples/transform`: to `layers[2]`, follow it | `h` `h` `k` `f` |
+| To `turned`'s first `out`, follow it | `h` `h` `h` `h` `h` `h` `j` `j` `f` |
+
+No files change: this story only looks.
+
+## Spec gaps this story turned up
+
+Decided in the spec (draft 7):
+
+| Gap | Decision |
+|---|---|
+| `▣` was "connected to a node not in the flow", but `turned → comp.layers[0]` is `▣` with both nodes in the flow | `▣` means the conduit isn't drawn in the flow (§4.3) |
+| `(c)onnect` on an output end had no meaning | `(c)onnect to`: connect this output to another input too (§6.2, §6.3) |
+| Focus at start-up | On the anchor node (§4.2) |
+| Off-screen boxes | No indicator; the conduit running off the edge is enough (§4.5) |
+| `K` / `J` labels | `(K)earlier` / `(J)later`, each only when it can apply (§6.3) |
+| What a history step is | A flow change; `[` restores the flow and the focus where you left it (§6.1) |
+| How far the view scrolls | Re-centre after a flow change, as little as possible while walking, never past the flow's ends (§4.5) |
+| `turned` shows two rows both labelled `out` | Kept plain; the status line, magenta and `f` tell them apart (§3.1) |

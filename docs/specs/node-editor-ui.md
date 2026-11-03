@@ -1,6 +1,6 @@
-# Node editor UI — flow view (spec, draft 6)
+# Node editor UI — flow view (spec, draft 7)
 
-Status: **draft 6**, 2026-11-02 — no open questions. Derived from the durdraw
+Status: **draft 7**, 2026-11-02 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
@@ -8,18 +8,18 @@ with the code, this document decides; decisions are marked **[decided]**. The qu
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
 
-Changes from draft 5, from walking story 1 (`../stories/01-first-image.md`): screen
-layout and title line (§4.7), the empty project (§4.8), a new node becomes the anchor
-(§4.2), the `Input Actions` bar (§6.3), unavailable actions hidden, globals included
-(§6.4), popups (§6.6), the edit view opens on the name row with the flow hidden (§7); and
-`►` `◄` markers dropped (§5.2); `c` and `i` redraw the flow through the conduit they
-make (§4.4).
+Changes from draft 6, from walking story 2 (`../stories/02-exploring.md`): `▣` means "not
+drawn in the flow" (§4.3); `c` on an output end connects it to another input (§6.2,
+§6.3); focus starts on the anchor (§4.2); `(K)earlier` / `(J)later` labels (§6.3); no
+off-screen indicators beyond the lines themselves (§4.5); history steps are flow changes
+(§6.1); the view re-centres after a flow change and scrolls minimally while walking
+(§4.5); several users of one output keep plain rows (§3.1).
 
 ## 1. Goal
 
 Replace the three-pane layout of `conduit edit` (inputs tree · focused node · used-by tree)
 with a **flow view**: the nodes of one flow drawn as boxes, left to right, joined by drawn
-**conduits** (connections). Connections that leave the flow are shown as `▣` markers and
+**conduits** (connections). Connections not drawn in the flow are shown as `▣` markers and
 can be brought into it. The user moves a **focus** between nodes, conduits and conduit
 ends, and a contextual **action bar** lists what can be done to the thing in focus. A node
 can be opened in a larger **edit view** to change its name and params.
@@ -34,7 +34,7 @@ Everything the current editor can do must stay reachable (§9 maps old keys to n
 | **node box** | A node drawn on the canvas (§3). |
 | **port row** | One row inside a box: an input or output port with a stub through the box's side. Each port row is exactly one conduit end (§3.1). |
 | **conduit** | One connection: an output of one node feeding an input of another. One entry of a list input is one conduit; an output used by three nodes has three conduits. |
-| **conduit end** | Where a conduit meets a port row. If the conduit's other end is in the flow, a line is drawn to it; if not, the end shows `▣`. |
+| **conduit end** | Where a conduit meets a port row. If the conduit is drawn in the flow, a line runs to its other end; if not, the end shows `▣` — even when the node at the other end is in the flow. |
 | **focus** | The single thing the keyboard acts on: a node, a conduit, or a conduit end. |
 | **action bar** | The titled strip at the bottom of the screen listing the actions for the focus. |
 
@@ -73,7 +73,7 @@ end under focus" are the same thing.
 | Linked param (a number or color param fed by a node) | one row, labelled with the param name — it's a conduit like any input |
 | Unlinked param | no row in the flow view; it lives in the edit view (§7) |
 | Unconnected input | one row, with the unconnected marker (§4.3) |
-| Output with *n* users | *n* rows, each `out─┼─`; the one in the flow draws its line, the rest show `▣` |
+| Output with *n* users | *n* rows, each `out─┼─`, users in id order; the one in the flow draws its line, the rest show `▣`. **[decided]** The rows stay plain `out`: the status line names the user when a row is focused, the far end turns magenta when it's on screen (§5.3), and `f` follows it. |
 | Output with no users | one row, no marker |
 
 ### 3.2 Width
@@ -142,7 +142,8 @@ A flow is built around one node, the **anchor**:
   sink. Users in id order.
 
 On start-up the anchor is the first sink (e.g. `preview`), or the first node if there is
-none. `/` (find) makes the found node the anchor and rebuilds the flow around it.
+none, and **[decided]** the focus starts on the anchor node. `/` (find) makes the found
+node the anchor and the focus, and rebuilds the flow around it.
 
 **[decided]** Adding a node with `a` makes the new node the anchor and the focus, and the
 flow is rebuilt around it. A new node has no connections, so the flow is just that node,
@@ -157,7 +158,7 @@ to an earlier flow is focus history (`[`).
 | Marker | Meaning |
 |---|---|
 | line to the next box | the conduit is in the flow |
-| `▣─┼─` | connected to a node that isn't in the flow |
+| `▣─┼─` | connected, but the conduit isn't drawn in the flow — usually because the other node isn't in it, but also when both nodes are and the conduit isn't the single path between them (e.g. a node that reaches a composite both directly and through other nodes) |
 | `·─┼─` dimmed **[decided]** | unconnected optional input |
 | `✕─┼─` red **[decided]** | unconnected required input (an error today) |
 | `─┼─` and nothing | output with no users |
@@ -187,6 +188,19 @@ node's first connected input, as in story 1, the result is the same either way.)
 A flow can be wider than the screen. The view scrolls horizontally to keep the focus
 visible with a margin of one box where possible. Boxes cut by the screen edge are drawn
 clipped. A node with more rows than fit on screen scrolls vertically.
+
+**[decided]** There is no extra indicator for boxes off screen: the conduit running off
+the edge shows the flow carries on.
+
+**[decided]** How far it scrolls depends on what moved the focus:
+
+- **After a flow change** — `f`, `/`, `[` / `]`, `a`, or a `c` / `i` that redraws — the
+  view re-centres on the focus, so you get your bearings after a jump.
+- **While walking** — `h` `l` `j` `k`, `g` `G` — it scrolls as little as possible to keep
+  the focus visible with a box to spare on each side, so the view doesn't slide on every
+  keypress.
+- Either way it stops at the flow's ends: never scrolled past the first box or the last,
+  and a flow that fits on screen never scrolls.
 
 ### 4.6 Too small a screen
 
@@ -339,7 +353,7 @@ focused, and keys that don't apply right now do nothing and aren't listed in the
 | `j` / `k` | On a node: into its first / last row. On a row: next / previous row; past the first or last row, back to the node. |
 | `esc` | Back to the node (from a row or a conduit); in the edit view, close it. |
 | `g` / `G` | First / last node of the flow. |
-| `[` / `]` | Back / forward through focus history, including flow redraws (also `ctrl-o`, backspace). |
+| `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, or a `c` / `i` that redraws — not a focus move; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. |
 | `/` | Find a node; it becomes the anchor of a new flow (§4.2). |
 | `⏎` | The focus's primary action (marked in §6.3). |
 
@@ -348,13 +362,13 @@ focused, and keys that don't apply right now do nothing and aren't listed in the
 | Key | Meaning |
 |---|---|
 | `e` | **edit** the thing itself: a node opens the edit view; a param or the name opens its prompt or picker |
-| `c` | **connect**: choose what feeds this — pick a source for an input end, link a param |
+| `c` | **connect**: on an input end, choose what feeds it (pick a source; link a param); on an output end, connect this output to another input as well (pick a new user) |
 | `d` | **remove**, the gentle way: a node is dissolved (its neighbours reconnected), a conduit disconnected, a param reset to its default (unlinked if it was linked) |
 | `i` | **insert** a new node: into a conduit (`source → new → target`), or feeding a param |
 | `m` | **move** a node into another conduit; while moving, `m` or `⏎` on a conduit or end drops it there (§6.5) |
 | `H` / `L` | **slide** a node one place upstream / downstream along the flow (§6.5) |
 | `f` | **focus**: bring a `▣` end's conduit into the flow (§4.4) |
-| `K` / `J` | reorder a list entry earlier / later |
+| `K` / `J` | reorder a list entry earlier / later; shown as `(K)earlier` / `(J)later`, each only when it can apply |
 | `+ - > < } {` | nudge a number by ±1 / ±10 / ±50 |
 
 Global, whatever the focus: `a` add a node · `r` rename the node · `D` delete the node
@@ -373,13 +387,23 @@ Shifted movement keys move the focused thing instead of the focus: `J`/`K` a lis
 |---|---|
 | Node | **`(e)dit`** `(m)ove` `(H)/(L)` slide `(d)issolve` |
 | Conduit | **`(c)onnect`** `(i)nsert` `(d)isconnect` — `c` re-picks the source feeding the downstream end |
-| Conduit end, `▣` | **`(f)ocus`** `(c)onnect` `(i)nsert` `(d)isconnect`, plus `(K)/(J)` on a list entry |
-| Conduit end, in flow | **`(c)onnect`** `(i)nsert` `(d)isconnect`, plus `(K)/(J)` on a list entry |
+| Input end, `▣` | **`(f)ocus`** `(c)onnect` `(i)nsert` `(d)isconnect`, plus `(K)earlier` / `(J)later` on a list entry |
+| Input end, in flow | **`(c)onnect`** `(i)nsert` `(d)isconnect`, plus `(K)earlier` / `(J)later` on a list entry |
+| Output end, `▣` | **`(f)ocus`** `(c)onnect to` `(i)nsert` `(d)isconnect` |
+| Output end, in flow | **`(c)onnect to`** `(i)nsert` `(d)isconnect` |
 | Unconnected input (bar title `Input Actions`) | **`(c)onnect`** `(i)nsert` |
-| Output row with no users | none of its own; global keys only |
+| Output row with no users (bar title `Output Actions`) | **`(c)onnect to`** |
 
-A conduit and either of its ends offer the same `c`/`i`/`d`: an end stands for its
-conduit. While a node is being moved, every conduit and end shows **`(m)` drop here** and
+A conduit and either of its ends offer the same `i`/`d`: an end stands for its conduit.
+`c` depends on the side: on a conduit or an input end it re-picks the source; on an
+output end it adds a user.
+
+**[decided]** `(c)onnect to` on an output end opens a picker of every input that can take
+this output's type without making a cycle: unconnected inputs, list inputs (the new
+connection is appended), and connected single inputs, shown with their current source
+(connecting replaces it, as `c` on that input would). The new conduit is drawn in the
+flow: the downstream side is redrawn through it (§4.4), and focus moves to the new
+output row. While a node is being moved, every conduit and end shows **`(m)` drop here** and
 `esc` cancels.
 
 ### 6.4 Action bar
@@ -409,7 +433,8 @@ and global keys alike. For example: `(H)/(L)` on a node with nothing to slide pa
 in an empty project.
 
 Titles: `Node Actions`, `Conduit Actions`, `Conduit End Actions`, `Input Actions`
-(unconnected input), `Project Actions` (empty project), and in the edit view
+(unconnected input), `Output Actions` (output with no users), `Project Actions` (empty
+project), and in the edit view
 `Name Actions`, `Param Actions`, `Colour Actions`; popups have their own (§6.6). The status line (render result, probe,
 `⇄ moving …`, the focus's full names, the error count) sits above the bar.
 
@@ -661,3 +686,11 @@ No open questions remain. Answers given while drafting:
 | Popups | Today's pickers, prompts and colour editor; the bar shows the popup's keys, no globals (§6.6). |
 | Edit view | Opens on the name row; the flow is hidden behind it (§7). |
 | Does `c` redraw the flow? | Yes, through the new conduit, as `f` would; so does `i` (§4.4). |
+| What `▣` means | The conduit isn't drawn in the flow, even if both its nodes are (§4.3). |
+| `c` on an output end | Connect this output to another input too: pick a new user (§6.2, §6.3). |
+| Focus at start-up | On the anchor node (§4.2). |
+| Off-screen boxes | No indicator; the conduit running off the edge is enough (§4.5). |
+| `K` / `J` labels | `(K)earlier` / `(J)later`, each only when it can apply (§6.3). |
+| History steps (`[` / `]`) | Flow changes only, restoring the focus where you left it (§6.1). |
+| Scroll rule | Re-centre after a flow change; scroll minimally while walking; stop at the flow's ends (§4.5). |
+| Several users of one output | Plain `out` rows; status line, magenta and `f` tell them apart (§3.1). |

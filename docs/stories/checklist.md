@@ -15,8 +15,8 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
   - Covered: empty project, adding nodes, the edit view, the colour editor, prompts and
     pickers, connecting first inputs.
 
-- [ ] **02 — Exploring an existing project: `▣`, `f` and history**
-  - Start from `examples/basic`. Walk the flow with `h` `l` `j` `k`, press `f` on a `▣` to
+- [x] **02 — Exploring an existing project: `▣`, `f` and history** → [02-exploring.md](02-exploring.md)
+  - Start from `examples/effects` (and `examples/transform`). Walk the flow with `h` `l` `j` `k`, press `f` on a `▣` to
     switch to a branch, go back and forth between flows with `[` / `]`, jump with `/`.
   - Checks: the "first branch" rule (§4.2) on a real graph, redrawing only one side
     (§4.4), scrolling (§4.5), focus history.

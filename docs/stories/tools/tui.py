@@ -68,6 +68,8 @@ class Screen:
     def __init__(self, nodes, project="story"):
         """`nodes` is the project's node count, for the title line."""
         self.grid = [[" "] * W for _ in range(H)]
+        self.scroll = 0  # columns the canvas is scrolled right by (§4.5)
+        self.layout = {}  # node id → (first column, width) on the unscrolled canvas
         plural = "" if nodes == 1 else "s"
         self.put(0, 1, f"conduit edit {project}  ·  {nodes} node{plural}")
 
@@ -77,6 +79,13 @@ class Screen:
                 self.grid[row][col + i] = ch
         return self
 
+    def cput(self, row, col, text):
+        """`put` on the canvas, which scrolls; text off either edge is clipped."""
+        for i, ch in enumerate(text):
+            c = col + i - self.scroll
+            if 0 <= c < W:
+                self.grid[row][c] = ch
+
     def text(self):
         return "\n".join("".join(row).rstrip() for row in self.grid)
 
@@ -85,19 +94,39 @@ class Screen:
     def node(self, row, col, node):
         """Draws one box; returns (input rows, output rows, width) in screen rows."""
         lines, width, in_rows, out_rows = node.lines()
+        self.layout[node.id] = (col, width)
         for i, line in enumerate(lines):
-            self.put(row + i, col, line)
+            self.cput(row + i, col, line)
         for (_, marker), r in zip(node.inputs, in_rows):
             if marker not in (FLOW, NONE):
-                self.put(row + r, col - 2, marker + "─")
+                self.cput(row + r, col - 2, marker + "─")
         for (_, marker), r in zip(node.outputs, out_rows):
-            self.put(row + r, col + width, "─" + ("" if marker in (FLOW, NONE) else marker))
+            self.cput(row + r, col + width, "─" + ("" if marker in (FLOW, NONE) else marker))
         return [row + r for r in in_rows], [row + r for r in out_rows], width
 
-    def flow(self, *nodes):
+    def flow(self, *nodes, scroll=0, centre=None):
         """Draws a flow left to right, joining each node's FLOW output to the next
-        node's FLOW input."""
-        col = FLOW_LEFT + (2 if nodes[0].inputs else 0)
+        node's FLOW input.
+
+        For flows wider than the screen: `scroll` moves the view right by that many
+        columns, as when walking (§4.5: as little as possible). `centre` re-centres on
+        the focus instead, as after a flow change: a node id, or (id, "in") / (id, "out")
+        for an end on that node's left / right border. Either way the view stops at the
+        flow's ends."""
+        start = FLOW_LEFT + (2 if nodes[0].inputs else 0)
+        cols, col = {}, start
+        for node in nodes:
+            width = node.lines()[1]
+            cols[node.id] = (col, width)
+            col += width + FLOW_GAP
+        right = col - FLOW_GAP + 2  # last box plus its output stub
+        if centre is not None:
+            id_, side = centre if isinstance(centre, tuple) else (centre, "node")
+            c, w = cols[id_]
+            focus = {"node": c + w // 2, "in": c, "out": c + w}[side]
+            scroll = focus - W // 2
+        self.scroll = max(0, min(scroll, right - W))
+        col = start
         prev = None  # (screen row, column) of the previous node's flow output stub
         for node in nodes:
             ins, outs, width = self.node(FLOW_TOP, col, node)
@@ -112,14 +141,15 @@ class Screen:
     def conduit(self, row_from, col_from, row_to, col_to):
         """A conduit from the cell after an output's `┼` to an input's `┼`."""
         if row_from == row_to:
-            self.put(row_from, col_from, "─" * (col_to - col_from))
+            self.cput(row_from, col_from, "─" * (col_to - col_from))
             return
+        # Bend two columns out, clear of other rows' `▣` markers (§4.3).
         up = row_to < row_from
-        turn = col_from + 1
-        self.put(row_from, col_from, "─" + ("╯" if up else "╮"))
+        turn = col_from + 2
+        self.cput(row_from, col_from, "──" + ("╯" if up else "╮"))
         for r in range(min(row_from, row_to) + 1, max(row_from, row_to)):
-            self.put(r, turn, "│")
-        self.put(row_to, turn, ("╭" if up else "╰") + "─" * (col_to - turn - 1))
+            self.cput(r, turn, "│")
+        self.cput(row_to, turn, ("╭" if up else "╰") + "─" * (col_to - turn - 1))
 
     def hint(self, *lines, row=7, col=24):
         for i, line in enumerate(lines):

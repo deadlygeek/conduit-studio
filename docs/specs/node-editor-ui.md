@@ -1,15 +1,13 @@
-# Node editor UI — flow view (spec, draft 4)
+# Node editor UI — flow view (spec, draft 5)
 
-Status: **draft 4**, 2026-11-02. Derived from the durdraw sketches in `scratch-pad/`
+Status: **draft 5**, 2026-11-02 — all open questions resolved. Derived from the durdraw sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
-with the code, this document decides. Decisions are marked **[decided]**, proposals still
-awaiting a yes/no are marked **[proposed]**, and open items are collected in
-[§10](#10-open-questions).
+with the code, this document decides; decisions are marked **[decided]**. The questions
+raised along the way and their answers are summarised in [§10](#10-decision-log).
 
-Changes from draft 3: palettes decided (§7.1); global keys in the action bar (§6.4); a
-colour scheme — black background, white text, two highlight colours (§5); moving nodes
-reworked for the flow view (§6.5); a too-small screen (§4.6); errors (option C, §5.4).
+Changes from draft 4: moving nodes (§6.5), global-key styling (§6.4) and the 80×24
+minimum (§4.6) decided; no open questions remain.
 
 ## 1. Goal
 
@@ -186,7 +184,7 @@ screen is replaced by a message:
   q quit
 ```
 
-- **[proposed]** Minimum **80×24**: room for three 24-column boxes with their gaps, the
+- **[decided]** Minimum **80×24**: room for three 24-column boxes with their gaps, the
   status line and the action bar.
 - Rendering, file watching and preview windows carry on as normal; only `q` works.
 - Growing the window back restores the flow and focus exactly as they were.
@@ -340,7 +338,7 @@ A title rule, a blank row, the focus actions, then the global keys:
 ```
 
 **[decided]** Global keys are always shown, and marked so they read differently from the
-focus actions **[proposed]**:
+focus actions **[decided]**:
 
 - their own line, after the focus actions, starting with a dimmed `global` label;
 - **square** brackets, `[a]`, where focus actions use round ones, `(e)`;
@@ -353,7 +351,7 @@ Titles: `Node Actions`, `Conduit Actions`, `Conduit End Actions`, and in the edi
 `Name Actions`, `Param Actions`, `Colour Actions`. The status line (render result, probe,
 `⇄ moving …`, the focus's full names, the error count) sits above the bar.
 
-### 6.5 Moving nodes **[proposed]**
+### 6.5 Moving nodes **[decided]**
 
 The tree editors moved a node by picking it up and dropping it into another connection.
 In the flow view that splits into two moves:
@@ -382,9 +380,9 @@ reconnected as `d` (dissolve) would, and the flow is drawn without it. Use any n
 `h`/`l`, `f` through a `▣`, `/` — to reach a conduit or conduit end, then `m` or `⏎` drops
 it there (`source → node → user`). `esc` cancels. The whole move undoes in one `u`.
 
-Open points: the other users of a slid node's output now see a different result (they
-get the node's output, which now includes the neighbour's change) — acceptable, or should
-the slide refuse when the node has other users?
+A slide is allowed even when the node's output has other users (`▣` rows). They stay
+connected to the node, so after the slide they receive its output with the neighbour's
+change included; one `u` puts it back.
 
 ## 7. Edit view
 
@@ -547,14 +545,23 @@ has room, shows everything.
 | panes stack below 100 columns | below 80×24, a "too small" message (§4.6) |
 | `a` `r` `D` `E` `u` `p` `P` `/` `[` `]` `?` `q`, nudges, `C` | unchanged |
 
-## 10. Open questions
+## 10. Decision log
 
-Decided in draft 4: palettes (§7.1); global keys always in the action bar (§6.4); black
-background, white standard colour, two highlight colours (§5.1); a "too small" message
-instead of a cramped layout (§4.6); errors option C with a red `▣` for broken off-flow
-nodes and an error count (§5.4); magenta as the secondary highlight (§5.1, §5.3).
+No open questions remain. Answers given while drafting:
 
-1. **Moving nodes** — do `H`/`L` slides plus `m` pick-up-and-drop work (§6.5)? Should a
-   slide refuse when the node's output has other users?
-2. **Global keys styling** — own line, `global` label, square brackets, white keys (§6.4)?
-3. **Minimum size** — is 80×24 right (§4.6)?
+| Question | Answer |
+|---|---|
+| Whole graph or one flow? | One flow at a time (§4). |
+| What `▣` means | Connected to a node outside the flow; `f` brings it in, redrawing only that side (§4.4). |
+| Type names | Full names; boxes grow to fit, capped at 24 columns (§3.2). |
+| Port labels | Port name in the flow view; `port ← source` / `port → user` in the edit view (§8). |
+| Unconnected inputs | Dimmed `·` if optional, red `✕` if required (§4.3). |
+| Branch memory | None; a rebuilt flow takes the first branch (§4.2). |
+| Does `h`/`l` redraw the flow? | No, only `f` (§4.4). |
+| Keys | One grammar across every focus (§6). |
+| Palettes | Colour rows in the edit view, keys folded into `e` `r` `d` `i` `K` `J`, `I` kept (§7.1). |
+| Global keys | Always in the action bar: own line, `global` label, square brackets, white keys (§6.4). |
+| Colours | Black background, white standard, green focus, magenta related (§5). |
+| Moving nodes | `H`/`L` slide along the flow, `m` pick up and drop; slides allowed when the output has other users (§6.5). |
+| Small terminals | Below 80×24, a message to enlarge the window or edit the files by hand (§4.6). |
+| Errors | Option C, plus red `▣` for broken off-flow nodes and a project-wide error count (§5.4). |

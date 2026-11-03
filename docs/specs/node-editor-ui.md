@@ -1,6 +1,6 @@
-# Node editor UI — flow view (spec, draft 7)
+# Node editor UI — flow view (spec, draft 8)
 
-Status: **draft 7**, 2026-11-02 — no open questions. Derived from the durdraw
+Status: **draft 8**, 2026-11-03 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
@@ -8,12 +8,12 @@ with the code, this document decides; decisions are marked **[decided]**. The qu
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
 
-Changes from draft 6, from walking story 2 (`../stories/02-exploring.md`): `▣` means "not
-drawn in the flow" (§4.3); `c` on an output end connects it to another input (§6.2,
-§6.3); focus starts on the anchor (§4.2); `(K)earlier` / `(J)later` labels (§6.3); no
-off-screen indicators beyond the lines themselves (§4.5); history steps are flow changes
-(§6.1); the view re-centres after a flow change and scrolls minimally while walking
-(§4.5); several users of one output keep plain rows (§3.1).
+Changes from draft 7, from walking story 3 (`../stories/03-reshaping.md`): a refused
+key explains itself in the status line (§6); a slide isn't a flow change, and a pick-up
+moves focus to the conduit that closed the gap; the carried node isn't drawn, the status
+line names it; `Move Actions` bar; a drop redraws the flow and focuses the node (§6.5);
+`d` / `D` on a node confirm first (§6.6); flow and focus after a dissolve or delete
+(§6.7); `[` back to a flow an edit has changed (§6.1).
 
 ## 1. Goal
 
@@ -166,8 +166,9 @@ to an earlier flow is focus history (`[`).
 ### 4.4 Redrawing the flow through a `▣`
 
 **[decided]** Focusing a `▣` end and pressing `f` (or `⏎`) brings that conduit into the
-flow and redraws **only the side it points to**. Apart from `c` and `i` (below), only `/`
-and focus history redraw the flow — in particular not `h`/`l`.
+flow and redraws **only the side it points to**. Apart from `c` and `i` (below), dropping
+a moved node (§6.5) and deleting one (§6.7), only `/` and focus history redraw the flow —
+in particular not `h`/`l`.
 
 - **`▣` on an input row** of node *N*: *N* and everything downstream of it stay; the
   upstream part is replaced by the path through this input's source (built as in §4.2).
@@ -194,9 +195,10 @@ the edge shows the flow carries on.
 
 **[decided]** How far it scrolls depends on what moved the focus:
 
-- **After a flow change** — `f`, `/`, `[` / `]`, `a`, or a `c` / `i` that redraws — the
-  view re-centres on the focus, so you get your bearings after a jump.
-- **While walking** — `h` `l` `j` `k`, `g` `G` — it scrolls as little as possible to keep
+- **After a flow change** — `f`, `/`, `[` / `]`, `a`, a `c` / `i` that redraws, a drop
+  (§6.5) or a `D` (§6.7) — the view re-centres on the focus, so you get your bearings after a jump.
+- **While walking** — `h` `l` `j` `k`, `g` `G`, and after an edit that keeps the flow's
+  path: a slide, a pick-up, a dissolve — it scrolls as little as possible to keep
   the focus visible with a box to spare on each side, so the view doesn't slide on every
   keypress.
 - Either way it stops at the flow's ends: never scrolled past the first box or the last,
@@ -274,7 +276,7 @@ them.
 | background | black | every cell |
 | standard | white | borders, labels, ids, conduits, the action bar's words |
 | **focus** (primary highlight) | green, bold | the one thing in focus (§5.2) |
-| **related** (secondary highlight) | magenta | what the focus points at or belongs to (§5.3); the node being moved |
+| **related** (secondary highlight) | magenta | what the focus points at or belongs to (§5.3) |
 | dim | grey | `(default)`, `·` unconnected optional inputs, the action bar's `global` label |
 | error | red | `✕` unconnected required inputs, broken nodes (§5.4) |
 | swatch | the colour itself (true colour) | colour values and palette rows |
@@ -306,10 +308,12 @@ status line:
 | Conduit | the port labels at both ends, e.g. `out` on `blue-move` and `layers[0]` on `main-comp` |
 | Conduit end | its own port label, and the port label at the other end when that is in the flow |
 | Edit view row | the row's label |
-| While moving (`m`) | the whole node being moved, until it's dropped or `esc` cancels |
 
 The status line still names the focus in full, e.g. `main-comp.layers[2] ← blue-move-2.out`
 for an end.
+
+**[decided]** A node being moved (§6.5) is out of the flow and isn't drawn, so it has no
+colour; the status line names it.
 
 ### 5.4 Errors **[decided: C]**
 
@@ -345,6 +349,11 @@ concerns in red. Options A and B are kept above for reference.
 focused, and keys that don't apply right now do nothing and aren't listed in the bar
 (§6.4).
 
+**[decided]** One exception: a key for a real action that is refused here — `L` on a
+node that can't slide downstream, `m` on a node nothing feeds — isn't listed either, but
+pressing it says why in the status line (`can't slide toned after comp: preview.image
+takes an image, not a layer`). Keys that mean nothing for this focus stay silent.
+
 ### 6.1 Moving (same everywhere)
 
 | Key | Does |
@@ -353,7 +362,7 @@ focused, and keys that don't apply right now do nothing and aren't listed in the
 | `j` / `k` | On a node: into its first / last row. On a row: next / previous row; past the first or last row, back to the node. |
 | `esc` | Back to the node (from a row or a conduit); in the edit view, close it. |
 | `g` / `G` | First / last node of the flow. |
-| `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, or a `c` / `i` that redraws — not a focus move; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. |
+| `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, a `c` / `i` that redraws, a drop, a `D` — not a focus move or an edit that keeps the flow's path; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. **[decided]** A step remembers the flow's conduits: if an edit has since removed some, `[` redraws those that still exist and rebuilds the rest as §4.2 does, and focus goes to the anchor if the old focus is gone. |
 | `/` | Find a node; it becomes the anchor of a new flow (§4.2). |
 | `⏎` | The focus's primary action (marked in §6.3). |
 
@@ -403,8 +412,7 @@ this output's type without making a cycle: unconnected inputs, list inputs (the 
 connection is appended), and connected single inputs, shown with their current source
 (connecting replaces it, as `c` on that input would). The new conduit is drawn in the
 flow: the downstream side is redrawn through it (§4.4), and focus moves to the new
-output row. While a node is being moved, every conduit and end shows **`(m)` drop here** and
-`esc` cancels.
+output row. While a node is being moved, the bar is `Move Actions` (§6.5).
 
 ### 6.4 Action bar
 
@@ -434,7 +442,7 @@ in an empty project.
 
 Titles: `Node Actions`, `Conduit Actions`, `Conduit End Actions`, `Input Actions`
 (unconnected input), `Output Actions` (output with no users), `Project Actions` (empty
-project), and in the edit view
+project), `Move Actions` (while moving, §6.5), and in the edit view
 `Name Actions`, `Param Actions`, `Colour Actions`; popups have their own (§6.6). The status line (render result, probe,
 `⇄ moving …`, the focus's full names, the error count) sits above the bar.
 
@@ -460,12 +468,30 @@ blue-square → tint → blue-move → main-comp
   type doesn't fit — e.g. a `transform` can't slide past `main-comp` to sit just before
   `preview`, because `preview` needs an image and `transform` outputs a layer.
 - Focus stays on the moved node; each slide is one `u`.
+- **[decided]** A slide isn't a flow change: the view scrolls as little as possible
+  (§4.5) and it isn't a step in `[` history.
 
 **Pick up and drop — `m` on a node.** For moving a node somewhere else entirely: `m`
-picks it up (shown magenta, `⇄ moving blue-move` in the status line), its old place is
-reconnected as `d` (dissolve) would, and the flow is drawn without it. Use any navigation —
-`h`/`l`, `f` through a `▣`, `/` — to reach a conduit or conduit end, then `m` or `⏎` drops
-it there (`source → node → user`). `esc` cancels. The whole move undoes in one `u`.
+picks it up, its old place is reconnected as `d` (dissolve) would, and the flow is drawn
+without it. Use any navigation — `h`/`l`, `f` through a `▣`, `/` — to reach a conduit or
+conduit end, then `m` or `⏎` drops it there (`source → node → user`). `esc` cancels. The
+whole move undoes in one `u`, and no file changes until the drop.
+
+**[decided]** While it's picked up:
+
+- Focus moves to the conduit that closed the gap, so dropping straight back puts the node
+  where it was. If nothing closed it (the node had no users), focus goes to the upstream
+  neighbour.
+- The node isn't drawn. The status line names it before the usual focus text:
+  `⇄ moving placed (transform)  ·  square.out → toned.layer`.
+- The bar is `Move Actions`: `(m)drop here` on a conduit or end, `(esc)cancel`, and a
+  global line of only the keys that still work, `[/]find [?]help [q]uit`. Other verbs do
+  nothing until the drop or `esc`.
+- Not a flow change: the closed-up flow keeps its path and scrolls minimally.
+
+**[decided]** A drop redraws the flow through where the node landed, as `c` and `i` do
+(§4.4), and the dropped node takes the focus. It's a flow change: the view re-centres and
+it's a step in `[` history.
 
 A slide is allowed even when the node's output has other users (`▣` rows). They stay
 connected to the node, so after the slide they receive its output with the neighbour's
@@ -494,6 +520,39 @@ the colour editor keep today's behaviour and look: a centred overlay with a thic
 | Picker | `Picker Actions` | type to filter · `(↑/↓)` choose · `(⏎)` pick · `(esc)` cancel |
 | Prompt | `Prompt Actions` | type to replace · `(→)` keep and edit · `(⏎)` accept · `(esc)` cancel |
 | Colour editor | `Colour Editor Actions` | `(j/k)` channel · `(+ - > < } {)` nudge · `(tab)` RGB · `(#)` hex · `(⏎)` keep · `(esc)` revert |
+| Confirmation **[decided]** | `Confirm Actions` | `(y)es` · any other key cancels |
+
+**[decided]** Confirmations keep today's popup, titled `confirm`: the question, a blank
+row, then a dimmed `y to confirm, any other key to cancel`. They're used for removing a
+node (§6.7) and a palette colour that's in use (§7.1).
+
+```
+        ┏ confirm ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ Dissolve `toned`? Connects square → comp.layers[0].          ┃
+        ┃                                                              ┃
+        ┃ y to confirm, any other key to cancel                        ┃
+        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+### 6.7 Removing nodes **[decided]**
+
+`d` (dissolve) and `D` (delete) on a node ask first, as today, since each removes a file.
+The question says what changes: `Dissolve `toned`? Connects square → comp.layers[0].`,
+`Delete `placed`? This disconnects comp.layers[1].` Each is one `u`.
+
+- **Dissolve** bridges the gap, so the flow keeps its path without the node. Focus moves
+  to the conduit that closed the gap. Not a flow change: no re-centring, no history step.
+  If nothing bridges it (a source, or users that can't take the type), it's handled as a
+  delete.
+- **Delete** leaves a gap, so the flow is rebuilt. The node downstream of the deleted one
+  becomes the anchor and the focus, and the flow is rebuilt around it (§4.2); deleting a
+  sink hands this to the node upstream. Deleting the last node leaves the empty project
+  (§4.8). This is a flow change: re-centre and a history step.
+- Deleting a node outside the flow (from the edit view, or found with `/` …) leaves the
+  flow as it is, apart from the `▣` rows that went with it.
+
+A node left with no users after a delete stays in the project; only `/` reaches it if no
+flow does.
 
 ## 7. Edit view
 
@@ -694,3 +753,13 @@ No open questions remain. Answers given while drafting:
 | History steps (`[` / `]`) | Flow changes only, restoring the focus where you left it (§6.1). |
 | Scroll rule | Re-centre after a flow change; scroll minimally while walking; stop at the flow's ends (§4.5). |
 | Several users of one output | Plain `out` rows; status line, magenta and `f` tell them apart (§3.1). |
+| A key the bar leaves out because it's refused here | Says why in the status line; meaningless keys stay silent (§6). |
+| Is a slide a flow change? | No: minimal scroll, no history step (§6.5). |
+| Focus after a pick-up | The conduit that closed the gap (§6.5). |
+| Showing the picked-up node | Not drawn; the status line names it (§5.3, §6.5). |
+| Bar while moving | `Move Actions`: `(m)drop here (esc)cancel`, `[/]find [?]help [q]uit` (§6.5). |
+| After a drop | Flow redrawn through the drop, focus on the node, a flow change (§6.5). |
+| Confirm before `d` / `D` on a node | Yes, today's popup with a `Confirm Actions` bar (§6.6, §6.7). |
+| After a dissolve | Same path, focus on the bridging conduit, not a flow change (§6.7). |
+| After a delete | Downstream neighbour (upstream for a sink) becomes anchor and focus, flow rebuilt (§6.7). |
+| `[` to a flow an edit has changed | Redraw the conduits that remain, rebuild the rest, focus the anchor if the focus is gone (§6.1). |

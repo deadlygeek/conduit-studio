@@ -21,6 +21,7 @@ GLOBAL_EMPTY = "[a]dd [u]ndo [/]find [?]help [q]uit"
 # Bars shown while a popup is open (§6.6): no global line.
 PICKER = ("Picker Actions", "type to filter  (↑/↓)choose  (⏎)pick  (esc)cancel")
 PROMPT = ("Prompt Actions", "type to replace  (→)keep and edit  (⏎)accept  (esc)cancel")
+CONFIRM = ("Confirm Actions", "(y)es  any other key cancels")
 COLOUR_EDITOR = (
     "Colour Editor Actions",
     "(j/k)channel (+ - > < } {)nudge (tab)RGB (#)hex (⏎)keep (esc)revert",

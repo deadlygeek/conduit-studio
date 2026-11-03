@@ -22,7 +22,7 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
     (§4.4), scrolling (§4.5), focus history.
   - Likely gaps: where focus lands after `[`; one node feeding two `layers` entries.
 
-- [ ] **03 — Reshaping a chain: slide, move, dissolve, delete**
+- [x] **03 — Reshaping a chain: slide, move, dissolve, delete** → [03-reshaping.md](03-reshaping.md)
   - Start from `rect → transform → tint → composite`. Slide `tint` with `H` / `L`, pick up
     `transform` with `m` and drop it in another flow, `d` (dissolve) one node, `D` (delete)
     another.

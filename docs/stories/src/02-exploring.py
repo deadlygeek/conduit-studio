@@ -1,6 +1,6 @@
 """Screens for story 2: exploring an existing project — `▣`, `f` and history."""
 
-from tui import FLOW, NONE, OFF_FLOW, PICKER, Node, Screen
+from tui import FLOW, NONE, OFF_FLOW, OPTIONAL, PICKER, Node, Screen
 
 FX = "examples/effects"
 TR = "examples/transform"
@@ -20,7 +20,8 @@ def comp_fx(flow_input):
     """`comp` with its flow input on `flow_input` ("base" or a "layers[n]")."""
     ports = ["base", "layers[0]", "layers[1]", "layers[2]"]
     return Node("composite", "comp",
-                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports],
+                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports]
+                + [("layers", OPTIONAL)],   # the list's empty slot (§3.1)
                 [("out", FLOW)])
 
 
@@ -60,6 +61,7 @@ FLOW_D = (brand("primary"), bar, bar_turned, bar_inverted, comp_fx("layers[2]"),
 FLOW_E = (brand("teal"), swatch, swatch_shifted, swatch_at, comp_fx("layers[1]"), preview)
 
 NODE = "(e)dit (m)ove (d)issolve"
+SINK = "(e)dit (d)issolve"  # `preview` has no output, so no (m)ove (§6.5)
 CONDUIT = "(c)onnect (i)nsert (d)isconnect"
 
 # ── examples/transform ───────────────────────────────────────────────────────
@@ -67,7 +69,8 @@ CONDUIT = "(c)onnect (i)nsert (d)isconnect"
 def comp_tr(flow_input):
     ports = ["base", "layers[0]", "layers[1]", "layers[2]"]
     return Node("composite", "comp",
-                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports],
+                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports]
+                + [("layers", OPTIONAL)],   # the list's empty slot (§3.1)
                 [("out", FLOW)])
 
 
@@ -82,7 +85,7 @@ preview_tr = Node("preview", "preview", [("image", FLOW)])
 
 SCREENS = {
     # 1. Open the project
-    "start": fx(*FLOW_A).status("rendered 13 nodes in 41 ms").bar("Node Actions", NODE),
+    "start": fx(*FLOW_A).status("rendered 13 nodes in 41 ms").bar("Node Actions", SINK),
 
     # 2. Walk the flow
     "conduit": fx(*FLOW_A).status("comp.out → preview.image").bar("Conduit Actions", CONDUIT),
@@ -119,7 +122,7 @@ SCREENS = {
 
     # 8. One node, two places (examples/transform)
     "tr_start": tr(Node("rect", "bg", outputs=[("out", FLOW)]), comp_tr("base"), preview_tr)
-        .status("rendered 8 nodes in 23 ms").bar("Node Actions", NODE),
+        .status("rendered 8 nodes in 23 ms").bar("Node Actions", SINK),
     "tr_flow": tr(bar_tr, turned_two, grown, baked, comp_tr("layers[2]"), preview_tr, centre=("comp", "in"))
         .status("comp.layers[2] ← baked")
         .bar("Conduit End Actions", "(c)onnect (i)nsert (d)isconnect (K)earlier"),

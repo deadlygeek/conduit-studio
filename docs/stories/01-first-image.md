@@ -135,13 +135,14 @@ it yet (§4.3).
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```
 
 - Green: the whole `blue_rect` box, including the `out─┼─` stub.
-- The bar leaves out `(H)/(L)` slide: there's nothing to slide past.
+- The bar leaves out `(m)ove`, since nothing feeds `blue_rect` (§6.5), and `(H)/(L)` slide:
+  there's nothing to slide past.
 
 ## 2. Make it large and blue
 
@@ -327,7 +328,7 @@ type **`800`**.
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```
@@ -417,7 +418,7 @@ type **`800`**.
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```
@@ -610,7 +611,7 @@ alone.
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```

@@ -1,6 +1,6 @@
-# Node editor UI — flow view (spec, draft 8)
+# Node editor UI — flow view (spec, draft 9)
 
-Status: **draft 8**, 2026-11-03 — no open questions. Derived from the durdraw
+Status: **draft 9**, 2026-11-03 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
@@ -8,12 +8,11 @@ with the code, this document decides; decisions are marked **[decided]**. The qu
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
 
-Changes from draft 7, from walking story 3 (`../stories/03-reshaping.md`): a refused
-key explains itself in the status line (§6); a slide isn't a flow change, and a pick-up
-moves focus to the conduit that closed the gap; the carried node isn't drawn, the status
-line names it; `Move Actions` bar; a drop redraws the flow and focuses the node (§6.5);
-`d` / `D` on a node confirm first (§6.6); flow and focus after a dissolve or delete
-(§6.7); `[` back to a flow an edit has changed (§6.1).
+Changes from draft 8, from walking story 4 (`../stories/04-layers.md`): a list input
+keeps an empty slot row, and `c` / `i` on it append (§3.1); focus stays on the end after
+`i`, including from the slot (§4.4); `(m)ove` only on a node that can be moved (§6.5);
+`K` / `J` focus follows the entry and isn't a flow change (§6.2); focus after `d` removes
+the row in focus, and `d` on the flow's conduit rebuilds the upstream side (§6.7).
 
 ## 1. Goal
 
@@ -69,7 +68,7 @@ end under focus" are the same thing.
 | Port | Rows |
 |---|---|
 | Single input, connected | one row |
-| List input | one row per connection, `layers[0]`, `layers[1]`, … in list order |
+| List input | one row per connection, `layers[0]`, `layers[1]`, … in list order, then **[decided]** an empty **slot** row, `·─┼─layers`, unnumbered and dimmed like an unconnected optional input. `c` or `i` on the slot appends a new entry. An empty list is just the slot. |
 | Linked param (a number or color param fed by a node) | one row, labelled with the param name — it's a conduit like any input |
 | Unlinked param | no row in the flow view; it lives in the edit view (§7) |
 | Unconnected input | one row, with the unconnected marker (§4.3) |
@@ -159,7 +158,7 @@ to an earlier flow is focus history (`[`).
 |---|---|
 | line to the next box | the conduit is in the flow |
 | `▣─┼─` | connected, but the conduit isn't drawn in the flow — usually because the other node isn't in it, but also when both nodes are and the conduit isn't the single path between them (e.g. a node that reaches a composite both directly and through other nodes) |
-| `·─┼─` dimmed **[decided]** | unconnected optional input |
+| `·─┼─` dimmed **[decided]** | unconnected optional input, and a list's empty slot (§3.1) |
 | `✕─┼─` red **[decided]** | unconnected required input (an error today) |
 | `─┼─` and nothing | output with no users |
 
@@ -167,7 +166,7 @@ to an earlier flow is focus history (`[`).
 
 **[decided]** Focusing a `▣` end and pressing `f` (or `⏎`) brings that conduit into the
 flow and redraws **only the side it points to**. Apart from `c` and `i` (below), dropping
-a moved node (§6.5) and deleting one (§6.7), only `/` and focus history redraw the flow —
+a moved node (§6.5), deleting one and disconnecting the flow's conduit (§6.7), only `/` and focus history redraw the flow —
 in particular not `h`/`l`.
 
 - **`▣` on an input row** of node *N*: *N* and everything downstream of it stay; the
@@ -184,6 +183,11 @@ input — the flow is redrawn through it exactly as `f` would, and focus stays o
 You see what you just connected without pressing `f`. (When the new conduit is the
 node's first connected input, as in story 1, the result is the same either way.)
 
+**[decided]** After `i`, too, focus stays on the end, now fed by the new node; `h` `h`
+reaches the new node to edit it. Inserting from a list's slot leaves focus on the new
+entry (`layers[2]`), with the slot one `j` below it, so adding several entries is `j` `i`,
+`j` `i`, ….
+
 ### 4.5 Scrolling
 
 A flow can be wider than the screen. The view scrolls horizontally to keep the focus
@@ -196,9 +200,9 @@ the edge shows the flow carries on.
 **[decided]** How far it scrolls depends on what moved the focus:
 
 - **After a flow change** — `f`, `/`, `[` / `]`, `a`, a `c` / `i` that redraws, a drop
-  (§6.5) or a `D` (§6.7) — the view re-centres on the focus, so you get your bearings after a jump.
+  (§6.5), a `D`, or a `d` on the flow's conduit (§6.7) — the view re-centres on the focus, so you get your bearings after a jump.
 - **While walking** — `h` `l` `j` `k`, `g` `G`, and after an edit that keeps the flow's
-  path: a slide, a pick-up, a dissolve — it scrolls as little as possible to keep
+  path: a slide, a pick-up, a dissolve, a reorder — it scrolls as little as possible to keep
   the focus visible with a box to spare on each side, so the view doesn't slide on every
   keypress.
 - Either way it stops at the flow's ends: never scrolled past the first box or the last,
@@ -362,7 +366,7 @@ takes an image, not a layer`). Keys that mean nothing for this focus stay silent
 | `j` / `k` | On a node: into its first / last row. On a row: next / previous row; past the first or last row, back to the node. |
 | `esc` | Back to the node (from a row or a conduit); in the edit view, close it. |
 | `g` / `G` | First / last node of the flow. |
-| `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, a `c` / `i` that redraws, a drop, a `D` — not a focus move or an edit that keeps the flow's path; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. **[decided]** A step remembers the flow's conduits: if an edit has since removed some, `[` redraws those that still exist and rebuilds the rest as §4.2 does, and focus goes to the anchor if the old focus is gone. |
+| `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, a `c` / `i` that redraws, a drop, a `D`, a `d` on the flow's conduit — not a focus move or an edit that keeps the flow's path; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. **[decided]** A step remembers the flow's conduits: if an edit has since removed some, `[` redraws those that still exist and rebuilds the rest as §4.2 does, and focus goes to the anchor if the old focus is gone. |
 | `/` | Find a node; it becomes the anchor of a new flow (§4.2). |
 | `⏎` | The focus's primary action (marked in §6.3). |
 
@@ -377,7 +381,7 @@ takes an image, not a layer`). Keys that mean nothing for this focus stay silent
 | `m` | **move** a node into another conduit; while moving, `m` or `⏎` on a conduit or end drops it there (§6.5) |
 | `H` / `L` | **slide** a node one place upstream / downstream along the flow (§6.5) |
 | `f` | **focus**: bring a `▣` end's conduit into the flow (§4.4) |
-| `K` / `J` | reorder a list entry earlier / later; shown as `(K)earlier` / `(J)later`, each only when it can apply |
+| `K` / `J` | reorder a list entry earlier / later; shown as `(K)earlier` / `(J)later`, each only when it can apply (the slot doesn't count as an entry). **[decided]** Focus follows the entry. Not a flow change: an in-flow entry's line moves with its row; each step is one `u` |
 | `+ - > < } {` | nudge a number by ±1 / ±10 / ±50 |
 
 Global, whatever the focus: `a` add a node · `r` rename the node · `D` delete the node
@@ -400,7 +404,7 @@ Shifted movement keys move the focused thing instead of the focus: `J`/`K` a lis
 | Input end, in flow | **`(c)onnect`** `(i)nsert` `(d)isconnect`, plus `(K)earlier` / `(J)later` on a list entry |
 | Output end, `▣` | **`(f)ocus`** `(c)onnect to` `(i)nsert` `(d)isconnect` |
 | Output end, in flow | **`(c)onnect to`** `(i)nsert` `(d)isconnect` |
-| Unconnected input (bar title `Input Actions`) | **`(c)onnect`** `(i)nsert` |
+| Unconnected input or a list's slot (bar title `Input Actions`) | **`(c)onnect`** `(i)nsert` — on the slot, both append |
 | Output row with no users (bar title `Output Actions`) | **`(c)onnect to`** |
 
 A conduit and either of its ends offer the same `i`/`d`: an end stands for its conduit.
@@ -477,6 +481,10 @@ without it. Use any navigation — `h`/`l`, `f` through a `▣`, `/` — to reac
 conduit end, then `m` or `⏎` drops it there (`source → node → user`). `esc` cancels. The
 whole move undoes in one `u`, and no file changes until the drop.
 
+**[decided]** `(m)ove` is offered only on a node that can go into a conduit: one with a
+fed input to pass the conduit through, and an output. A source (`rect`) or a sink
+(`preview`) has no `(m)ove`, and pressing `m` says why (§6).
+
 **[decided]** While it's picked up:
 
 - Focus moves to the conduit that closed the gap, so dropping straight back puts the node
@@ -534,7 +542,7 @@ node (§6.7) and a palette colour that's in use (§7.1).
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
-### 6.7 Removing nodes **[decided]**
+### 6.7 Removing nodes and conduits **[decided]**
 
 `d` (dissolve) and `D` (delete) on a node ask first, as today, since each removes a file.
 The question says what changes: `Dissolve `toned`? Connects square → comp.layers[0].`,
@@ -553,6 +561,18 @@ The question says what changes: `Dissolve `toned`? Connects square → comp.laye
 
 A node left with no users after a delete stays in the project; only `/` reaches it if no
 flow does.
+
+**Disconnecting** (`d` on a conduit or an end) doesn't ask first: it removes no file, and
+`u` puts it back.
+
+- When `d` removes the row in focus, focus goes to the row that takes its place (the
+  next list entry, renumbered, or the slot); if none does, the row above; if there is
+  none, the node.
+- `d` on an off-flow conduit leaves the flow as it is.
+- `d` on the flow's conduit, from the line or either end: the downstream node keeps its
+  place and the flow's upstream side is rebuilt from that node's first connected input
+  (§4.2), as for a delete. Focus goes to the row that took the input end's place on the
+  downstream node. This is a flow change: re-centre and a history step.
 
 ## 7. Edit view
 
@@ -763,3 +783,9 @@ No open questions remain. Answers given while drafting:
 | After a dissolve | Same path, focus on the bridging conduit, not a flow change (§6.7). |
 | After a delete | Downstream neighbour (upstream for a sink) becomes anchor and focus, flow rebuilt (§6.7). |
 | `[` to a flow an edit has changed | Redraw the conduits that remain, rebuild the rest, focus the anchor if the focus is gone (§6.1). |
+| Adding a second list entry | An empty slot row `·─┼─layers` after the entries; `c` / `i` on it append (§3.1). |
+| Focus after `i` | Stays on the end, as for `c`; from the slot, on the new entry (§4.4). |
+| `(m)ove` on a source or sink | Not offered; `m` says why (§6.5). |
+| Focus after `K` / `J` | Follows the entry; not a flow change (§6.2). |
+| Focus after `d` removes the row in focus | The row that takes its place, else the row above, else the node (§6.7). |
+| `d` on the flow's conduit | The downstream node stays, the upstream side is rebuilt; a flow change (§6.7). |

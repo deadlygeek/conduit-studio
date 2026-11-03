@@ -5,7 +5,7 @@ from tui import (
     Node, Screen,
 )
 
-NODE_ACTIONS = "(e)dit (m)ove (d)issolve"
+NODE_ACTIONS = "(e)dit (d)issolve"  # nothing feeds these nodes, so no (m)ove (§6.5)
 INPUT_ACTIONS = "(c)onnect (i)nsert"
 END_ACTIONS = "(c)onnect (i)nsert (d)isconnect"
 

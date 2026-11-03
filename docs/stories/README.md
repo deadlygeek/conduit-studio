@@ -8,6 +8,7 @@ screen by screen: the keys pressed, then the screen that results.
 | [01 — a blue rectangle in a preview window](01-first-image.md) | empty project → rect → composite → preview |
 | [02 — exploring an existing project](02-exploring.md) | walking flows, `f` on `▣` up- and downstream, `[`, `/` |
 | [03 — reshaping a chain](03-reshaping.md) | `H` / `L` slide, `m` move, `d` dissolve, `D` delete |
+| [04 — layers](04-layers.md) | the list slot, `i` into a list and a conduit, `K` / `J`, `d` on list entries |
 
 Stories still to write, and their order, are tracked in [`checklist.md`](checklist.md).
 

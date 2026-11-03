@@ -31,7 +31,7 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
   - Likely gaps: what the flow shows while a node is picked up; where the flow and focus
     go when a dissolve or delete removes the anchor.
 
-- [ ] **04 — Layers: insert, reorder, disconnect**
+- [x] **04 — Layers: insert, reorder, disconnect** → [04-layers.md](04-layers.md)
   - Give a composite a second and third layer, reorder them with `K` / `J`, `i` a
     `transform` into one, `d` another.
   - Checks: `c` / `i` redrawing the flow (§4.4), list numbering after a reorder, which

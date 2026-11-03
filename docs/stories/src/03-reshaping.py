@@ -1,6 +1,6 @@
 """Screens for story 3: reshaping a chain — slide, move, dissolve, delete."""
 
-from tui import CONFIRM, FLOW, NONE, OFF_FLOW, PICKER, Node, Screen
+from tui import CONFIRM, FLOW, OFF_FLOW, OPTIONAL, PICKER, Node, Screen
 
 PROJECT = "chain"
 
@@ -12,7 +12,8 @@ def chain(nodes, *flow, scroll=0, centre=None):
 def comp(*ports, flow_input):
     """`comp` with input rows `ports`, its flow input on `flow_input`."""
     return Node("composite", "comp",
-                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports],
+                [(p, FLOW if p == flow_input else OFF_FLOW) for p in ports]
+                + [("layers", OPTIONAL)],   # the list's empty slot (§3.1)
                 [("out", FLOW)])
 
 

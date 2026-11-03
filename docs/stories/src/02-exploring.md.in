@@ -26,7 +26,8 @@ and `comp`'s first connected input is `base`, so the flow is `bg → comp → pr
 three layers are `▣`: connected, but not drawn in this flow.
 
 - Green: the `preview` box. Magenta: the conduit into it.
-- No `(H)/(L)` slide: `preview` has no output, so it can't swap with `comp`.
+- No `(m)ove` or `(H)/(L)` slide: `preview` has no output, so it can't go into a
+  conduit or swap with `comp` (§6.5).
 
 ## 2. Walk the flow
 
@@ -143,7 +144,8 @@ conduit edit examples/transform
 
 {{tr_start}}
 
-**`h`** **`h`** to `comp`, **`k`** to its last row, `layers[2]`, then **`f`**.
+**`h`** **`h`** to `comp`, **`k`** to its last row, the empty `layers` slot (§3.1),
+**`k`** again to `layers[2]`, then **`f`**.
 
 {{tr_flow}}
 
@@ -178,7 +180,7 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
 | To `brand.primary`, follow it | `h` `h` `j` `f` |
 | Back | `[` |
 | Find `swatch_shifted` | `/` "swsh" `⏎` |
-| `examples/transform`: to `layers[2]`, follow it | `h` `h` `k` `f` |
+| `examples/transform`: to `layers[2]`, follow it | `h` `h` `k` `k` `f` |
 | To `turned`'s first `out`, follow it | `h` `h` `h` `h` `h` `h` `j` `j` `f` |
 
 No files change: this story only looks.

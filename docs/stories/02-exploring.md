@@ -30,10 +30,10 @@ conduit edit examples/effects
     ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
                     ▣─┼─layers[1]   │  │
                     ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
                       │─────────────│  │
                       │         out─┼──╯
                       ╰─────────────╯
-
 
 
 
@@ -41,7 +41,7 @@ conduit edit examples/effects
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```
@@ -51,7 +51,8 @@ and `comp`'s first connected input is `base`, so the flow is `bg → comp → pr
 three layers are `▣`: connected, but not drawn in this flow.
 
 - Green: the `preview` box. Magenta: the conduit into it.
-- No `(H)/(L)` slide: `preview` has no output, so it can't swap with `comp`.
+- No `(m)ove` or `(H)/(L)` slide: `preview` has no output, so it can't go into a
+  conduit or swap with `comp` (§6.5).
 
 ## 2. Walk the flow
 
@@ -68,10 +69,10 @@ three layers are `▣`: connected, but not drawn in this flow.
     ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
                     ▣─┼─layers[1]   │  │
                     ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
                       │─────────────│  │
                       │         out─┼──╯
                       ╰─────────────╯
-
 
 
 
@@ -99,10 +100,10 @@ three layers are `▣`: connected, but not drawn in this flow.
     ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
                     ▣─┼─layers[1]   │  │
                     ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
                       │─────────────│  │
                       │         out─┼──╯
                       ╰─────────────╯
-
 
 
 
@@ -130,10 +131,10 @@ three layers are `▣`: connected, but not drawn in this flow.
     ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
                     ▣─┼─layers[1]   │  │
                     ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
                       │─────────────│  │
                       │         out─┼──╯
                       ╰─────────────╯
-
 
 
 
@@ -168,10 +169,10 @@ its linked param `black`).
 ▣─┼─black       │  │   │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]   │  │
   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]   │  │
-  ╰─────────────╯                           │─────────────│  │
+  ╰─────────────╯                         ·─┼─layers      │  │
+                                            │─────────────│  │
                                             │         out─┼──╯
                                             ╰─────────────╯
-
 
 
 
@@ -203,10 +204,10 @@ its linked param `black`).
 ╰──────────╯    ▣─┼─black       │  │   │─────────────│  ╭───┼─layers[0]   │  │
                   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]   │  │
                   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]   │  │
-                  ╰─────────────╯                           │─────────────│  │
+                  ╰─────────────╯                         ·─┼─layers      │  │
+                                                            │─────────────│  │
                                                             │         out─┼──╯
                                                             ╰─────────────╯
-
 
 
 
@@ -239,10 +240,10 @@ its linked param `black`).
     │    ██ teal─┼─▣╭───┼─black       │  │   │─────────────│  ╭───┼─layers[0]
     │    ██ sand─┼─ │   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]
     │  ██ orange─┼─ │   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]
-    │  ██ accent─┼──╯   ╰─────────────╯                           │─────────────
-    ╰────────────╯                                                │         out─
+    │  ██ accent─┼──╯   ╰─────────────╯                         ·─┼─layers
+    ╰────────────╯                                                │─────────────
+                                                                  │         out─
                                                                   ╰─────────────
-
 
 
 
@@ -275,10 +276,10 @@ its linked param `black`).
     │    ██ teal─┼─▣╭───┼─black       │  │   │─────────────│  ╭───┼─layers[0]
     │    ██ sand─┼─ │   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]
     │  ██ orange─┼─ │   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]
-    │  ██ accent─┼──╯   ╰─────────────╯                           │─────────────
-    ╰────────────╯                                                │         out─
+    │  ██ accent─┼──╯   ╰─────────────╯                         ·─┼─layers
+    ╰────────────╯                                                │─────────────
+                                                                  │         out─
                                                                   ╰─────────────
-
 
 
 
@@ -345,10 +346,10 @@ left it.
     │    ██ teal─┼─▣╭───┼─black       │  │   │─────────────│  ╭───┼─layers[0]
     │    ██ sand─┼─ │   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]
     │  ██ orange─┼─ │   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]
-    │  ██ accent─┼──╯   ╰─────────────╯                           │─────────────
-    ╰────────────╯                                                │         out─
+    │  ██ accent─┼──╯   ╰─────────────╯                         ·─┼─layers
+    ╰────────────╯                                                │─────────────
+                                                                  │         out─
                                                                   ╰─────────────
-
 
 
 
@@ -379,10 +380,10 @@ once more to the start. **`]`** goes forward again.
     │    ██ teal─┼─▣╭───┼─black       │  │   │─────────────│  ╭───┼─layers[0]
     │    ██ sand─┼─ │   │─────────────│  │   │         out─┼──╯ ▣─┼─layers[1]
     │  ██ orange─┼─ │   │         out─┼──╯   ╰─────────────╯    ▣─┼─layers[2]
-    │  ██ accent─┼──╯   ╰─────────────╯                           │─────────────
-    ╰────────────╯                                                │         out─
-        ┏ find node (1 of 13) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓────────
-        ┃ / swsh▏                                                      ┃
+    │  ██ accent─┼──╯   ╰─────────────╯                         ·─┼─layers
+    ╰────────────╯                                                │─────────────
+        ┏ find node (1 of 13) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓    out─
+        ┃ / swsh▏                                                      ┃────────
         ┃ swatch_shifted  hsl                                          ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
@@ -410,10 +411,10 @@ imary─┼─▣╭───┼─color    │  ╭───┼─layer        
  teal─┼──╯   │──────────│  │   │────────────────│  │   │─────────────│    ▣─┼─la
  sand─┼─     │      out─┼──╯   │            out─┼──╯   │         out─┼──────┼─la
 range─┼─     ╰──────────╯      ╰────────────────╯      ╰─────────────╯    ▣─┼─la
-ccent─┼─▣                                                                   │───
-──────╯                                                                     │
+ccent─┼─▣                                                                 ·─┼─la
+──────╯                                                                     │───
+                                                                            │
                                                                             ╰───
-
 
 
 
@@ -452,10 +453,10 @@ conduit edit examples/transform
     ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
                     ▣─┼─layers[1]   │  │
                     ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
                       │─────────────│  │
                       │         out─┼──╯
                       ╰─────────────╯
-
 
 
 
@@ -463,12 +464,13 @@ conduit edit examples/transform
 
   Node Actions ────────────────────────────────────────────────────────────────
 
-  (e)dit (m)ove (d)issolve
+  (e)dit (d)issolve
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 
 ```
 
-**`h`** **`h`** to `comp`, **`k`** to its last row, `layers[2]`, then **`f`**.
+**`h`** **`h`** to `comp`, **`k`** to its last row, the empty `layers` slot (§3.1),
+**`k`** again to `layers[2]`, then **`f`**.
 
 ```
  conduit edit examples/transform  ·  8 nodes
@@ -481,10 +483,10 @@ conduit edit examples/transform
 │   │─────────────│  │   │───────────│    ▣─┼─layers[0]   │  │   ╰───────────╯
 │   │         out─┼──╯   │       out─┼──╮ ▣─┼─layers[1]   │  │
 ╯   ╰─────────────╯      ╰───────────╯  ╰───┼─layers[2]   │  │
+                                          ·─┼─layers      │  │
                                             │─────────────│  │
                                             │         out─┼──╯
                                             ╰─────────────╯
-
 
 
 
@@ -518,10 +520,10 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
 │      out─┼──╯   │─────────────│  │   │─────────────│  │   │───────────│    ▣─┼
 ╰──────────╯      │         out─┼─▣│   │         out─┼──╯   │       out─┼──╮ ▣─┼
                   │         out─┼──╯   ╰─────────────╯      ╰───────────╯  ╰───┼
-                  ╰─────────────╯                                              │
+                  ╰─────────────╯                                            ·─┼
+                                                                               │
                                                                                │
                                                                                ╰
-
 
 
 
@@ -552,10 +554,10 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
     │      out─┼──╯   │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
     ╰──────────╯      │         out─┼──╯ ▣─┼─layers[1]   │  │
                       │         out─┼─▣  ▣─┼─layers[2]   │  │
-                      ╰─────────────╯      │─────────────│  │
+                      ╰─────────────╯    ·─┼─layers      │  │
+                                           │─────────────│  │
                                            │         out─┼──╯
                                            ╰─────────────╯
-
 
 
 
@@ -578,7 +580,7 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
 | To `brand.primary`, follow it | `h` `h` `j` `f` |
 | Back | `[` |
 | Find `swatch_shifted` | `/` "swsh" `⏎` |
-| `examples/transform`: to `layers[2]`, follow it | `h` `h` `k` `f` |
+| `examples/transform`: to `layers[2]`, follow it | `h` `h` `k` `k` `f` |
 | To `turned`'s first `out`, follow it | `h` `h` `h` `h` `h` `h` `j` `j` `f` |
 
 No files change: this story only looks.

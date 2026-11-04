@@ -422,12 +422,10 @@ impl App {
         None
     }
 
-    /// `e`: until the edit view exists, edit the node in the three panes.
+    /// `e`: open the edit view on a node (§7).
     fn edit(&mut self, focus: &Focus) {
         if let Focus::Node(_) = focus {
-            self.flow_view = false;
-            self.pane = Pane::Node;
-            self.message = Some("editing in the three panes for now; v goes back".into());
+            self.open_edit_view();
         }
     }
 

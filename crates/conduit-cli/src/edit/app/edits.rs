@@ -799,7 +799,7 @@ impl App {
     }
 
     /// Whether the focused node's param `name` can be fed from another node.
-    fn linkable(&self, name: &str) -> bool {
+    pub(super) fn linkable(&self, name: &str) -> bool {
         self.param_input_type(name).is_some()
     }
 

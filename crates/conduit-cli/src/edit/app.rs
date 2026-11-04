@@ -1,6 +1,7 @@
 //! Editor state and key handling, independent of the terminal (see `view.rs` for drawing).
 
 mod colors;
+mod edit_view;
 mod edits;
 mod files;
 mod flow_edits;
@@ -20,6 +21,7 @@ use ratatui::widgets::ListState;
 
 use crate::run::{Event, Shown};
 pub use colors::ColorEdit;
+pub use edit_view::{EditRow, shown};
 pub use edits::{Confirm, Pick, Prompt, uses};
 pub use walk::Bar;
 
@@ -154,6 +156,8 @@ pub struct App {
     /// Flow history (§6.1): the flow and focus before each flow change, and after `[`.
     flow_back: Vec<(super::flow::Flow, super::flow::Focus)>,
     flow_forward: Vec<(super::flow::Flow, super::flow::Focus)>,
+    /// The edit view's cursor while it's open (§7).
+    pub edit_view: Option<EditRow>,
 }
 
 impl App {
@@ -192,6 +196,7 @@ impl App {
             pending: None,
             flow_back: Vec::new(),
             flow_forward: Vec::new(),
+            edit_view: None,
         };
         app.focus = app.default_focus();
         app.refresh();
@@ -528,6 +533,7 @@ impl App {
         if self.flow_view {
             self.finish_flow_edit();
             self.sync_flow();
+            self.sync_edit_view();
         }
         action
     }
@@ -663,6 +669,9 @@ impl App {
     fn normal_key(&mut self, key: KeyEvent) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         if self.flow_view {
+            if let Some(action) = self.edit_view_key(key) {
+                return action;
+            }
             if let Some(action) = self.flow_key(key) {
                 return action;
             }

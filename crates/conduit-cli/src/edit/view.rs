@@ -8,8 +8,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-use super::app::{App, Bar, ColorEdit, Mode, Pane, Pick, Row, uses};
+use super::app::{App, Bar, ColorEdit, EditRow, Mode, Pane, Pick, Row, shown, uses};
 use super::canvas;
+use super::flow::InState;
 use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -83,6 +84,10 @@ fn draw_flow(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         return;
     };
+    if app.edit_view.is_some() {
+        draw_edit_view(frame, app, area);
+        return;
+    }
     let picture = canvas::draw(&app.project, &app.flow, Some(&focus));
     let recentre = std::mem::take(&mut app.recentre);
     app.viewport = app.viewport.follow(
@@ -94,6 +99,288 @@ fn draw_flow(frame: &mut Frame, app: &mut App, area: Rect) {
         recentre,
     );
     picture.blit(frame.buffer_mut(), area, app.viewport.x, app.viewport.y);
+}
+
+/// One line of the edit view, before the box width is known.
+enum EditLine {
+    Blank,
+    Rule,
+    /// Text inside the box.
+    Text(Vec<Span<'static>>),
+    /// An input row: the stub outside the box (`▣──`), then its label.
+    In(Span<'static>, Vec<Span<'static>>),
+    /// An output row: its label, right-aligned, then the stub outside the box (`──▣`).
+    Out(Vec<Span<'static>>, Span<'static>),
+}
+
+fn spans_width(spans: &[Span]) -> usize {
+    spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+/// The edit view (§7): the focused node enlarged, its rows in sections, its errors last.
+fn draw_edit_view(frame: &mut Frame, app: &App, area: Rect) {
+    use canvas::{DIM, ERROR, FOCUS, RELATED, STANDARD};
+    let Some(node) = app.focused() else { return };
+    let rows = app.edit_rows();
+    let cursor = app.edit_view.clone();
+    let errors = app.edit_errors();
+    let in_width = (rows.iter())
+        .filter_map(|r| match r {
+            EditRow::In(r) => Some(r.label().chars().count()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    let param_width = (rows.iter())
+        .filter_map(|r| match r {
+            EditRow::Param(name) => Some(name.chars().count()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    let out_width = (rows.iter())
+        .filter_map(|r| match r {
+            EditRow::Out(r) => Some(r.port.chars().count()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+
+    let mut lines = vec![EditLine::Blank];
+    let mut focus_line = 0;
+    let mut section = 0;
+    for row in &rows {
+        let focused = cursor.as_ref() == Some(row);
+        // The label's style and the value's: focus green, the rest of its row magenta.
+        let (label, value) = if focused {
+            (RELATED, FOCUS)
+        } else {
+            (STANDARD, STANDARD)
+        };
+        let this_section = match row {
+            EditRow::Name => 0,
+            EditRow::In(_) => 1,
+            EditRow::Param(_) => 2,
+            EditRow::Colour { .. } => 3,
+            EditRow::Out(_) => 4,
+        };
+        if this_section != section {
+            lines.push(EditLine::Rule);
+            section = this_section;
+        }
+        if focused {
+            focus_line = lines.len();
+        }
+        lines.push(match row {
+            EditRow::Name => EditLine::Text(vec![
+                Span::styled(" name: ", label),
+                Span::styled(node.id.clone(), value),
+            ]),
+            EditRow::In(r) => {
+                let (stub, stub_style) = match &r.state {
+                    InState::Connected(_) => ("▣──", STANDARD),
+                    InState::Missing => ("✕──", ERROR),
+                    InState::Slot | InState::Optional => ("   ", STANDARD),
+                };
+                let stub_style = if focused { FOCUS } else { stub_style };
+                let name = format!("{:<in_width$}", r.label());
+                let mut spans = match &r.state {
+                    InState::Connected(source) => vec![
+                        Span::styled(name, value),
+                        Span::styled(format!(" ← {}", source.short()), label),
+                    ],
+                    InState::Missing => vec![
+                        Span::styled(name, if focused { value } else { ERROR }),
+                        Span::styled("  not connected", ERROR),
+                    ],
+                    InState::Slot => vec![
+                        Span::styled(name, value),
+                        Span::styled("  (append another)", DIM),
+                    ],
+                    InState::Optional => {
+                        vec![Span::styled(name, value), Span::styled("  (optional)", DIM)]
+                    }
+                };
+                spans.retain(|s| !s.content.is_empty());
+                EditLine::In(Span::styled(stub, stub_style), spans)
+            }
+            EditRow::Param(name) => {
+                let mut spans = vec![Span::styled(format!("  {name:<param_width$} = "), label)];
+                spans.extend(param_value_spans(node, name, value));
+                EditLine::Text(spans)
+            }
+            EditRow::Colour { param, key } => {
+                let colour = node.params.get(param).and_then(|t| t.get(key));
+                let mut spans = vec![Span::raw("  ")];
+                match colour.and_then(color_value) {
+                    Some(c) => {
+                        spans.push(swatch(c));
+                        spans.push(Span::styled(format!(" {}", to_hex(c)), value));
+                    }
+                    None => spans.push(Span::styled(colour.map(shown).unwrap_or_default(), ERROR)),
+                }
+                spans.push(Span::styled(format!("  {key}"), label));
+                EditLine::Text(spans)
+            }
+            EditRow::Out(r) => {
+                let mut spans = vec![Span::styled(format!("{:>out_width$}", r.port), value)];
+                if let Some(user) = &r.user {
+                    spans.push(Span::styled(format!(" → {}", user.node), label));
+                }
+                let stub = if r.user.is_some() { "──▣" } else { "─" };
+                let stub_style = if focused { FOCUS } else { STANDARD };
+                EditLine::Out(spans, Span::styled(stub, stub_style))
+            }
+        });
+    }
+    if !errors.is_empty() {
+        lines.push(EditLine::Rule);
+        for e in &errors {
+            lines.push(EditLine::Text(vec![Span::styled(format!(" ✕ {e}"), ERROR)]));
+        }
+    }
+
+    // Width: wide enough for every row, as in the stories (47), up to the screen's.
+    let widest = lines
+        .iter()
+        .map(|l| match l {
+            EditLine::Text(s) => spans_width(s) + 1,
+            EditLine::In(_, s) => spans_width(s) + 3,
+            EditLine::Out(s, _) => spans_width(s) + 3,
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0)
+        .max(node.kind.as_deref().unwrap_or("?").chars().count() + 4);
+    let max_inner = usize::from(area.width).saturating_sub(10).max(8);
+    let inner = widest.max(47).min(max_inner);
+    let total = inner + 2;
+    let x = area.x
+        + (area.width.saturating_sub(total as u16) / 2)
+            .saturating_sub(1)
+            .max(3);
+
+    let border = if errors.is_empty() { STANDARD } else { ERROR };
+    let kind = node.kind.clone().unwrap_or_else(|| "?".into());
+    let top_rest = inner.saturating_sub(kind.chars().count() + 3);
+    let mut screen: Vec<Line> = vec![Line::from(vec![
+        Span::styled("╭─ ", border),
+        Span::styled(kind, border),
+        Span::styled(format!(" {}╮", "─".repeat(top_rest)), border),
+    ])];
+    let fit = |spans: Vec<Span<'static>>, width: usize| -> (Vec<Span<'static>>, usize) {
+        // Cut a row that's too long for the box.
+        let mut out = Vec::new();
+        let mut used = 0;
+        for span in spans {
+            let room = width.saturating_sub(used);
+            let text: String = span.content.chars().take(room).collect();
+            used += text.chars().count();
+            out.push(Span::styled(text, span.style));
+        }
+        (out, used)
+    };
+    for line in lines {
+        let mut spans = Vec::new();
+        match line {
+            EditLine::Blank => {
+                spans.push(Span::styled(format!("│{}│", " ".repeat(inner)), border));
+            }
+            EditLine::Rule => {
+                spans.push(Span::styled(format!("│{}│", "─".repeat(inner)), border));
+            }
+            EditLine::Text(content) => {
+                let (content, used) = fit(content, inner);
+                spans.push(Span::styled("│", border));
+                spans.extend(content);
+                spans.push(Span::styled(
+                    format!("{}│", " ".repeat(inner - used)),
+                    border,
+                ));
+            }
+            EditLine::In(stub, content) => {
+                let (content, used) = fit(content, inner.saturating_sub(2));
+                let style = stub.style;
+                spans.push(Span::styled(format!("{stub}"), style));
+                spans.push(Span::styled("┼", border));
+                spans.push(Span::styled("─ ", style));
+                spans.extend(content);
+                spans.push(Span::styled(
+                    format!("{}│", " ".repeat(inner.saturating_sub(2) - used)),
+                    border,
+                ));
+            }
+            EditLine::Out(content, stub) => {
+                let (content, used) = fit(content, inner.saturating_sub(3));
+                let style = stub.style;
+                spans.push(Span::styled(
+                    format!("│{}", " ".repeat(inner.saturating_sub(2) - used)),
+                    border,
+                ));
+                spans.extend(content);
+                spans.push(Span::styled(" ─", style));
+                spans.push(Span::styled("┼", border));
+                spans.push(stub);
+            }
+        }
+        screen.push(Line::from(spans));
+    }
+    screen.push(Line::from(Span::styled(
+        format!("╰{}╯", "─".repeat(inner)),
+        border,
+    )));
+
+    // Scroll so the focused row shows (one blank row above the box).
+    let room = usize::from(area.height.saturating_sub(1));
+    let focus_screen = focus_line + 1;
+    let skip = if screen.len() <= room {
+        0
+    } else {
+        (focus_screen + 2)
+            .saturating_sub(room)
+            .min(screen.len() - room)
+    };
+    let buf = frame.buffer_mut();
+    for (i, line) in screen.iter().skip(skip).take(room).enumerate() {
+        let y = area.y + 1 + i as u16;
+        // Input stubs start three columns left of the box.
+        let starts_outside = line
+            .spans
+            .first()
+            .is_some_and(|s| !s.content.starts_with(['│', '╭', '╰']));
+        let left = if starts_outside { x - 3 } else { x };
+        buf.set_line(left, y, line, area.right().saturating_sub(left));
+    }
+}
+
+/// A param's value in the edit view: `██ white (default)`, `2.5`, `unset (default)`.
+fn param_value_spans(node: &ProjectNode, name: &str, style: Style) -> Vec<Span<'static>> {
+    let spec = node.spec.as_ref().and_then(|s| s.param(name));
+    let (value, default) = match node.params.get(name) {
+        Some(v) => (Some(v.clone()), false),
+        None => (spec.and_then(|p| p.default_value()), true),
+    };
+    let mut spans = Vec::new();
+    match value {
+        Some(v) => {
+            if let Some(c) = color_value(&v)
+                .filter(|_| spec.is_some_and(|p| p.kind == conduit_core::ParamKind::Color))
+            {
+                spans.push(swatch(c));
+                spans.push(Span::raw(" "));
+            }
+            spans.push(Span::styled(shown(&v), style));
+        }
+        None if spec.is_some_and(|p| p.required) => {
+            spans.push(Span::styled("missing", canvas::ERROR));
+            return spans;
+        }
+        None => spans.push(Span::styled("unset", style)),
+    }
+    if default {
+        spans.push(Span::styled(" (default)", canvas::DIM));
+    }
+    spans
 }
 
 /// The status line (§4.7), with the probe on the right.
@@ -265,12 +552,15 @@ fn lineage_areas(main: Rect, node_rows: usize) -> [Rect; 3] {
 
 fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
     let invalid = app.project.errors.len();
+    let nodes = app.project.nodes.len();
+    let s = if nodes == 1 { "" } else { "s" };
     let mut spans = vec![
         Span::styled(" conduit edit ", Style::new().bold().fg(ACCENT)),
         Span::raw(app.dir.display().to_string()),
-        Span::styled(format!("  ·  {} nodes", app.project.nodes.len()), DIM),
+        Span::styled(format!("  ·  {nodes} node{s}"), DIM),
     ];
-    if invalid > 0 {
+    // The flow view counts errors in its status line (§5.4).
+    if invalid > 0 && !app.flow_view {
         spans.push(Span::styled(format!("  ·  {invalid} problem(s)"), ERROR));
     }
     frame.render_widget(Line::from(spans), area);
@@ -890,26 +1180,43 @@ fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
 
 /// Keys of the flow view, grouped as in the spec's §6.
 const FLOW_HELP: &[(&str, &str)] = &[
-    ("h / l", "upstream / downstream: node, conduit, node, …"),
-    ("j / k", "into a node's rows, next / previous row"),
-    ("esc", "back to the node"),
+    (
+        "h l j k",
+        "walk the flow: node, conduit, node; j / k into a node's rows",
+    ),
+    ("esc", "back to the node; in the edit view, close it"),
     ("g / G", "first / last node of the flow"),
     ("f", "on a ▣ end: bring its conduit into the flow"),
     ("[ / ]", "back / forward through flow changes"),
     ("⏎", "the focus's primary action (bold in the bar)"),
-    ("e", "edit the node (in the three panes, for now)"),
+    (
+        "e",
+        "edit: a node opens the edit view; a param or name its prompt",
+    ),
     ("c", "connect: pick a source; on an output, a new user"),
     ("i", "insert a new node into a conduit, or feeding an input"),
-    ("d", "dissolve a node; disconnect a conduit or end"),
+    (
+        "d",
+        "dissolve a node; disconnect; reset a param to its default",
+    ),
     ("K / J", "move a list entry earlier / later"),
+    ("H / L", "slide a node upstream / downstream"),
     ("m", "pick up a node; m or ⏎ on a conduit drops it there"),
-    ("/", "find a node; the flow is rebuilt around it"),
-    ("a", "add a node"),
+    (
+        "+-><}{",
+        "edit view: nudge a number by 1 / 10 / 50; C colour picker",
+    ),
+    (
+        "/  a",
+        "find a node (the flow is rebuilt around it) / add a node",
+    ),
     ("r / D", "rename / delete the node"),
     ("u", "undo"),
     ("p / P", "probe the focus / follow the focus"),
-    ("E", "open the node in $EDITOR"),
-    ("v", "switch to the three panes"),
+    (
+        "E  v",
+        "open the node in $EDITOR / switch to the three panes",
+    ),
     ("q", "quit"),
 ];
 
@@ -1055,6 +1362,55 @@ mod tests {
   (c)onnect (i)nsert (d)isconnect
   global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
 ";
+
+    /// Code block `n` of a story, e.g. `docs/stories/01-first-image.md`.
+    fn story_screen(story: &str, n: usize) -> String {
+        let block = story.split("```").nth(2 * n + 1).expect("no such block");
+        trimmed(block.trim_start_matches('\n'))
+    }
+
+    fn keys(app: &mut App, keys: &str) {
+        for c in keys.chars() {
+            let code = match c {
+                '\n' => KeyCode::Enter,
+                '\x1b' => KeyCode::Esc,
+                c => KeyCode::Char(c),
+            };
+            app.handle_key(KeyEvent::from(code));
+        }
+    }
+
+    #[test]
+    fn edit_view_matches_story_one() {
+        // docs/stories/01-first-image.md, step 2 (the colour editor aside).
+        let story = include_str!("../../../../docs/stories/01-first-image.md");
+        let dir = tempfile::tempdir().unwrap();
+        // The story has `color` default to white; the real `rect` requires it.
+        let file = "type = \"rect\"\n[params]\ncolor = \"white\"\n";
+        std::fs::write(dir.path().join("blue_rect.toml"), file).unwrap();
+        let white = |screen: String| {
+            screen.replace("color  = ██ white (default)", "color  = ██ white          ")
+        };
+        let mut app = flow_app_at(dir.path(), dir.path());
+        let path = dir.path().display().to_string();
+        let screen = |app: &mut App| trimmed(&render(app, 80, 24)).replace(&path, "story");
+
+        keys(&mut app, "e");
+        assert_eq!(screen(&mut app), white(story_screen(story, 5)));
+        keys(&mut app, "j");
+        assert_eq!(screen(&mut app), white(story_screen(story, 6)));
+
+        keys(&mut app, "je800\nje600\n");
+        // The story's colour is blue by now; ours is still white.
+        let expected = story_screen(story, 9).replace("██ blue ", "██ white");
+        assert_eq!(screen(&mut app), expected);
+
+        keys(&mut app, "\x1b");
+        assert_eq!(app.edit_view, None);
+        // The story's status line also gives the image size, which needs a render.
+        let expected = story_screen(story, 10).replace("  ·  800×600", "");
+        assert_eq!(screen(&mut app), expected);
+    }
 
     #[test]
     fn flow_view_too_small_only_quits() {

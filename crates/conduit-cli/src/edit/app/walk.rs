@@ -35,14 +35,14 @@ const GLOBALS: &[&str] = &[
 const GLOBALS_EMPTY: &[&str] = &["[a]dd", "[u]ndo", "[/]find", "[?]help", "[q]uit"];
 const GLOBALS_MOVING: &[&str] = &["[/]find", "[?]help", "[q]uit"];
 
-fn item(text: &str) -> BarItem {
+pub(super) fn item(text: &str) -> BarItem {
     BarItem {
         text: text.to_string(),
         primary: false,
     }
 }
 
-fn primary(text: &str) -> BarItem {
+pub(super) fn primary(text: &str) -> BarItem {
     BarItem {
         text: text.to_string(),
         primary: true,
@@ -259,6 +259,9 @@ impl App {
         let Some(focus) = &self.flow_focus else {
             return String::new();
         };
+        if let Some(text) = self.edit_focus_text() {
+            return text;
+        }
         let p = &self.project;
         match focus {
             Focus::Node(id) => match p.errors_for(id).first() {
@@ -373,7 +376,9 @@ impl App {
                 globals: globals(GLOBALS_MOVING),
             };
         }
-        let (title, actions) = self.focus_actions(focus);
+        let (title, actions) = self
+            .edit_actions()
+            .unwrap_or_else(|| self.focus_actions(focus));
         Bar {
             title,
             actions,

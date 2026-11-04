@@ -1,6 +1,6 @@
-# Node editor UI — flow view (spec, draft 9)
+# Node editor UI — flow view (spec, draft 10)
 
-Status: **draft 9**, 2026-11-03 — no open questions. Derived from the durdraw
+Status: **draft 10**, 2026-11-04 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
@@ -8,9 +8,18 @@ with the code, this document decides; decisions are marked **[decided]**. The qu
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
 
-Changes from draft 8, from walking story 4 (`../stories/04-layers.md`): a list input
-keeps an empty slot row, and `c` / `i` on it append (§3.1); focus stays on the end after
-`i`, including from the slot (§4.4); `(m)ove` only on a node that can be moved (§6.5);
+Changes from draft 9, from a review for readiness to implement (simple defaults, open to
+revision once built): which node a global key acts on when a conduit is focused (§6.2);
+flow and focus after undo and after files change on disk (§6.8); downstream takes the
+first output that has a user (§4.2); font params link like number and colour params
+(§3.1, §7); linked rows are edited in the edit view only (§6.2); focus follows a param
+that is linked or unlinked (§7); the whole canvas scrolls vertically (§4.5); errors are
+listed, not tied to rows, for now (§5.4); `a` redraws the flow (§4.4); `j` / `k` on a
+conduit, `C`, `?` (§6.1, §6.2); boxes top-aligned with a fixed gap (§4.1).
+
+Draft 9 came from walking story 4 (`../stories/04-layers.md`): a list input keeps an
+empty slot row, and `c` / `i` on it append (§3.1); focus stays on the end after `i`,
+including from the slot (§4.4); `(m)ove` only on a node that can be moved (§6.5);
 `K` / `J` focus follows the entry and isn't a flow change (§6.2); focus after `d` removes
 the row in focus, and `d` on the flow's conduit rebuilds the upstream side (§6.7).
 
@@ -69,7 +78,7 @@ end under focus" are the same thing.
 |---|---|
 | Single input, connected | one row |
 | List input | one row per connection, `layers[0]`, `layers[1]`, … in list order, then **[decided]** an empty **slot** row, `·─┼─layers`, unnumbered and dimmed like an unconnected optional input. `c` or `i` on the slot appends a new entry. An empty list is just the slot. |
-| Linked param (a number or color param fed by a node) | one row, labelled with the param name — it's a conduit like any input |
+| Linked param (a number, color or **[decided]** font param fed by a node) | one row, labelled with the param name — it's a conduit like any input |
 | Unlinked param | no row in the flow view; it lives in the edit view (§7) |
 | Unconnected input | one row, with the unconnected marker (§4.3) |
 | Output with *n* users | *n* rows, each `out─┼─`, users in id order; the one in the flow draws its line, the rest show `▣`. **[decided]** The rows stay plain `out`: the status line names the user when a row is focused, the far end turns magenta when it's on screen (§5.3), and `f` follows it. |
@@ -130,6 +139,10 @@ Because a flow is one row of boxes, layout is simple: boxes left to right, a fix
 between them, and each conduit runs from its output row to its input row with rounded
 corners (`╮ ╰ ╭ ╯`). There is only ever one drawn conduit per gap.
 
+**[decided]** Boxes are top-aligned on the canvas's first row. The gap is one constant,
+wide enough for a `▣─` on each side and the drawn conduit's vertical run between them
+(about 6 columns); tune it once it's on screen.
+
 ### 4.2 Building a flow
 
 A flow is built around one node, the **anchor**:
@@ -137,8 +150,9 @@ A flow is built around one node, the **anchor**:
 - **Upstream**: from the anchor, take its first connected input, then that source's first
   connected input, and so on to a source. Port order, with plain inputs before linked
   params — the same rule `X` (dissolve) uses today.
-- **Downstream**: from the anchor, take the first user of its first output, and so on to a
-  sink. Users in id order.
+- **Downstream**: from the anchor, take the first user of its first output **[decided]**
+  that has a user, and so on to a sink. Outputs in port order, users in id order. (A
+  palette whose first colour is unused still continues through the next colour.)
 
 On start-up the anchor is the first sink (e.g. `preview`), or the first node if there is
 none, and **[decided]** the focus starts on the anchor node. `/` (find) makes the found
@@ -165,9 +179,10 @@ to an earlier flow is focus history (`[`).
 ### 4.4 Redrawing the flow through a `▣`
 
 **[decided]** Focusing a `▣` end and pressing `f` (or `⏎`) brings that conduit into the
-flow and redraws **only the side it points to**. Apart from `c` and `i` (below), dropping
-a moved node (§6.5), deleting one and disconnecting the flow's conduit (§6.7), only `/` and focus history redraw the flow —
-in particular not `h`/`l`.
+flow and redraws **only the side it points to**. Apart from `c` and `i` (below), adding a
+node (§4.2), dropping a moved node (§6.5), deleting one and disconnecting the flow's
+conduit (§6.7), and undo or a change on disk (§6.8), only `/` and focus history redraw
+the flow — in particular not `h`/`l`.
 
 - **`▣` on an input row** of node *N*: *N* and everything downstream of it stay; the
   upstream part is replaced by the path through this input's source (built as in §4.2).
@@ -192,7 +207,9 @@ entry (`layers[2]`), with the slot one `j` below it, so adding several entries i
 
 A flow can be wider than the screen. The view scrolls horizontally to keep the focus
 visible with a margin of one box where possible. Boxes cut by the screen edge are drawn
-clipped. A node with more rows than fit on screen scrolls vertically.
+clipped. **[decided]** A node with more rows than fit on screen scrolls the **whole
+canvas** vertically (boxes and conduits together, not one box on its own), by the same
+rules as horizontal scrolling below.
 
 **[decided]** There is no extra indicator for boxes off screen: the conduit running off
 the edge shows the flow carries on.
@@ -347,6 +364,10 @@ full, under the outputs, with the row it concerns (a param, an input) also in re
 error in the status line, and the edit view lists every error in full with the row it
 concerns in red. Options A and B are kept above for reference.
 
+**[decided]** For now, errors are plain messages that aren't tied to a param or input, so
+the edit view lists them in full but colours no rows red. Marking the row an error
+concerns comes later, once errors carry the row.
+
 ## 6. Keys
 
 **[decided]** The aim is one small grammar: the same key means the same idea whatever is
@@ -363,7 +384,7 @@ takes an image, not a layer`). Keys that mean nothing for this focus stay silent
 | Key | Does |
 |---|---|
 | `h` / `l` | Move upstream / downstream along the flow. Stops, left to right: node, the conduit leaving it, next node, …. On a row, `h` on an in-flow input row and `l` on an in-flow output row move onto that row's conduit; the other direction goes back to the node. On a `▣` row the outward direction does nothing — `f` brings it in. |
-| `j` / `k` | On a node: into its first / last row. On a row: next / previous row; past the first or last row, back to the node. |
+| `j` / `k` | On a node: into its first / last row. On a row: next / previous row; past the first or last row, back to the node. **[decided]** On a conduit: nothing. |
 | `esc` | Back to the node (from a row or a conduit); in the edit view, close it. |
 | `g` / `G` | First / last node of the flow. |
 | `[` / `]` | Back / forward through flow history (also `ctrl-o`, backspace). **[decided]** A step is a flow change — `f`, `/`, `a`, a `c` / `i` that redraws, a drop, a `D`, a `d` on the flow's conduit — not a focus move or an edit that keeps the flow's path; `[` restores the flow and the focus where you left it. To retrace steps within a flow, walk it with `h` / `l`. **[decided]** A step remembers the flow's conduits: if an edit has since removed some, `[` redraws those that still exist and rebuilds the rest as §4.2 does, and focus goes to the anchor if the old focus is gone. |
@@ -384,9 +405,22 @@ takes an image, not a layer`). Keys that mean nothing for this focus stay silent
 | `K` / `J` | reorder a list entry earlier / later; shown as `(K)earlier` / `(J)later`, each only when it can apply (the slot doesn't count as an entry). **[decided]** Focus follows the entry. Not a flow change: an in-flow entry's line moves with its row; each step is one `u` |
 | `+ - > < } {` | nudge a number by ±1 / ±10 / ±50 |
 
+**[decided]** Editing and nudging values happens in the edit view only. In the flow view a
+linked param's row is just a conduit end (§6.3); nudges there do nothing — to change the
+value, edit the node feeding it.
+
 Global, whatever the focus: `a` add a node · `r` rename the node · `D` delete the node
 (hard: connections removed, not reconnected) · `u` undo · `p` / `P` probe · `E` open in
 `$EDITOR` · `/` find · `?` help · `q` quit.
+
+**[decided]** "The node" for `r`, `D`, `E` and `p`: the focused node; for a conduit end,
+the node the row belongs to; for a conduit, its **downstream** node. `p` on a conduit or
+an input end probes the source output feeding it, and on an output end that output — as
+`p` on a row does today.
+
+**[decided]** `C` (open the colour picker window) isn't global: it's a focus action on a
+colour param or palette colour row in the edit view (§7, §7.1). `?` opens today's help
+screen, listing every key, grouped as in §6.
 
 `d` vs `D`: lowercase removes the focused thing gently; uppercase deletes the node outright.
 Shifted movement keys move the focused thing instead of the focus: `J`/`K` a list entry,
@@ -574,6 +608,21 @@ flow does.
   (§4.2), as for a delete. Focus goes to the row that took the input end's place on the
   downstream node. This is a flow change: re-centre and a history step.
 
+### 6.8 Undo and changes on disk **[decided]**
+
+`u`, and node files changing on disk (an external editor, `E`, a `git checkout`), can
+change the graph under the flow. Both are handled as `[` to a changed flow is (§6.1):
+
+- The flow's conduits that still exist are redrawn; the rest is rebuilt from the anchor
+  as §4.2 does. If the anchor is gone, the first sink (or first node) becomes the anchor,
+  as at start-up.
+- Focus stays where it was if that thing still exists, else goes to the anchor. In an
+  empty project there is no focus (§4.8).
+- The view scrolls minimally if the flow kept its path, and re-centres otherwise. Neither
+  is a step in `[` history.
+
+Undo doesn't take you back to the flow where the undone edit was made; `[` does that.
+
 ## 7. Edit view
 
 `e` on a node opens it enlarged (`node-edit`), at full width with no cap on names.
@@ -622,11 +671,13 @@ Same verbs as §6.2:
 | Input / output row | as the matching conduit end in §6.3; `f` closes the edit view and redraws the flow through that conduit |
 | Number param | **`(e)dit`** `(c)onnect` `(i)nsert` `(d)efault`, nudges `+ - > < } {` |
 | Color param | **`(e)dit`** (colour editor) `(C)` picker window, `(c)onnect` `(i)nsert` `(d)efault` |
-| Font / file param | **`(e)dit`** (picker) `(d)efault` |
+| Font param | **`(e)dit`** (picker) `(c)onnect` `(i)nsert` `(d)efault` |
+| File param | **`(e)dit`** (picker) `(d)efault` |
 | Other param | **`(e)dit`** `(d)efault` |
 
 Linking a param with `c` or `i` moves it from the params section to the input rows;
-`d` on that input row unlinks it and moves it back.
+`d` on that input row unlinks it and moves it back. **[decided]** Focus follows the param
+to its new row either way.
 
 ### 7.1 Palettes **[decided]**
 
@@ -789,3 +840,13 @@ No open questions remain. Answers given while drafting:
 | Focus after `K` / `J` | Follows the entry; not a flow change (§6.2). |
 | Focus after `d` removes the row in focus | The row that takes its place, else the row above, else the node (§6.7). |
 | `d` on the flow's conduit | The downstream node stays, the upstream side is rebuilt; a flow change (§6.7). |
+| Which node `r` / `D` / `E` / `p` act on when a conduit or end is focused | An end's own node; a conduit's downstream node. `p` probes the source output (§6.2). |
+| Flow and focus after `u` or a change on disk | As `[` to a changed flow: keep what still exists, rebuild the rest; not a history step (§6.8). |
+| Downstream from a node whose first output is unused | First output that has a user (§4.2). |
+| Font params | Linkable like number and colour params: a row when linked, `c` / `i` in the edit view (§3.1, §7). |
+| Edit or nudge a linked row in the flow view? | No; values are edited in the edit view only (§6.2). |
+| Focus when a param is linked or unlinked | Follows the param (§7). |
+| Vertical scrolling of a tall node | The whole canvas scrolls (§4.5). |
+| Errors tied to rows | Not yet: the edit view lists them; rows aren't coloured until errors carry the row (§5.4). |
+| `j` / `k` on a conduit, `C`, `?` | Nothing; `C` is an edit-view focus action; `?` is today's help screen (§6.1, §6.2). |
+| Box layout | Top-aligned, one fixed gap of about 6 columns (§4.1). |

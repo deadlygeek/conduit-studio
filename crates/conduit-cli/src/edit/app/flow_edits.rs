@@ -59,6 +59,8 @@ pub(in crate::edit) enum After {
     },
     /// The moved node landed; the flow is redrawn through it (§6.5).
     Dropped { id: String },
+    /// The flow is now `flow` with the focus on `focus` (a slide, §6.5).
+    Replace { flow: Flow, focus: Focus },
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +300,11 @@ impl App {
                 let focus = input_end(project, &node, &port, j).unwrap_or(Focus::Node(node));
                 self.land(flow, focus, None);
             }
+            After::Replace { flow, focus } => {
+                if still_valid(project, &flow) {
+                    self.land(flow, focus, None);
+                }
+            }
             After::Dropped { id } => {
                 let flow = Flow::build(project, &id);
                 self.land(flow, Focus::Node(id), before);
@@ -370,8 +377,8 @@ impl App {
             'J' => self.reorder(&focus, 1),
             'm' => self.pick_up(&focus),
             'H' | 'L' => {
-                if matches!(focus, Focus::Node(_)) {
-                    self.message = Some("sliding along the flow isn't built yet".into());
+                if let Focus::Node(id) = &focus {
+                    self.slide(id, c == 'H');
                 }
             }
             _ => return None,
@@ -627,6 +634,98 @@ impl App {
         self.apply_or_report(label, |dir, _| {
             ops::swap_connections(dir, &node, &port, i, j)
         });
+    }
+
+    /// `H` / `L` (§6.5): swap the node with its flow neighbour upstream / downstream.
+    fn slide(&mut self, id: &str, up: bool) {
+        match self.slide_plan(id, up) {
+            Ok((conns, flow, label)) => {
+                self.expect(After::Replace {
+                    flow,
+                    focus: Focus::Node(id.to_string()),
+                });
+                self.apply_or_report(label, |dir, project| {
+                    ops::swap_neighbours(dir, project, &conns[0], &conns[1], &conns[2])
+                });
+            }
+            Err(e) => self.message = Some(e),
+        }
+    }
+
+    /// What sliding `id` would do: the three connections to rewire, the flow after, and
+    /// the status message; or why it can't (§6.5: not past either end of the flow, and
+    /// only where the types fit).
+    pub(super) fn slide_plan(
+        &self,
+        id: &str,
+        up: bool,
+    ) -> Result<([Connection; 3], Flow, String), String> {
+        let flow = &self.flow;
+        let i = flow.position(id).ok_or("not on the flow")?;
+        let last = flow.nodes.len() - 1;
+        // `x` is the upstream one of the two that swap.
+        let k = if up { i.checked_sub(1) } else { Some(i) };
+        let ok = k.is_some_and(|k| k >= 1 && k + 2 <= last);
+        let other = if up { i.checked_sub(1) } else { Some(i + 1) }
+            .and_then(|j| flow.nodes.get(j))
+            .cloned();
+        let place = if up { "before" } else { "after" };
+        // (what's refused, what's done)
+        let label = |other: &str| {
+            (
+                format!("slide {id} {place} {other}"),
+                format!("slid {id} {place} {other}"),
+            )
+        };
+        let Some(k) = k.filter(|_| ok) else {
+            let end = if up { "start" } else { "end" };
+            return Err(match other {
+                Some(other) => format!(
+                    "can't {}: {other} is at the {end} of the flow",
+                    label(&other).0
+                ),
+                None => format!("can't slide {id}: it's at the {end} of the flow"),
+            });
+        };
+        let other = other.expect("checked");
+        let conn = |l: &Link| Connection {
+            source: Reference {
+                node: l.source.clone(),
+                port: l.output.clone(),
+            },
+            node: l.target.clone(),
+            port: l.port.clone(),
+            index: l.index,
+        };
+        let (a, b, c) = (&flow.links[k - 1], &flow.links[k], &flow.links[k + 1]);
+        let conns = [conn(a), conn(b), conn(c)];
+        ops::check_swap(&self.project, &conns[0], &conns[1], &conns[2])
+            .map_err(|e| format!("can't {}: {e}", label(&other).0))?;
+        let mut after = flow.clone();
+        after.nodes.swap(k, k + 1);
+        let (x, y) = (&a.target, &b.target);
+        after.links[k - 1] = Link {
+            source: a.source.clone(),
+            output: a.output.clone(),
+            target: y.clone(),
+            port: b.port.clone(),
+            index: b.index,
+        };
+        after.links[k] = Link {
+            source: y.clone(),
+            output: c.output.clone(),
+            target: x.clone(),
+            port: a.port.clone(),
+            index: a.index,
+        };
+        after.links[k + 1] = Link {
+            source: x.clone(),
+            output: b.output.clone(),
+            target: c.target.clone(),
+            port: c.port.clone(),
+            index: c.index,
+        };
+        Ok((conns, after, label(&other).1))
     }
 
     /// `m` on a node (§6.5): pick it up, to drop into a conduit with `m` or `⏎`.
@@ -1037,6 +1136,49 @@ mod tests {
         assert_eq!(input(&app, "logo_tinted", "layer"), ["swatch_at"]);
         assert_eq!(input(&app, "logo_at", "layer"), ["logo"]);
         assert_eq!(focused_end(&app), "logo_tinted");
+    }
+
+    #[test]
+    fn slides_along_the_flow() {
+        // logo → logo_tinted → logo_at → comp → preview
+        let (_tmp, mut app) = effects_on("logo_tinted");
+        assert!(app.bar().actions.iter().any(|a| a.text == "(L)slide"));
+        keys(&mut app, "L");
+        assert_eq!(app.flow_status(), "slid logo_tinted after logo_at");
+        assert_eq!(
+            app.flow.nodes,
+            ["logo", "logo_at", "logo_tinted", "comp", "preview"]
+        );
+        assert_eq!(input(&app, "logo_at", "layer"), ["logo"]);
+        assert_eq!(input(&app, "logo_tinted", "layer"), ["logo_at"]);
+        assert_eq!(input(&app, "comp", "layers")[0], "logo_tinted");
+        // Its linked param travels with it.
+        assert_eq!(input(&app, "logo_tinted", "black"), ["brand.accent"]);
+        assert_eq!(focused_end(&app), "logo_tinted");
+        assert!(app.flow_back.is_empty(), "not a flow change");
+        // One `u` puts it back.
+        keys(&mut app, "u");
+        assert_eq!(input(&app, "logo_tinted", "layer"), ["logo"]);
+        assert_eq!(app.flow.nodes[..3], ["logo", "logo_tinted", "logo_at"]);
+    }
+
+    #[test]
+    fn refused_slides_say_why() {
+        let (_tmp, mut app) = effects_on("logo_at");
+        // Past comp, logo_at would feed preview.image a layer.
+        keys(&mut app, "L");
+        assert_eq!(
+            app.flow_status(),
+            "can't slide logo_at after comp: preview.image takes an image, not a layer"
+        );
+        assert!(!app.bar().actions.iter().any(|a| a.text.contains("(L)")));
+        let (_tmp, mut app) = effects_on("logo_tinted");
+        keys(&mut app, "H");
+        assert_eq!(
+            app.flow_status(),
+            "can't slide logo_tinted before logo: logo is at the start of the flow"
+        );
+        assert_eq!(input(&app, "logo_tinted", "layer"), ["logo"]);
     }
 
     #[test]

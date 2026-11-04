@@ -1,6 +1,7 @@
 //! File-level edits to a project, for editors. Every edit preserves comments and formatting
 //! (via `toml_edit`), is all-or-nothing, and returns a [`Change`] that can undo it.
 
+use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -779,6 +780,115 @@ pub fn move_node(
     })
 }
 
+/// `a layer`, `an image`.
+fn with_article(ty: ValueType) -> String {
+    let name = ty.to_string();
+    let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    format!("{article} {name}")
+}
+
+/// Checks that `source` can feed `node.port`.
+fn check_feeds(project: &Project, source: &Reference, node: &str, port: &str) -> EditResult<()> {
+    let from = output_type(project, source)
+        .ok_or_else(|| EditError::Invalid(format!("cannot tell the type of `{source}`")))?;
+    let to = input_type(project, node, port)
+        .ok_or_else(|| EditError::Invalid(format!("`{node}` has no input `{port}`")))?;
+    if from.coerces_to(to) {
+        Ok(())
+    } else {
+        Err(EditError::Invalid(format!(
+            "{node}.{port} takes {}, not {}",
+            with_article(to),
+            with_article(from)
+        )))
+    }
+}
+
+/// Checks that two neighbours on a path `w → x → y → v` can swap places, so it reads
+/// `w → y → x → v` (see [`swap_neighbours`]). The three connections are `w → x`,
+/// `x → y` and `y → v`.
+pub fn check_swap(
+    project: &Project,
+    into_x: &Connection,
+    x_to_y: &Connection,
+    y_to_v: &Connection,
+) -> EditResult<()> {
+    let (x, y) = (&into_x.node, &x_to_y.node);
+    if x_to_y.source.node != *x || y_to_v.source.node != *y {
+        return Err(EditError::Invalid(
+            "those connections aren't a path through two neighbours".into(),
+        ));
+    }
+    for (c, node) in [(into_x, x), (x_to_y, y), (y_to_v, &y_to_v.node)] {
+        project.get(node).ok_or_else(|| missing(node))?;
+        let now = project
+            .get(node)
+            .and_then(|n| n.inputs.get(&c.port)?.get(c.index));
+        if now != Some(&c.source) {
+            return Err(EditError::Invalid(format!(
+                "`{node}.{}` no longer takes `{}`",
+                c.port, c.source
+            )));
+        }
+    }
+    check_feeds(project, &into_x.source, y, &x_to_y.port)?;
+    check_feeds(project, &y_to_v.source, x, &into_x.port)?;
+    check_feeds(project, &x_to_y.source, &y_to_v.node, &y_to_v.port)?;
+    // x will come after y: it must not also feed y some other way.
+    let mut seen = BTreeSet::new();
+    let mut stack: Vec<String> = Vec::new();
+    for (port, refs) in &project.get(y).ok_or_else(|| missing(y))?.inputs {
+        for (i, r) in refs.iter().enumerate() {
+            if !(*port == x_to_y.port && i == x_to_y.index) {
+                stack.push(r.node.clone());
+            }
+        }
+    }
+    while let Some(id) = stack.pop() {
+        if id == *x {
+            return Err(EditError::Invalid(format!(
+                "`{y}` also depends on `{x}` another way: that would make a cycle"
+            )));
+        }
+        if seen.insert(id.clone())
+            && let Some(n) = project.get(&id)
+        {
+            stack.extend(n.inputs.values().flatten().map(|r| r.node.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// Swaps two neighbours on a path: `w → x → y → v` becomes `w → y → x → v`. Only those
+/// three connections are rewired; the nodes' other inputs and users stay attached to
+/// them. See [`check_swap`].
+pub fn swap_neighbours(
+    dir: &Path,
+    project: &Project,
+    into_x: &Connection,
+    x_to_y: &Connection,
+    y_to_v: &Connection,
+) -> EditResult<Change> {
+    check_swap(project, into_x, x_to_y, y_to_v)?;
+    transact(|tx| {
+        for (c, new) in [
+            (x_to_y, &into_x.source),
+            (into_x, &y_to_v.source),
+            (y_to_v, &x_to_y.source),
+        ] {
+            tx.update(&node_path(dir, &c.node), |doc| {
+                expect_reference(doc, &c.node, &c.port, c.index, &c.source)?;
+                replace_reference(doc, &c.port, c.index, new)
+            })?;
+        }
+        Ok(())
+    })
+}
+
 /// Applies `f` to every reference in `[inputs]`, replacing it when `f` returns `Some`.
 fn rewrite_references(doc: &mut DocumentMut, f: impl Fn(&Reference) -> Option<Reference>) {
     let Some(inputs) = doc.get_mut("inputs").and_then(Item::as_table_like_mut) else {
@@ -1151,6 +1261,62 @@ mod tests {
             after["w.toml"],
             "type = \"wrap\"\n\n[inputs]\nimage = \"src\"\n"
         );
+    }
+
+    fn conn(source: &str, node: &str, port: &str, index: usize) -> Connection {
+        Connection {
+            source: Reference::parse(source).unwrap(),
+            node: node.into(),
+            port: port.into(),
+            index,
+        }
+    }
+
+    #[test]
+    fn swap_neighbours_rewires_only_the_path() {
+        let pass = |from: &str| format!("type = \"pass\"\n[inputs]\nimage = \"{from}\"\n");
+        let f = Fixture::new(&[
+            ("src", SRC),
+            ("p1", &pass("src")),
+            ("p2", &pass("p1")),
+            ("w", "type = \"wrap\"\n[inputs]\nimage = \"p2\"\n"),
+            // Another user of p1 stays on p1.
+            ("other", &pass("p1")),
+        ]);
+        let project = f.project();
+        let (a, b, c) = (
+            conn("src", "p1", "image", 0),
+            conn("p1", "p2", "image", 0),
+            conn("p2", "w", "image", 0),
+        );
+        f.apply_and_undo(|| swap_neighbours(f.path(), &project, &a, &b, &c));
+        swap_neighbours(f.path(), &project, &a, &b, &c).unwrap();
+        let p = f.project();
+        let input = |n: &str| p.get(n).unwrap().inputs["image"][0].node.clone();
+        assert_eq!(input("p2"), "src");
+        assert_eq!(input("p1"), "p2");
+        assert_eq!(input("w"), "p1");
+        assert_eq!(input("other"), "p1");
+    }
+
+    #[test]
+    fn swap_neighbours_checks_types() {
+        let pass = |from: &str| format!("type = \"pass\"\n[inputs]\nimage = \"{from}\"\n");
+        let f = Fixture::new(&[
+            ("src", SRC),
+            ("p", &pass("src")),
+            ("w", "type = \"wrap\"\n[inputs]\nimage = \"p\"\n"),
+            ("s", "type = \"sink\"\n[inputs]\nitems = [\"w\"]\n"),
+        ]);
+        let project = f.project();
+        let err = check_swap(
+            &project,
+            &conn("src", "p", "image", 0),
+            &conn("p", "w", "image", 0),
+            &conn("w", "s", "items", 0),
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "p.image takes an image, not a layer");
     }
 
     #[test]

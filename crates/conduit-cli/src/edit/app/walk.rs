@@ -386,7 +386,6 @@ impl App {
     fn focus_actions(&self, focus: &Focus) -> (&'static str, Vec<BarItem>) {
         let p = &self.project;
         let i = self.flow.position(focus.node()).unwrap_or(0);
-        let last = self.flow.nodes.len().saturating_sub(1);
         match focus {
             Focus::Node(id) => {
                 let mut actions = vec![primary("(e)dit")];
@@ -400,9 +399,9 @@ impl App {
                 if fed && output {
                     actions.push(item("(m)ove"));
                 }
-                // A slide never moves a node past either end of the flow (§6.5).
-                let up = i >= 2 && i < last;
-                let down = i >= 1 && i + 1 < last;
+                // Only slides that would work (§6.5); a refused one says why when pressed.
+                let up = self.slide_plan(id, true).is_ok();
+                let down = self.slide_plan(id, false).is_ok();
                 match (up, down) {
                     (true, true) => actions.push(item("(H)/(L)slide")),
                     (true, false) => actions.push(item("(H)slide")),

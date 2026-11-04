@@ -523,6 +523,11 @@ pub trait Node: Send + Sync {
         Vec::new()
     }
 
+    /// Whether [`Node::detach`] is implemented, so editors can offer it without evaluating.
+    fn can_detach(&self) -> bool {
+        false
+    }
+
     /// For nodes that generate several outputs (`array`, `split_text`): the ordinary nodes
     /// that would produce the same outputs, so an editor can replace this node with them
     /// for good ("detach"). Takes what [`Node::eval`] takes. `None` if the kind can't be

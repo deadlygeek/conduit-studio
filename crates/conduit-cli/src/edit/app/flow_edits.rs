@@ -1152,6 +1152,8 @@ mod tests {
             .unwrap()
             .output
             .clone();
+        let bar: Vec<String> = app.bar().actions.iter().map(|a| a.text.clone()).collect();
+        assert_eq!(bar.last().map(String::as_str), Some("(X)detach"), "{bar:?}");
         keys(&mut app, "X");
         let Mode::Confirm { question, .. } = &app.mode else {
             panic!("asks first: {:?}", app.flow_status());

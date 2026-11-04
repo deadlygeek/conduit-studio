@@ -439,7 +439,7 @@ Shifted movement keys move the focused thing instead of the focus: `J`/`K` a lis
 
 | Focus | Action bar |
 |---|---|
-| Node | **`(e)dit`** `(m)ove` `(H)/(L)` slide `(d)issolve` |
+| Node | **`(e)dit`** `(m)ove` `(H)/(L)` slide `(d)issolve`, plus `(X)detach` on an `array` or `split_text` (§6.7) |
 | Conduit | **`(c)onnect`** `(i)nsert` `(d)isconnect` — `c` re-picks the source feeding the downstream end |
 | Input end, `▣` | **`(f)ocus`** `(c)onnect` `(i)nsert` `(d)isconnect`, plus `(K)earlier` / `(J)later` on a list entry |
 | Input end, in flow | **`(c)onnect`** `(i)nsert` `(d)isconnect`, plus `(K)earlier` / `(J)later` on a list entry |

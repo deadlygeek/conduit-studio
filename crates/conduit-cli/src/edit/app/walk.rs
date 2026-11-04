@@ -428,6 +428,13 @@ impl App {
                     (false, false) => {}
                 }
                 actions.push(item("(d)issolve"));
+                let detachable = node
+                    .and_then(|n| n.kind.as_deref())
+                    .and_then(|k| self.registry.get(k))
+                    .is_some_and(|n| n.can_detach());
+                if detachable {
+                    actions.push(item("(X)detach"));
+                }
                 ("Node Actions", actions)
             }
             Focus::Conduit(_) => (

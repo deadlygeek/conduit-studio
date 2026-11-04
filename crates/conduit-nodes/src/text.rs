@@ -540,6 +540,10 @@ impl Node for SplitText {
         Ok(Outputs { values })
     }
 
+    fn can_detach(&self) -> bool {
+        true
+    }
+
     /// Each letter becomes a one-character `text` node and a `transform` putting it where
     /// it sat in the text. Kerning is kept as it was; a later font or size change won't
     /// re-space the letters.

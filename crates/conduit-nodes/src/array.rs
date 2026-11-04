@@ -165,6 +165,10 @@ impl Node for Array {
         Ok(Outputs { values })
     }
 
+    fn can_detach(&self) -> bool {
+        true
+    }
+
     /// Each copy becomes a `transform` of whatever fed the array.
     fn detach(
         &self,

@@ -7,7 +7,7 @@
 
 use conduit_core::ParamKind;
 use conduit_core::edit as ops;
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::walk::{BarItem, item, primary};
 use super::{Action, App, Row, nudge_step};
@@ -191,6 +191,22 @@ impl App {
                 self.close_edit_view();
                 return Some(None);
             }
+            // Follow a conduit outward to the node at its other end (§7.2).
+            KeyCode::Char('h') | KeyCode::Left => {
+                if let Some((target, there)) = self.across(&id, &row, true) {
+                    self.follow_conduit(&id, &row, target, there);
+                }
+                return Some(None);
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                if let Some((target, there)) = self.across(&id, &row, false) {
+                    self.follow_conduit(&id, &row, target, there);
+                }
+                return Some(None);
+            }
+            // Flow history: back to the node (and row) a jump came from (§7.2).
+            KeyCode::Char('[' | ']') | KeyCode::Backspace => return None,
+            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => return None,
             // A palette's import, from any row (§7.1).
             KeyCode::Char('I') if self.entries_param().is_some() => {
                 let param = self.entries_param().expect("checked");
@@ -302,6 +318,79 @@ impl App {
             }
         }
         None
+    }
+
+    /// The node across the row's conduit, going upstream (`h`, from an input row) or
+    /// downstream (`l`, from an output row), and its row for the same conduit.
+    pub(super) fn across(
+        &self,
+        id: &str,
+        row: &EditRow,
+        upstream: bool,
+    ) -> Option<(String, EditRow)> {
+        type Matches = Box<dyn Fn(&EditRow) -> bool>;
+        let (target, matches): (String, Matches) = match (row, upstream) {
+            (EditRow::In(r), true) => {
+                let InState::Connected(source) = &r.state else {
+                    return None;
+                };
+                let (port, index) = (r.port.clone(), r.index.unwrap_or(0));
+                let output = source.port.clone();
+                let id = id.to_string();
+                (
+                    source.node.clone(),
+                    Box::new(move |x| {
+                        matches!(x, EditRow::Out(o) if o.port == output
+                        && o.user.as_ref().is_some_and(|u| {
+                            u.node == id && u.port == port && u.index == index
+                        }))
+                    }),
+                )
+            }
+            (EditRow::Out(o), false) => {
+                let user = o.user.clone()?;
+                let id = id.to_string();
+                let output = o.port.clone();
+                (
+                    user.node.clone(),
+                    Box::new(move |x| {
+                        matches!(x, EditRow::In(r) if r.port == user.port
+                            && r.index.unwrap_or(0) == user.index
+                            && matches!(&r.state, InState::Connected(s)
+                                if s.node == id && s.port == output))
+                    }),
+                )
+            }
+            _ => return None,
+        };
+        let node = self.project.get(&target)?;
+        let there = if upstream {
+            (output_rows(&self.project, node).into_iter())
+                .map(EditRow::Out)
+                .find(|x| matches(x))
+        } else {
+            input_rows(node)
+                .into_iter()
+                .map(EditRow::In)
+                .find(|x| matches(x))
+        };
+        Some((target, there.unwrap_or(EditRow::Name)))
+    }
+
+    /// `h` / `l` (§7.2): redraw the flow through the row's conduit, as `f` does, then
+    /// edit the node at its other end with the cursor on the same conduit's row.
+    fn follow_conduit(&mut self, id: &str, row: &EditRow, target: String, there: EditRow) {
+        let end = Self::row_focus(id, row);
+        let history = self.flow_back.len();
+        self.flow_focus = Some(end.clone());
+        self.bring_in(&end);
+        if self.flow_back.len() == history {
+            // Already in the flow: still a step, so `[` comes back here.
+            self.remember_flow(self.flow.clone(), end);
+        }
+        self.focus = Some(target);
+        self.refresh();
+        self.set_edit_row(there);
     }
 
     /// Whether palette colour `key` can move `step` places (`K` / `J`).
@@ -690,5 +779,74 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    fn output_to(user: &str) -> impl Fn(&EditRow) -> bool + '_ {
+        move |r| matches!(r, EditRow::Out(o) if o.user.as_ref().is_some_and(|u| u.node == user))
+    }
+
+    #[test]
+    fn h_and_l_follow_a_conduit_to_the_next_node() {
+        let (_tmp, mut app) = editing("placed");
+        down_to(&mut app, input("x"));
+        assert!(bar_texts(&app).contains(&"(h)edit offset".to_string()));
+        assert!(!bar_texts(&app).iter().any(|t| t.starts_with("(l)")));
+
+        // `l` on an input row goes nowhere.
+        keys(&mut app, "l");
+        assert_eq!(app.focus.as_deref(), Some("placed"));
+
+        // `h` lands on offset's row for the same conduit, with it drawn in the flow.
+        keys(&mut app, "h");
+        assert_eq!(app.focus.as_deref(), Some("offset"));
+        let row = app.edit_view.clone().unwrap();
+        assert!(
+            matches!(&row, EditRow::Out(o) if o.user.as_ref().is_some_and(|u| u.node == "placed" && u.port == "x")),
+            "{row:?}"
+        );
+        assert!(app.flow.position("offset").is_some());
+        assert!(bar_texts(&app).contains(&"(l)edit placed".to_string()));
+
+        // `l` comes straight back, on the same row.
+        keys(&mut app, "l");
+        assert_eq!(app.focus.as_deref(), Some("placed"));
+        assert!(input("x")(app.edit_view.as_ref().unwrap()));
+
+        // Each jump is a flow change: `[` retraces them, staying in the edit view.
+        keys(&mut app, "[");
+        assert_eq!(app.focus.as_deref(), Some("offset"));
+        assert!(output_to("placed")(app.edit_view.as_ref().unwrap()));
+        keys(&mut app, "[");
+        assert_eq!(app.focus.as_deref(), Some("placed"));
+        assert!(input("x")(app.edit_view.as_ref().unwrap()));
+
+        // Downstream from an output row; `esc` leaves you on that node in the flow.
+        down_to(&mut app, output_to("comp"));
+        keys(&mut app, "h");
+        assert_eq!(
+            app.focus.as_deref(),
+            Some("placed"),
+            "h on an output goes nowhere"
+        );
+        keys(&mut app, "l");
+        assert_eq!(app.focus.as_deref(), Some("comp"));
+        assert!(
+            matches!(app.edit_view.as_ref().unwrap(), EditRow::In(r) if r.port == "layers"),
+            "{:?}",
+            app.edit_view
+        );
+        keys(&mut app, "⎋");
+        assert_eq!(app.flow_focus, Some(Focus::Node("comp".into())));
+    }
+
+    #[test]
+    fn h_does_nothing_on_rows_without_a_conduit() {
+        let (_tmp, mut app) = editing("placed");
+        keys(&mut app, "h");
+        assert_eq!(app.focus.as_deref(), Some("placed"));
+        assert_eq!(app.edit_view, Some(EditRow::Name));
+        down_to(&mut app, |r| matches!(r, EditRow::Param(_)));
+        keys(&mut app, "hl");
+        assert_eq!(app.focus.as_deref(), Some("placed"));
     }
 }

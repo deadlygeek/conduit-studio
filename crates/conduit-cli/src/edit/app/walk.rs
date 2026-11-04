@@ -379,6 +379,15 @@ impl App {
         let (title, mut actions) = self
             .edit_actions()
             .unwrap_or_else(|| self.focus_actions(focus));
+        // Following the conduit to the node at its other end (§7.2).
+        if let (Some(row), Some(id)) = (&self.edit_view, &self.focus) {
+            if let Some((target, _)) = self.across(id, row, true) {
+                actions.push(item(&format!("(h)edit {target}")));
+            }
+            if let Some((target, _)) = self.across(id, row, false) {
+                actions.push(item(&format!("(l)edit {target}")));
+            }
+        }
         // A palette's import works from any row of its edit view (§7.1). A colour row's
         // bar is full without it, so it's listed on the others.
         if self.edit_view.is_some() && self.entries_param().is_some() && title != "Colour Actions" {

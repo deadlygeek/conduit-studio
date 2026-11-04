@@ -1185,6 +1185,10 @@ const FLOW_HELP: &[(&str, &str)] = &[
         "walk the flow: node, conduit, node; j / k into a node's rows",
     ),
     ("esc", "back to the node; in the edit view, close it"),
+    (
+        "h / l",
+        "edit view, on a connected row: edit the node at the other end",
+    ),
     ("g / G", "first / last node of the flow"),
     ("f", "on a ▣ end: bring its conduit into the flow"),
     ("[ / ]", "back / forward through flow changes"),
@@ -1211,8 +1215,7 @@ const FLOW_HELP: &[(&str, &str)] = &[
         "find a node (the flow is rebuilt around it) / add a node",
     ),
     ("r / D", "rename / delete the node"),
-    ("u", "undo"),
-    ("p / P", "probe the focus / follow the focus"),
+    ("u  p / P", "undo; probe the focus / follow the focus"),
     (
         "E  v",
         "open the node in $EDITOR / switch to the three panes",

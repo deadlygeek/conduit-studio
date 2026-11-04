@@ -1,12 +1,16 @@
-# Node editor UI — flow view (spec, draft 10)
+# Node editor UI — flow view (spec, draft 11)
 
-Status: **draft 10**, 2026-11-04 — no open questions. Derived from the durdraw
+Status: **draft 11**, 2026-11-04 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
 with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
+
+Changes from draft 10: in the edit view, `h` on a connected input row and `l` on a
+connected output row go to the node at the other end and open its edit view, on the row
+for the same conduit (§7.2).
 
 Changes from draft 9, from a review for readiness to implement (simple defaults, open to
 revision once built): which node a global key acts on when a conduit is focused (§6.2);
@@ -662,13 +666,15 @@ Port rows are labelled `port ← source` / `port → user` (§8); `x` and `y` ar
   followed by `(default)`, dimmed; an optional param with no value shows `unset (default)`.
   Colors keep their true-colour swatch.
 - `j` / `k` move between rows; `esc` closes, back to the node in the flow.
+- `h` on a connected input row and `l` on a connected output row go to the node at the
+  other end, in its edit view (§7.2).
 
 Same verbs as §6.2:
 
 | Row | Action bar (`⏎` = **bold**) |
 |---|---|
 | Name | **`(e)dit`** — rename; every reference is updated |
-| Input / output row | as the matching conduit end in §6.3; `f` closes the edit view and redraws the flow through that conduit |
+| Input / output row | as the matching conduit end in §6.3, plus `(h)edit <node>` on a connected input row or `(l)edit <node>` on a connected output row (§7.2); `f` closes the edit view and redraws the flow through that conduit |
 | Number param | **`(e)dit`** `(c)onnect` `(i)nsert` `(d)efault`, nudges `+ - > < } {` |
 | Color param | **`(e)dit`** (colour editor) `(C)` picker window, `(c)onnect` `(i)nsert` `(d)efault` |
 | Font param | **`(e)dit`** (picker) `(c)onnect` `(i)nsert` `(d)efault` |
@@ -717,6 +723,28 @@ One wrinkle: on a colour row `i` means "insert a colour", not "insert a node". T
 
 (Considered and set aside: making each palette colour its own node, which needs no special
 keys but changes the project format.)
+
+### 7.2 Following a conduit to the next node **[decided]**
+
+In the edit view, `h` and `l` follow a conduit outward, in the direction it is drawn:
+inputs are on the left (upstream), outputs on the right (downstream), as in the flow view
+(§6.1).
+
+- `h` on a connected input row, e.g. `x ← offset`, goes to `offset`. `l` on a connected
+  output row, e.g. `out → comp`, goes to `comp`.
+- The other node's edit view opens with the cursor on **the row for the same conduit**:
+  from `placed`'s `x ← offset`, on `offset`'s `out → placed`. So `l` from there comes
+  straight back to `placed`, on `x ← offset`; `h` / `l` retrace the path. An output row
+  stands for one user (§3.1), so the matching row is always there.
+- The flow is redrawn through the followed conduit, as `f` does (§4.4), so `esc` leaves you
+  on the new node in a flow that shows how you got there. It is a flow change, so `[`
+  goes back (§6.1).
+- Only on connected rows, and only outward: `l` on an input row, `h` on an output row,
+  and either on an unconnected row or a slot do nothing.
+- The bar names the destination: `(h)edit offset`, `(l)edit comp`.
+
+The flow view is unchanged: there, `h` / `l` on a row still move onto its conduit, and
+`f` brings a `▣` conduit into the flow.
 
 ## 8. Port labels
 
@@ -850,3 +878,4 @@ No open questions remain. Answers given while drafting:
 | Errors tied to rows | Not yet: the edit view lists them; rows aren't coloured until errors carry the row (§5.4). |
 | `j` / `k` on a conduit, `C`, `?` | Nothing; `C` is an edit-view focus action; `?` is today's help screen (§6.1, §6.2). |
 | Box layout | Top-aligned, one fixed gap of about 6 columns (§4.1). |
+| Going from the edit view to a connected node | `h` on a connected input row, `l` on a connected output row; opens that node's edit view on the same conduit's row; redraws the flow through it; a flow change (§7.2). |

@@ -5,6 +5,7 @@ mod edits;
 mod files;
 mod fonts;
 mod live;
+mod walk;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use ratatui::widgets::ListState;
 use crate::run::{Event, Shown};
 pub use colors::ColorEdit;
 pub use edits::{Confirm, Pick, Prompt, uses};
+pub use walk::Bar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -138,10 +140,14 @@ pub struct App {
     pub flow_view: bool,
     /// The last frame was below the flow view's minimum size (§4.6): only `q` works.
     pub too_small: bool,
-    /// The flow view's scroll position, and the anchor it was last drawn around (a new
-    /// anchor is a flow change, which re-centres the view).
+    /// The flow on screen and the focus on it; `focus` is kept on the focus's node.
+    pub flow: super::flow::Flow,
+    pub flow_focus: Option<super::flow::Focus>,
+    /// The flow view's scroll position; `recentre` after a flow change (§4.5).
     pub viewport: super::canvas::Viewport,
-    pub drawn_anchor: Option<String>,
+    pub recentre: bool,
+    /// A render finished since the last key: the status line shows its result.
+    pub show_render: bool,
 }
 
 impl App {
@@ -172,11 +178,15 @@ impl App {
             carrying: None,
             flow_view: true,
             too_small: false,
+            flow: Default::default(),
+            flow_focus: None,
             viewport: Default::default(),
-            drawn_anchor: None,
+            recentre: true,
+            show_render: false,
         };
         app.focus = app.default_focus();
         app.refresh();
+        app.sync_flow();
         app
     }
 
@@ -217,10 +227,12 @@ impl App {
             self.focus = self.default_focus();
         }
         self.refresh();
+        self.sync_flow();
     }
 
     pub fn on_runner_event(&mut self, event: Event) {
         if event != Event::FilesChanged {
+            self.show_render = true;
             self.status = Some(event);
         }
     }
@@ -502,6 +514,15 @@ impl App {
     // --- keys --------------------------------------------------------------------------
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<Action> {
+        self.show_render = false;
+        let action = self.handle_key_inner(key);
+        if self.flow_view {
+            self.sync_flow();
+        }
+        action
+    }
+
+    fn handle_key_inner(&mut self, key: KeyEvent) -> Option<Action> {
         self.message = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(Action::Quit);
@@ -645,6 +666,14 @@ impl App {
                     return None;
                 }
                 _ => {}
+            }
+        }
+        if self.flow_view && self.carrying.is_none() {
+            if let Some(action) = self.flow_key(key) {
+                return action;
+            }
+            if !Self::is_flow_global(&key) {
+                return None;
             }
         }
         match (self.pane, key.code) {
@@ -881,7 +910,10 @@ pub(crate) mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/basic");
         let registry = Arc::new(conduit_nodes::registry());
         let project = inspect(&dir, &registry).unwrap();
-        App::new(dir, project, registry)
+        // These tests drive the three panes; the flow view's are in `walk.rs`.
+        let mut app = App::new(dir, project, registry);
+        app.flow_view = false;
+        app
     }
 
     fn press(app: &mut App, keys: &str) -> Option<Action> {
@@ -1087,7 +1119,8 @@ pub(crate) mod tests {
         }
         let registry = Arc::new(conduit_nodes::registry());
         let project = inspect(tmp.path(), &registry).unwrap();
-        let app = App::new(tmp.path().to_path_buf(), project, registry);
+        let mut app = App::new(tmp.path().to_path_buf(), project, registry);
+        app.flow_view = false;
         (tmp, app)
     }
 

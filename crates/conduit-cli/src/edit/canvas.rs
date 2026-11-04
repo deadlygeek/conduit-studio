@@ -7,7 +7,11 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::flow::{Flow, InRow, InState, OutRow, input_rows, output_rows};
+use std::collections::HashSet;
+
+use super::flow::{
+    Flow, Focus, InRow, InState, OutRow, input_rows, output_rows, same_input, same_output,
+};
 
 /// Box content width limits (§3.2): text longer than `MAX_CONTENT` is cut with `…`.
 pub const MIN_CONTENT: usize = 8;
@@ -54,10 +58,16 @@ pub struct Placed {
     pub x: u16,
     pub width: u16,
     pub height: u16,
-    /// Each input row and its picture row.
-    pub inputs: Vec<(InRow, u16)>,
-    /// Each output row and its picture row.
-    pub outputs: Vec<(OutRow, u16)>,
+    pub inputs: Vec<(InRow, PlacedRow)>,
+    pub outputs: Vec<(OutRow, PlacedRow)>,
+}
+
+/// Where a port row landed on the picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlacedRow {
+    pub y: u16,
+    /// The label's first column and width.
+    pub label: (u16, u16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,6 +88,8 @@ pub struct Picture {
     pub height: u16,
     cells: Vec<Cell>,
     pub boxes: Vec<Placed>,
+    /// The cells of each flow conduit, by link index (empty if it couldn't be drawn).
+    pub conduits: Vec<Vec<(u16, u16)>>,
 }
 
 impl Picture {
@@ -87,6 +99,16 @@ impl Picture {
             height,
             cells: vec![BLANK; width as usize * height as usize],
             boxes: Vec::new(),
+            conduits: Vec::new(),
+        }
+    }
+
+    fn cell_mut(&mut self, x: u16, y: u16) -> Option<&mut Cell> {
+        if x < self.width && y < self.height {
+            self.cells
+                .get_mut(y as usize * self.width as usize + x as usize)
+        } else {
+            None
         }
     }
 
@@ -266,9 +288,8 @@ impl BoxText {
     }
 }
 
-/// Draws `flow`. `focus` is the focused node, drawn green with its flow conduits magenta
-/// (§5.2, §5.3).
-pub fn draw(project: &Project, flow: &Flow, focus: Option<&str>) -> Picture {
+/// Draws `flow`, with `focus` in green and what it's related to in magenta (§5.2, §5.3).
+pub fn draw(project: &Project, flow: &Flow, focus: Option<&Focus>) -> Picture {
     let boxes: Vec<BoxText> = (0..flow.nodes.len())
         .map(|i| BoxText::new(project, flow, i))
         .collect();
@@ -285,30 +306,32 @@ pub fn draw(project: &Project, flow: &Flow, focus: Option<&str>) -> Picture {
     let mut prev: Option<(u16, u16)> = None;
     for (i, b) in boxes.iter().enumerate() {
         let placed = draw_box(&mut pic, b, x);
-        if let Some((from_y, from_x)) = prev {
+        if i > 0 {
             let to_y = placed
                 .inputs
                 .iter()
                 .zip(&b.inputs)
                 .find(|(_, (_, _, m))| *m == Marker::Flow)
-                .map(|((_, y), _)| *y);
-            if let Some(to_y) = to_y {
-                let related = focus.is_some_and(|f| f == b.id || f == boxes[i - 1].id);
-                let style = if related { RELATED } else { STANDARD };
-                draw_conduit(&mut pic, (from_x, from_y), (x, to_y), style);
-            }
+                .map(|((_, r), _)| r.y);
+            let cells = match (prev, to_y) {
+                (Some((from_y, from_x)), Some(to_y)) => {
+                    draw_conduit(&mut pic, (from_x, from_y), (x, to_y))
+                }
+                _ => Vec::new(),
+            };
+            pic.conduits.push(cells);
         }
         prev = placed
             .outputs
             .iter()
             .zip(&b.outputs)
             .find(|(_, (_, _, m, _))| *m == Marker::Flow)
-            .map(|((_, y), _)| (*y, x + b.width()));
-        if focus == Some(b.id.as_str()) {
-            focus_box(&mut pic, &placed);
-        }
+            .map(|((_, r), _)| (r.y, x + b.width()));
         pic.boxes.push(placed);
         x += b.width() + GAP;
+    }
+    if let Some(focus) = focus {
+        highlight(&mut pic, flow, focus);
     }
     pic
 }
@@ -341,13 +364,9 @@ fn draw_box(pic: &mut Picture, b: &BoxText, x: u16) -> Placed {
         y += 1;
         for (row, label, marker) in &b.inputs {
             let dim = *marker == Marker::Optional;
+            let label = fit(label, content);
             pic.put(x, y, "┼─", border);
-            pic.put(
-                x + 2,
-                y,
-                &fit(label, content),
-                if dim { DIM } else { STANDARD },
-            );
+            pic.put(x + 2, y, &label, if dim { DIM } else { STANDARD });
             pic.put(x + inner as u16 + 1, y, "│", border);
             let (mark, style) = match marker {
                 Marker::OffFlow { broken: false } => ("▣─", STANDARD),
@@ -359,7 +378,8 @@ fn draw_box(pic: &mut Picture, b: &BoxText, x: u16) -> Placed {
             if !mark.is_empty() {
                 pic.put(x - 2, y, mark, style);
             }
-            inputs.push((row.clone(), y));
+            let label = (x + 2, width(&label) as u16);
+            inputs.push((row.clone(), PlacedRow { y, label }));
             y += 1;
         }
     }
@@ -372,15 +392,17 @@ fn draw_box(pic: &mut Picture, b: &BoxText, x: u16) -> Placed {
             let label = fit(label, room);
             let end = x + inner as u16 + 1; // the `┼` column
             pic.put(x, y, "│", border);
-            if let Some(c) = colour {
+            let label_x = if let Some(c) = colour {
                 // A palette colour (§7.1): swatches in a column, `██ name───┼`.
                 pic.put(x + 2, y, "██", STANDARD.fg(rgb(*c)));
                 let dashes = "─".repeat(inner - 4 - width(&label));
                 pic.put(x + 5, y, &format!("{label}{dashes}"), STANDARD);
+                x + 5
             } else {
                 let label_x = end - 1 - width(&label) as u16;
                 pic.put(label_x, y, &format!("{label}─"), STANDARD);
-            }
+                label_x
+            };
             pic.put(end, y, "┼", border);
             let (mark, style) = match marker {
                 Marker::OffFlow { broken: false } => ("─▣", STANDARD),
@@ -388,7 +410,8 @@ fn draw_box(pic: &mut Picture, b: &BoxText, x: u16) -> Placed {
                 _ => ("─", STANDARD),
             };
             pic.put(end + 1, y, mark, style);
-            outputs.push((row.clone(), y));
+            let label = (label_x, width(&label) as u16);
+            outputs.push((row.clone(), PlacedRow { y, label }));
             y += 1;
         }
     }
@@ -411,46 +434,153 @@ fn rgb(c: Rgba<u8>) -> Color {
 }
 
 /// A conduit from the cell after an output's `┼` to an input's `┼` (not included).
-fn draw_conduit(pic: &mut Picture, (x0, y0): (u16, u16), (x1, y1): (u16, u16), style: Style) {
+/// Returns its cells.
+fn draw_conduit(pic: &mut Picture, (x0, y0): (u16, u16), (x1, y1): (u16, u16)) -> Vec<(u16, u16)> {
+    let mut cells = Vec::new();
+    let mut put = |pic: &mut Picture, x: u16, y: u16, text: &str| {
+        pic.put(x, y, text, STANDARD);
+        cells.extend((0..width(text) as u16).map(|i| (x + i, y)));
+    };
     if y0 == y1 {
-        pic.put(x0, y0, &"─".repeat((x1 - x0) as usize), style);
-        return;
+        put(pic, x0, y0, &"─".repeat((x1 - x0) as usize));
+        return cells;
     }
     // Bend two columns out, clear of other rows' `▣` markers.
     let up = y1 < y0;
     let turn = x0 + 2;
-    pic.put(x0, y0, if up { "──╯" } else { "──╮" }, style);
+    put(pic, x0, y0, if up { "──╯" } else { "──╮" });
     for y in y0.min(y1) + 1..y0.max(y1) {
-        pic.put(turn, y, "│", style);
+        put(pic, turn, y, "│");
     }
     let run = "─".repeat((x1 - turn - 1) as usize);
-    pic.put(
+    put(
+        pic,
         turn,
         y1,
         &format!("{}{run}", if up { "╭" } else { "╰" }),
-        style,
     );
+    cells
 }
 
-/// Turns a box green: borders, text, stubs and markers (§5.2). Swatches keep their
-/// colour, and the flow conduits leaving the box keep theirs.
-fn focus_box(pic: &mut Picture, b: &Placed) {
-    let paint = |pic: &mut Picture, x: u16, y: u16, len: u16| {
-        for x in x..(x + len).min(pic.width) {
-            let cell = &mut pic.cells[y as usize * pic.width as usize + x as usize];
-            if cell.ch != '█' && cell.style != RELATED {
-                cell.style = FOCUS;
+/// Colours the focus green and what it's related to magenta (§5.2, §5.3). Conduit
+/// lines are only ever coloured as conduits, and swatches keep their colour.
+fn highlight(pic: &mut Picture, flow: &Flow, focus: &Focus) {
+    let Some(i) = flow.position(focus.node()) else {
+        return;
+    };
+    let lines: HashSet<(u16, u16)> = pic.conduits.iter().flatten().copied().collect();
+    let paint = |pic: &mut Picture, x: u16, y: u16, len: u16, style: Style| {
+        for x in x..x.saturating_add(len) {
+            if lines.contains(&(x, y)) {
+                continue;
+            }
+            if let Some(cell) = pic.cell_mut(x, y)
+                && cell.ch != '█'
+            {
+                cell.style = style;
             }
         }
     };
-    for y in TOP..TOP + b.height {
-        paint(pic, b.x, y, b.width);
-    }
-    for (_, y) in &b.inputs {
-        paint(pic, b.x.saturating_sub(2), *y, 2);
-    }
-    for (_, y) in &b.outputs {
-        paint(pic, b.x + b.width, *y, 2);
+    let conduit = |pic: &mut Picture, j: usize, style: Style| {
+        for (x, y) in pic.conduits.get(j).cloned().unwrap_or_default() {
+            if let Some(cell) = pic.cell_mut(x, y) {
+                cell.style = style;
+            }
+        }
+    };
+    let label = |pic: &mut Picture, r: PlacedRow, style: Style| {
+        paint(pic, r.label.0, r.y, r.label.1, style);
+    };
+    let b = pic.boxes[i].clone();
+    // The far end of a conduit end, when its node is on the flow: (box, row).
+    let far_input = |pic: &Picture, node: &str, port: &str, index: usize| {
+        let k = flow.position(node)?;
+        pic.boxes[k]
+            .inputs
+            .iter()
+            .find(|(r, _)| {
+                matches!(r.state, InState::Connected(_))
+                    && r.port == port
+                    && r.index.unwrap_or(0) == index
+            })
+            .map(|(_, p)| *p)
+    };
+    let far_output =
+        |pic: &Picture, user_of: &str, node: &str, port: &str, index: usize, output: &str| {
+            let k = flow.position(user_of)?;
+            pic.boxes[k]
+                .outputs
+                .iter()
+                .find(|(r, _)| {
+                    r.port == output
+                        && r.user
+                            .as_ref()
+                            .is_some_and(|u| u.node == node && u.port == port && u.index == index)
+                })
+                .map(|(_, p)| *p)
+        };
+
+    match focus {
+        Focus::Node(_) => {
+            if i > 0 {
+                conduit(pic, i - 1, RELATED);
+            }
+            conduit(pic, i, RELATED);
+            for y in TOP..TOP + b.height {
+                paint(pic, b.x, y, b.width, FOCUS);
+            }
+            for (_, r) in &b.inputs {
+                paint(pic, b.x.saturating_sub(2), r.y, 2, FOCUS);
+            }
+            for (_, r) in &b.outputs {
+                paint(pic, b.x + b.width, r.y, 2, FOCUS);
+            }
+        }
+        Focus::Conduit(link) => {
+            conduit(pic, i - 1, FOCUS);
+            if let Some(r) = far_input(pic, &link.target, &link.port, link.index) {
+                label(pic, r, RELATED);
+            }
+            let source = (
+                &link.source,
+                &link.target,
+                &link.port,
+                link.index,
+                &link.output,
+            );
+            if let Some(r) = far_output(pic, source.0, source.1, source.2, source.3, source.4) {
+                label(pic, r, RELATED);
+            }
+        }
+        Focus::In { node, row } => {
+            let Some((_, r)) = b.inputs.iter().find(|(x, _)| same_input(x, row)) else {
+                return;
+            };
+            let r = *r;
+            paint(pic, b.x.saturating_sub(2), r.y, 4, FOCUS);
+            label(pic, r, RELATED);
+            if let InState::Connected(source) = &row.state {
+                let index = row.index.unwrap_or(0);
+                if let Some(far) =
+                    far_output(pic, &source.node, node, &row.port, index, &source.port)
+                {
+                    label(pic, far, RELATED);
+                }
+            }
+        }
+        Focus::Out { row, .. } => {
+            let Some((_, r)) = b.outputs.iter().find(|(x, _)| same_output(x, row)) else {
+                return;
+            };
+            let r = *r;
+            paint(pic, b.x + b.width - 2, r.y, 4, FOCUS);
+            label(pic, r, RELATED);
+            if let Some(user) = &row.user
+                && let Some(far) = far_input(pic, &user.node, &user.port, user.index)
+            {
+                label(pic, far, RELATED);
+            }
+        }
     }
 }
 
@@ -462,41 +592,66 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// Scrolls to show `pic.boxes[focus]` in a `w × h` area. `recentre` after a flow
-    /// change; otherwise as little as possible, keeping a box to spare on each side
-    /// where it fits. Never past the picture's edges.
-    pub fn follow(self, pic: &Picture, focus: usize, w: u16, h: u16, recentre: bool) -> Self {
-        let Some(b) = pic.boxes.get(focus) else {
+    /// Scrolls to show `focus` in a `w × h` area. `recentre` after a flow change;
+    /// otherwise as little as possible, keeping a box to spare on each side where it
+    /// fits. Never past the picture's edges.
+    pub fn follow(
+        self,
+        pic: &Picture,
+        flow: &Flow,
+        focus: &Focus,
+        w: u16,
+        h: u16,
+        recentre: bool,
+    ) -> Self {
+        let Some(i) = flow.position(focus.node()) else {
             return Self::default();
         };
-        let max_x = pic.width.saturating_sub(w);
-        let max_y = pic.height.saturating_sub(h);
-        let (left, right) = (b.x.saturating_sub(2), b.x + b.width + 2);
-        let x = if recentre {
-            ((left + right) / 2).saturating_sub(w / 2)
-        } else {
-            // A box to spare on each side, if that fits; else just the focus.
-            let spare_left = focus
-                .checked_sub(1)
-                .and_then(|i| pic.boxes.get(i))
-                .map_or(left, |p| p.x.saturating_sub(2));
-            let spare_right = pic
-                .boxes
-                .get(focus + 1)
-                .map_or(right, |n| n.x + n.width + 2);
-            let (l, r) = if spare_right - spare_left <= w {
-                (spare_left, spare_right)
-            } else {
-                (left, right)
-            };
-            minimal(self.x, l, r, w)
+        let Some(b) = pic.boxes.get(i) else {
+            return Self::default();
         };
-        // Vertically: from the margin above the box, as much of it as fits.
+        let span = |b: &Placed| (b.x.saturating_sub(2), b.x + b.width + 2);
+        // The focus's columns and rows, and the neighbours to keep in view if they fit.
+        let (mut x0, mut x1) = span(b);
+        let (mut spare0, mut spare1) = (
+            i.checked_sub(1)
+                .and_then(|k| pic.boxes.get(k))
+                .map_or(x0, |p| span(p).0),
+            pic.boxes.get(i + 1).map_or(x1, |n| span(n).1),
+        );
+        let (y0, y1) = match focus {
+            Focus::Node(_) => (0, TOP + b.height),
+            Focus::Conduit(_) => {
+                let p = &pic.boxes[i - 1];
+                (x0, x1) = (p.x + p.width, b.x);
+                (spare0, spare1) = (span(p).0, span(b).1);
+                let ys: Vec<u16> = pic.conduits[i - 1].iter().map(|c| c.1).collect();
+                let lo = ys.iter().copied().min().unwrap_or(TOP);
+                (lo, ys.iter().copied().max().unwrap_or(TOP) + 1)
+            }
+            Focus::In { row, .. } => b
+                .inputs
+                .iter()
+                .find(|(r, _)| same_input(r, row))
+                .map_or((0, TOP), |(_, p)| (p.y, p.y + 1)),
+            Focus::Out { row, .. } => b
+                .outputs
+                .iter()
+                .find(|(r, _)| same_output(r, row))
+                .map_or((0, TOP), |(_, p)| (p.y, p.y + 1)),
+        };
+        let x = if recentre {
+            ((x0 + x1) / 2).saturating_sub(w / 2)
+        } else if spare1 - spare0 <= w {
+            minimal(self.x, spare0, spare1, w)
+        } else {
+            minimal(self.x, x0, x1, w)
+        };
         let from = if recentre { 0 } else { self.y };
-        let y = minimal(from, 0, (TOP + b.height).min(h), h);
+        let y = minimal(from, y0, y1.min(y0 + h), h);
         Self {
-            x: x.min(max_x),
-            y: y.min(max_y),
+            x: x.min(pic.width.saturating_sub(w)),
+            y: y.min(pic.height.saturating_sub(h)),
         }
     }
 }
@@ -517,12 +672,16 @@ mod tests {
     use super::super::flow::tests::example;
     use super::*;
 
+    fn node(id: &str) -> Focus {
+        Focus::Node(id.into())
+    }
+
     #[test]
     fn draws_story_two_opening_screen() {
         // docs/stories/02-exploring.md, step 1 (the canvas rows).
         let project = example("effects");
         let flow = Flow::build(&project, "preview");
-        let pic = draw(&project, &flow, Some("preview"));
+        let pic = draw(&project, &flow, Some(&node("preview")));
         let expected = "
 
 
@@ -544,19 +703,63 @@ mod tests {
     fn focus_is_green_and_its_conduits_magenta() {
         let project = example("effects");
         let flow = Flow::build(&project, "preview");
-        let pic = draw(&project, &flow, Some("preview"));
+        let pic = draw(&project, &flow, Some(&node("preview")));
         let preview = &pic.boxes[2];
         assert_eq!(pic.style_at(preview.x, TOP), FOCUS);
         // comp → preview is related; bg → comp isn't.
-        let (_, y) = preview.inputs[0];
+        let y = preview.inputs[0].1.y;
         assert_eq!(pic.style_at(preview.x - 1, y), RELATED);
         assert_eq!(
             pic.style_at(pic.boxes[0].x + pic.boxes[0].width, TOP + 3),
             STANDARD
         );
         // The `▣` markers on comp stay white.
-        let (_, y) = pic.boxes[1].inputs[1];
+        let y = pic.boxes[1].inputs[1].1.y;
         assert_eq!(pic.style_at(pic.boxes[1].x - 2, y), STANDARD);
+    }
+
+    #[test]
+    fn conduit_and_end_focus_colours() {
+        let project = example("effects");
+        let flow = Flow::build(&project, "preview");
+        // The conduit comp → preview: the line green, the two port labels magenta.
+        let link = flow.links[1].clone();
+        let pic = draw(&project, &flow, Some(&Focus::Conduit(link)));
+        let (x, y) = pic.conduits[1][0];
+        assert_eq!(pic.style_at(x, y), FOCUS);
+        let comp = &pic.boxes[1];
+        let preview = &pic.boxes[2];
+        let out = comp.outputs[0].1;
+        assert_eq!(pic.style_at(out.label.0, out.y), RELATED);
+        assert_eq!(pic.style_at(comp.x + comp.width - 1, out.y), STANDARD); // `┼`
+        let image = preview.inputs[0].1;
+        assert_eq!(pic.style_at(image.label.0, image.y), RELATED);
+        assert_eq!(pic.style_at(comp.x, TOP), STANDARD);
+
+        // A `▣` end: its marker and stub green, its label magenta, the box white.
+        let (row, placed) = comp.inputs[1].clone();
+        let focus = Focus::In {
+            node: "comp".into(),
+            row,
+        };
+        let pic = draw(&project, &flow, Some(&focus));
+        assert_eq!(pic.style_at(comp.x - 2, placed.y), FOCUS);
+        assert_eq!(pic.style_at(comp.x, placed.y), FOCUS);
+        assert_eq!(pic.style_at(placed.label.0, placed.y), RELATED);
+        assert_eq!(pic.style_at(comp.x, TOP), STANDARD);
+
+        // The in-flow end `base`: the line into it stays white.
+        let (row, placed) = comp.inputs[0].clone();
+        let focus = Focus::In {
+            node: "comp".into(),
+            row,
+        };
+        let pic = draw(&project, &flow, Some(&focus));
+        assert_eq!(pic.style_at(comp.x - 1, placed.y), STANDARD);
+        assert_eq!(pic.style_at(comp.x, placed.y), FOCUS);
+        // ... and the far end, `bg.out`, is magenta.
+        let bg_out = pic.boxes[0].outputs[0].1;
+        assert_eq!(pic.style_at(bg_out.label.0, bg_out.y), RELATED);
     }
 
     #[test]
@@ -585,15 +788,16 @@ mod tests {
         let flow = Flow::build(&project, "logo_tinted");
         let pic = draw(&project, &flow, None);
         assert!(pic.width > 80);
-        let last = pic.boxes.len() - 1;
+        let n = flow.nodes.len();
+        let at = |i: usize| node(&flow.nodes[i]);
         // Re-centring on the last box stops at the flow's end.
-        let v = Viewport::default().follow(&pic, last, 80, 16, true);
+        let v = Viewport::default().follow(&pic, &flow, &at(n - 1), 80, 16, true);
         assert_eq!(v.x, pic.width - 80);
         // Walking back one box from there doesn't move the view.
-        let w = v.follow(&pic, last - 1, 80, 16, false);
+        let w = v.follow(&pic, &flow, &at(n - 2), 80, 16, false);
         assert_eq!(w.x, v.x);
         // The first box is always fully visible from the start.
-        let v = Viewport::default().follow(&pic, 0, 80, 16, false);
+        let v = Viewport::default().follow(&pic, &flow, &at(0), 80, 16, false);
         assert_eq!(v.x, 0);
     }
 }

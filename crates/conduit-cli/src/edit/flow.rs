@@ -40,6 +40,13 @@ impl Flow {
         flow
     }
 
+    /// Extends both ends after an edit that kept the flow's path, e.g. when the last
+    /// node gained a user.
+    pub fn extend(&mut self, project: &Project) {
+        self.extend_upstream(project);
+        self.extend_downstream(project);
+    }
+
     /// Where `node` is in the flow.
     pub fn position(&self, node: &str) -> Option<usize> {
         self.nodes.iter().position(|n| n == node)
@@ -58,7 +65,6 @@ impl Flow {
     /// Redraws the upstream side through input `port[index]` of `nodes[i]` (§4.4): that
     /// node and everything downstream of it stay. Does nothing if the input isn't
     /// connected.
-    #[allow(dead_code)] // for `f` on a `▣` end, wired up with the flow keys
     pub fn through_input(&mut self, project: &Project, i: usize, port: &str, index: usize) {
         let Some(target) = self.nodes.get(i).cloned() else {
             return;
@@ -89,7 +95,6 @@ impl Flow {
 
     /// Redraws the downstream side through `user` of `nodes[i]`'s output (§4.4): that
     /// node and everything upstream of it stay.
-    #[allow(dead_code)] // for `f` on a `▣` end, wired up with the flow keys
     pub fn through_output(&mut self, project: &Project, i: usize, user: &Consumer) {
         let Some(source) = self.nodes.get(i).cloned() else {
             return;
@@ -178,6 +183,193 @@ fn first_user<'a>(project: &'a Project, node: &ProjectNode) -> Option<&'a Consum
         .find_map(|(port, _)| users.iter().find(|c| &c.output == port))
         // A reference to an output the node doesn't have (an error) still draws.
         .or_else(|| users.first())
+}
+
+/// The single thing the keyboard acts on in the flow view (spec §2, §5.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Focus {
+    Node(String),
+    Conduit(Link),
+    /// An input row (a conduit end, an unconnected input or a list's slot).
+    In {
+        node: String,
+        row: InRow,
+    },
+    /// An output row.
+    Out {
+        node: String,
+        row: OutRow,
+    },
+}
+
+impl Focus {
+    /// The node global keys act on (§6.2): the node itself, the node an end belongs to,
+    /// a conduit's downstream node.
+    pub fn node(&self) -> &str {
+        match self {
+            Focus::Node(id) | Focus::In { node: id, .. } | Focus::Out { node: id, .. } => id,
+            Focus::Conduit(link) => &link.target,
+        }
+    }
+}
+
+/// A focus move (§6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Move {
+    /// `h`
+    Upstream,
+    /// `l`
+    Downstream,
+    /// `j`
+    Next,
+    /// `k`
+    Previous,
+    /// `esc`
+    ToNode,
+    /// `g`
+    First,
+    /// `G`
+    Last,
+}
+
+/// Whether input `row` of `nodes[i]` is the flow's conduit into it.
+pub fn is_flow_input(flow: &Flow, i: usize, row: &InRow) -> bool {
+    matches!(row.state, InState::Connected(_))
+        && flow
+            .link_in(i)
+            .is_some_and(|l| l.port == row.port && l.index == row.index.unwrap_or(0))
+}
+
+/// Whether output `row` of `nodes[i]` is the flow's conduit out of it.
+pub fn is_flow_output(flow: &Flow, i: usize, row: &OutRow) -> bool {
+    let (Some(link), Some(user)) = (flow.link_out(i), &row.user) else {
+        return false;
+    };
+    link.output == row.port
+        && link.target == user.node
+        && link.port == user.port
+        && link.index == user.index
+}
+
+/// Whether two input rows are the same conduit end: same port and list position.
+pub fn same_input(a: &InRow, b: &InRow) -> bool {
+    a.port == b.port && a.index == b.index
+}
+
+/// Whether two output rows are the same conduit end: same output and user.
+pub fn same_output(a: &OutRow, b: &OutRow) -> bool {
+    a.port == b.port && a.user == b.user
+}
+
+impl Flow {
+    /// The focus, with its row refreshed from the project, if it's still on this flow.
+    pub fn locate(&self, project: &Project, focus: &Focus) -> Option<Focus> {
+        let node = project.get(focus.node())?;
+        self.position(&node.id)?;
+        match focus {
+            Focus::Node(id) => Some(Focus::Node(id.clone())),
+            Focus::Conduit(link) => self.links.contains(link).then(|| focus.clone()),
+            Focus::In { node: id, row } => input_rows(node)
+                .into_iter()
+                .find(|r| same_input(r, row))
+                .map(|row| Focus::In {
+                    node: id.clone(),
+                    row,
+                }),
+            Focus::Out { node: id, row } => output_rows(project, node)
+                .into_iter()
+                .find(|r| same_output(r, row))
+                .map(|row| Focus::Out {
+                    node: id.clone(),
+                    row,
+                }),
+        }
+    }
+
+    /// Where `mv` takes the focus, or `None` if it goes nowhere (§6.1).
+    pub fn step(&self, project: &Project, focus: &Focus, mv: Move) -> Option<Focus> {
+        let i = self.position(focus.node())?;
+        let node = project.get(focus.node())?;
+        let node_focus = |i: usize| Focus::Node(self.nodes[i].clone());
+        let ins = input_rows(node);
+        let outs = output_rows(project, node);
+        // Rows top to bottom: inputs, then outputs.
+        let row_focus = |r: usize| -> Focus {
+            if r < ins.len() {
+                Focus::In {
+                    node: node.id.clone(),
+                    row: ins[r].clone(),
+                }
+            } else {
+                Focus::Out {
+                    node: node.id.clone(),
+                    row: outs[r - ins.len()].clone(),
+                }
+            }
+        };
+        let rows = ins.len() + outs.len();
+        let row_index = match focus {
+            Focus::In { row, .. } => ins.iter().position(|r| same_input(r, row)),
+            Focus::Out { row, .. } => outs
+                .iter()
+                .position(|r| same_output(r, row))
+                .map(|r| r + ins.len()),
+            _ => None,
+        };
+        match (focus, mv) {
+            (_, Move::First) => Some(node_focus(0)),
+            (_, Move::Last) => Some(node_focus(self.nodes.len() - 1)),
+            (Focus::Conduit(_), Move::ToNode) => Some(node_focus(i)),
+            (Focus::Conduit(_), Move::Upstream) => Some(node_focus(i - 1)),
+            (Focus::Conduit(_), Move::Downstream) => Some(node_focus(i)),
+            (Focus::Conduit(_), _) => None,
+            (Focus::Node(_), Move::Upstream) => self.link_in(i).cloned().map(Focus::Conduit),
+            (Focus::Node(_), Move::Downstream) => self.link_out(i).cloned().map(Focus::Conduit),
+            (Focus::Node(_), Move::Next) => (rows > 0).then(|| row_focus(0)),
+            (Focus::Node(_), Move::Previous) => (rows > 0).then(|| row_focus(rows - 1)),
+            (Focus::Node(_), Move::ToNode) => None,
+            (_, Move::ToNode) => Some(node_focus(i)),
+            (Focus::In { row, .. }, Move::Upstream) => is_flow_input(self, i, row)
+                .then(|| self.link_in(i).cloned().map(Focus::Conduit))
+                .flatten(),
+            (Focus::In { .. }, Move::Downstream) => Some(node_focus(i)),
+            (Focus::Out { row, .. }, Move::Downstream) => is_flow_output(self, i, row)
+                .then(|| self.link_out(i).cloned().map(Focus::Conduit))
+                .flatten(),
+            (Focus::Out { .. }, Move::Upstream) => Some(node_focus(i)),
+            (_, Move::Next) => Some(match row_index {
+                Some(r) if r + 1 < rows => row_focus(r + 1),
+                _ => node_focus(i),
+            }),
+            (_, Move::Previous) => Some(match row_index {
+                Some(r) if r > 0 => row_focus(r - 1),
+                _ => node_focus(i),
+            }),
+        }
+    }
+
+    /// `f` on a `▣` end (§4.4): brings its conduit into the flow, redrawing only the side
+    /// it points to. `None` if the focus isn't a `▣` end.
+    pub fn bring_in(&mut self, project: &Project, focus: &Focus) -> Option<()> {
+        let i = self.position(focus.node())?;
+        match focus {
+            Focus::In { row, .. } => {
+                if !matches!(row.state, InState::Connected(_)) || is_flow_input(self, i, row) {
+                    return None;
+                }
+                self.through_input(project, i, &row.port, row.index.unwrap_or(0));
+            }
+            Focus::Out { row, .. } => {
+                let user = row.user.as_ref()?;
+                if is_flow_output(self, i, row) {
+                    return None;
+                }
+                self.through_output(project, i, user);
+            }
+            _ => return None,
+        }
+        Some(())
+    }
 }
 
 /// What an input row is connected to.
@@ -361,6 +553,79 @@ pub(crate) mod tests {
         let mut flow = Flow::build(&project, "brand");
         flow.through_output(&project, 0, &user);
         assert_eq!(flow.nodes[..3], ["brand", "logo_tinted", "logo_at"]);
+    }
+
+    fn node(id: &str) -> Focus {
+        Focus::Node(id.into())
+    }
+
+    #[test]
+    fn walks_the_flow() {
+        let project = example("effects");
+        let flow = Flow::build(&project, "preview");
+        let step = |f: &Focus, mv| flow.step(&project, f, mv);
+
+        // h: node → conduit → node; l back.
+        let conduit = step(&node("preview"), Move::Upstream).unwrap();
+        assert!(matches!(&conduit, Focus::Conduit(l) if l.source == "comp"));
+        assert_eq!(step(&conduit, Move::Upstream), Some(node("comp")));
+        assert_eq!(step(&conduit, Move::Downstream), Some(node("preview")));
+        assert_eq!(step(&node("bg"), Move::Upstream), None);
+        assert_eq!(step(&conduit, Move::Next), None);
+
+        // j / k through comp's rows, and past the ends back to the node.
+        let first = step(&node("comp"), Move::Next).unwrap();
+        assert!(matches!(&first, Focus::In { row, .. } if row.port == "base"));
+        let last = step(&node("comp"), Move::Previous).unwrap();
+        assert!(matches!(&last, Focus::Out { row, .. } if row.port == "out"));
+        assert_eq!(step(&last, Move::Next), Some(node("comp")));
+        assert_eq!(step(&first, Move::Previous), Some(node("comp")));
+        let layer0 = step(&first, Move::Next).unwrap();
+
+        // h on the in-flow input goes onto its conduit; on a `▣` it does nothing.
+        assert!(matches!(
+            step(&first, Move::Upstream),
+            Some(Focus::Conduit(_))
+        ));
+        assert_eq!(step(&layer0, Move::Upstream), None);
+        assert_eq!(step(&layer0, Move::Downstream), Some(node("comp")));
+        assert_eq!(step(&layer0, Move::ToNode), Some(node("comp")));
+        assert_eq!(step(&layer0, Move::Last), Some(node("preview")));
+        assert_eq!(step(&layer0, Move::First), Some(node("bg")));
+    }
+
+    #[test]
+    fn f_brings_an_end_into_the_flow() {
+        let project = example("effects");
+        let mut flow = Flow::build(&project, "preview");
+        let base = flow.step(&project, &node("comp"), Move::Next).unwrap();
+        let layer1 = flow
+            .step(
+                &project,
+                &flow.step(&project, &base, Move::Next).unwrap(),
+                Move::Next,
+            )
+            .unwrap();
+        assert_eq!(flow.bring_in(&project, &base), None); // already in the flow
+        flow.bring_in(&project, &layer1).unwrap();
+        // swatch takes its colour from brand, so the new upstream side starts there.
+        assert_eq!(
+            flow.nodes,
+            [
+                "brand",
+                "swatch",
+                "swatch_shifted",
+                "swatch_at",
+                "comp",
+                "preview"
+            ]
+        );
+        // The focus is still on the flow, now drawn.
+        let layer1 = flow.locate(&project, &layer1).unwrap();
+        let Focus::In { row, .. } = &layer1 else {
+            panic!()
+        };
+        assert!(is_flow_input(&flow, 4, row));
     }
 
     #[test]

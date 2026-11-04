@@ -8,9 +8,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
-use super::app::{App, ColorEdit, Mode, Pane, Pick, Row, uses};
+use super::app::{App, Bar, ColorEdit, Mode, Pane, Pick, Row, uses};
 use super::canvas;
-use super::flow::Flow;
 use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -29,40 +28,50 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             draw_too_small(frame, app, screen);
             return;
         }
-    }
-    let [title, main, status, keys] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(screen);
-
-    draw_title(frame, app, title);
-    if app.flow_view {
+        // §4.7: title, canvas, status line, blank, action bar (4 rows), blank.
+        let [title, main, status, _, bar, _] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(4),
+            Constraint::Length(1),
+        ])
+        .areas(screen);
+        draw_title(frame, app, title);
         draw_flow(frame, app, main);
+        draw_flow_status(frame, app, status);
+        draw_bar(frame, &app.bar(), bar);
     } else {
+        let [title, main, status, keys] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas(screen);
+        draw_title(frame, app, title);
         let [up, node, down] = lineage_areas(main, app.rows.len());
         draw_tree(frame, app, Pane::Up, up);
         draw_node(frame, app, node);
         draw_tree(frame, app, Pane::Down, down);
+        draw_status(frame, app, status);
+        draw_keys(frame, app, keys);
     }
-    draw_status(frame, app, status);
-    draw_keys(frame, app, keys);
 
     match &app.mode {
         Mode::Pick { .. } => draw_pick(frame, app),
         Mode::Prompt { .. } => draw_prompt(frame, app),
         Mode::Confirm { .. } => draw_confirm(frame, app),
-        Mode::Help => draw_help(frame),
+        Mode::Help => draw_help(frame, if app.flow_view { FLOW_HELP } else { HELP }),
         Mode::Color(edit) => draw_color(frame, edit),
         Mode::Normal => {}
     }
 }
 
-/// The flow around the focused node (§4), or a hint in an empty project (§4.8).
+/// The flow and its focus (§4), or a hint in an empty project (§4.8).
 fn draw_flow(frame: &mut Frame, app: &mut App, area: Rect) {
-    let Some(anchor) = app.focus.clone() else {
+    let Some(focus) = app.flow_focus.clone() else {
         let hint = ["This project has no nodes yet.", "Press a to add one."];
         let width = hint.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
         let x = area.x + area.width.saturating_sub(width) / 2;
@@ -74,15 +83,113 @@ fn draw_flow(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         return;
     };
-    let flow = Flow::build(&app.project, &anchor);
-    let picture = canvas::draw(&app.project, &flow, Some(&anchor));
-    let recentre = app.drawn_anchor.as_deref() != Some(anchor.as_str());
-    let focus = flow.position(&anchor).unwrap_or(0);
-    app.viewport = app
-        .viewport
-        .follow(&picture, focus, area.width, area.height, recentre);
-    app.drawn_anchor = Some(anchor);
+    let picture = canvas::draw(&app.project, &app.flow, Some(&focus));
+    let recentre = std::mem::take(&mut app.recentre);
+    app.viewport = app.viewport.follow(
+        &picture,
+        &app.flow,
+        &focus,
+        area.width,
+        area.height,
+        recentre,
+    );
     picture.blit(frame.buffer_mut(), area, app.viewport.x, app.viewport.y);
+}
+
+/// The status line (§4.7), with the probe on the right.
+fn draw_flow_status(frame: &mut Frame, app: &App, area: Rect) {
+    let probe = app.probe.as_ref().map(|probe| {
+        let follow = if app.probe_follow { " (follow)" } else { "" };
+        format!("  probe: {probe}{follow} ")
+    });
+    let probe_width = probe.as_ref().map_or(0, |p| p.chars().count() as u16);
+    let [area, probe_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(probe_width)]).areas(area);
+    if let Some(text) = probe {
+        frame.render_widget(Span::styled(text, canvas::STANDARD), probe_area);
+    }
+    let text = app.flow_status();
+    let style = if text.starts_with(['✕', '✗']) {
+        canvas::ERROR
+    } else {
+        canvas::STANDARD
+    };
+    frame.render_widget(Span::styled(format!(" {text}"), style), area);
+}
+
+/// Spans for `(e)dit` / `[a]dd` style text: bracketed keys in `key`, the rest in `rest`.
+fn keyed_spans(text: &str, key: Style, rest: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut chars = text.char_indices().peekable();
+    let mut start = 0;
+    while let Some((i, c)) = chars.next() {
+        let close = match c {
+            '(' => ')',
+            '[' => ']',
+            _ => continue,
+        };
+        if let Some(end) = text[i + 1..].find(close).map(|e| i + 1 + e) {
+            if start < i {
+                spans.push(Span::styled(text[start..i].to_string(), rest));
+            }
+            spans.push(Span::styled(text[i..=end].to_string(), key));
+            start = end + 1;
+            while chars.peek().is_some_and(|(j, _)| *j <= end) {
+                chars.next();
+            }
+        }
+    }
+    if start < text.len() {
+        spans.push(Span::styled(text[start..].to_string(), rest));
+    }
+    spans
+}
+
+/// The action bar (§6.4): title rule, blank, focus actions, global keys.
+fn draw_bar(frame: &mut Frame, bar: &Bar, area: Rect) {
+    let width = area.width as usize;
+    let rule = width.saturating_sub(4 + bar.title.chars().count());
+    let title = Line::from(vec![
+        Span::raw("  "),
+        Span::styled(bar.title, canvas::STANDARD),
+        Span::styled(format!(" {}", "─".repeat(rule)), canvas::STANDARD),
+    ]);
+    let mut actions = vec![Span::raw("  ")];
+    for (i, a) in bar.actions.iter().enumerate() {
+        if i > 0 {
+            actions.push(Span::raw(bar.separator));
+        }
+        let rest = if a.primary {
+            canvas::STANDARD.add_modifier(Modifier::BOLD)
+        } else {
+            canvas::STANDARD
+        };
+        actions.extend(keyed_spans(&a.text, canvas::FOCUS, rest));
+    }
+    let mut lines = vec![title, Line::default(), Line::from(actions)];
+    if let Some(globals) = &bar.globals {
+        // If the keys don't fit, end with `[?]more` (§6.4).
+        let room = width.saturating_sub(10);
+        let mut shown: Vec<&str> = Vec::new();
+        let mut used = 0;
+        for (i, key) in globals.iter().enumerate() {
+            let more = if i + 1 < globals.len() { 8 } else { 0 };
+            if used + key.chars().count() + more > room {
+                shown.push("[?]more");
+                break;
+            }
+            used += key.chars().count() + 1;
+            shown.push(key);
+        }
+        let mut line = vec![Span::raw("  "), Span::styled("global  ", canvas::DIM)];
+        line.extend(keyed_spans(
+            &shown.join(" "),
+            canvas::STANDARD,
+            canvas::STANDARD,
+        ));
+        lines.push(Line::from(line));
+    }
+    frame.render_widget(Paragraph::new(lines).style(canvas::STANDARD), area);
 }
 
 /// Below the minimum size the flow isn't drawn (§4.6).
@@ -781,9 +888,27 @@ fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_help(frame: &mut Frame) {
-    let area = popup(frame, 78, HELP.len() as u16 + 4);
-    let lines: Vec<Line> = HELP
+/// Keys of the flow view, grouped as in the spec's §6. Only the keys that work so far.
+const FLOW_HELP: &[(&str, &str)] = &[
+    ("h / l", "upstream / downstream: node, conduit, node, …"),
+    ("j / k", "into a node's rows, next / previous row"),
+    ("esc", "back to the node"),
+    ("g / G", "first / last node of the flow"),
+    ("f / ⏎", "on a ▣ end: bring its conduit into the flow"),
+    ("/", "find a node; the flow is rebuilt around it"),
+    ("[ / ]", "back / forward"),
+    ("a", "add a node"),
+    ("r / D", "rename / delete the node"),
+    ("u", "undo"),
+    ("p / P", "probe the focus / follow the focus"),
+    ("E", "open the node in $EDITOR"),
+    ("v", "switch to the three panes (to edit, for now)"),
+    ("q", "quit"),
+];
+
+fn draw_help(frame: &mut Frame, help: &[(&str, &str)]) {
+    let area = popup(frame, 78, help.len() as u16 + 4);
+    let lines: Vec<Line> = help
         .iter()
         .map(|(key, what)| {
             Line::from(vec![
@@ -868,6 +993,61 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(79, 23)].bg, Color::Black);
     }
+
+    /// The screen with trailing spaces trimmed from each line, and trailing blank lines.
+    fn trimmed(screen: &str) -> String {
+        let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+        lines.join("\n").trim_end().to_string()
+    }
+
+    #[test]
+    fn flow_view_matches_story_two() {
+        // docs/stories/02-exploring.md, steps 1 and 2.
+        let mut app = flow_app_at(&example_dir("effects"), Path::new("examples/effects"));
+        app.on_runner_event(rendered(13, 13, 41, Default::default()));
+        let screen = trimmed(&render(&mut app, 80, 24));
+        assert_eq!(screen, STORY_2_STEP_1.trim_end());
+
+        app.handle_key(KeyEvent::from(KeyCode::Char('h')));
+        let screen = trimmed(&render(&mut app, 80, 24));
+        assert!(
+            screen.ends_with(STORY_2_STEP_2_BOTTOM.trim_end()),
+            "{screen}"
+        );
+    }
+
+    const STORY_2_STEP_1: &str = " conduit edit examples/effects  ·  13 nodes
+
+
+    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ bg       │      │ comp        │      │ preview   │
+    │──────────│      │─────────────│      │───────────│
+    │      out─┼──────┼─base        │  ╭───┼─image     │
+    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
+                    ▣─┼─layers[1]   │  │
+                    ▣─┼─layers[2]   │  │
+                    ·─┼─layers      │  │
+                      │─────────────│  │
+                      │         out─┼──╯
+                      ╰─────────────╯
+
+
+
+ rendered 13 nodes in 41 ms
+
+  Node Actions ────────────────────────────────────────────────────────────────
+
+  (e)dit (d)issolve
+  global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
+";
+
+    const STORY_2_STEP_2_BOTTOM: &str = " comp.out → preview.image
+
+  Conduit Actions ─────────────────────────────────────────────────────────────
+
+  (c)onnect (i)nsert (d)isconnect
+  global  [a]dd [r]ename [D]elete [u]ndo [p]robe [/]find [?]help [q]uit
+";
 
     #[test]
     fn flow_view_too_small_only_quits() {

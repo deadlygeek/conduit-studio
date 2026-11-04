@@ -158,6 +158,8 @@ pub struct App {
     flow_forward: Vec<(super::flow::Flow, super::flow::Focus)>,
     /// The edit view's cursor while it's open (§7).
     pub edit_view: Option<EditRow>,
+    /// The cursor's position among the edit view's rows, for when its row goes.
+    edit_at: usize,
 }
 
 impl App {
@@ -197,6 +199,7 @@ impl App {
             flow_back: Vec::new(),
             flow_forward: Vec::new(),
             edit_view: None,
+            edit_at: 0,
         };
         app.focus = app.default_focus();
         app.refresh();

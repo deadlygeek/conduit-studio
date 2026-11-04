@@ -126,7 +126,18 @@ impl App {
         if let Some(id) = &self.focus {
             self.flow_focus = Some(Self::row_focus(id, &row));
         }
+        self.edit_at = self.edit_rows().iter().position(|r| *r == row).unwrap_or(0);
         self.edit_view = Some(row);
+    }
+
+    /// After adding or renaming a palette colour: the cursor goes to it.
+    pub(super) fn follow_colour(&mut self, param: &str, key: &str) {
+        if self.edit_view.is_some() {
+            self.edit_view = Some(EditRow::Colour {
+                param: param.to_string(),
+                key: key.to_string(),
+            });
+        }
     }
 
     /// After a key: keep the cursor on its row, which an edit may have moved (a linked
@@ -154,6 +165,8 @@ impl App {
                     .find(|r| matches!(r, EditRow::Out(p) if p.port == o.port)),
                 _ => None,
             })
+            // A row that's gone (a removed colour): the row now in its place (§6.7).
+            .or_else(|| rows.get(self.edit_at.min(rows.len().saturating_sub(1))))
             .cloned()
             .unwrap_or(EditRow::Name);
         self.set_edit_row(found);
@@ -177,6 +190,16 @@ impl App {
             KeyCode::Esc => {
                 self.close_edit_view();
                 return Some(None);
+            }
+            // A palette's import, from any row (§7.1).
+            KeyCode::Char('I') if self.entries_param().is_some() => {
+                let param = self.entries_param().expect("checked");
+                self.open_prompt(super::Prompt::Import { param }, String::new());
+                return Some(None);
+            }
+            // On a colour row, `r` renames the colour (§7.1).
+            KeyCode::Char('r') if matches!(row, EditRow::Colour { .. }) => {
+                return Some(self.edit_row_key(key, &id, row));
             }
             // Globals; `p` probes the focus, `r` renames the node.
             KeyCode::Char('q' | '?' | 'u' | 'P' | 'E' | 'p' | 'r') => return None,
@@ -257,14 +280,42 @@ impl App {
                 self.select_row(
                     |x| matches!(x, Row::Entry { param: p, key: k } if *p == param && *k == key),
                 );
+                self.pane = super::Pane::Node;
                 match c {
                     _ if enter || c == 'e' => self.edit_row(),
                     'C' => return self.open_picker(),
+                    'r' => self.start_rename(),
+                    'i' => self.start_add_entry(),
+                    'd' => self.start_remove_entry(),
+                    'K' | 'J' => {
+                        let step = if c == 'K' { -1 } else { 1 };
+                        if self.can_move_colour(&key, step) {
+                            let id = id.to_string();
+                            let label = format!("moved {id}.{key}");
+                            self.apply_or_report(label, |dir, _| {
+                                ops::move_entry(dir, &id, &param, &key, step)
+                            });
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         None
+    }
+
+    /// Whether palette colour `key` can move `step` places (`K` / `J`).
+    fn can_move_colour(&self, key: &str, step: isize) -> bool {
+        let rows = self.edit_rows();
+        let colours: Vec<&str> = (rows.iter())
+            .filter_map(|r| match r {
+                EditRow::Colour { key, .. } => Some(key.as_str()),
+                _ => None,
+            })
+            .collect();
+        (colours.iter().position(|k| *k == key))
+            .and_then(|i| i.checked_add_signed(step))
+            .is_some_and(|j| j < colours.len())
     }
 
     /// A conduit end whose conduit isn't drawn in the flow (a `▣`).
@@ -336,8 +387,21 @@ impl App {
                 }
                 Some(("Param Actions", actions))
             }
-            EditRow::Colour { .. } => {
-                Some(("Colour Actions", vec![primary("(e)dit"), item("(C)picker")]))
+            EditRow::Colour { key, .. } => {
+                let mut actions = vec![
+                    primary("(e)dit"),
+                    item("(C)picker"),
+                    item("(r)ename"),
+                    item("(i)nsert colour"),
+                    item("(d)elete"),
+                ];
+                if self.can_move_colour(key, -1) {
+                    actions.push(item("(K)earlier"));
+                }
+                if self.can_move_colour(key, 1) {
+                    actions.push(item("(J)later"));
+                }
+                Some(("Colour Actions", actions))
             }
             EditRow::In(_) | EditRow::Out(_) => None,
         }
@@ -351,7 +415,12 @@ mod tests {
 
     /// A temp copy of `examples/linked` in the flow view, editing `id`.
     fn editing(id: &str) -> (tempfile::TempDir, App) {
-        let (tmp, mut app) = temp_project("linked");
+        editing_in("linked", id)
+    }
+
+    /// A temp copy of `examples/<project>` in the flow view, editing `id`.
+    fn editing_in(project: &str, id: &str) -> (tempfile::TempDir, App) {
+        let (tmp, mut app) = temp_project(project);
         app.flow_view = true;
         app.focus = Some(id.into());
         app.refresh();
@@ -515,5 +584,111 @@ mod tests {
         let errors = app.edit_errors();
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("width"), "{errors:?}");
+    }
+
+    fn colour(key: &str) -> EditRow {
+        EditRow::Colour {
+            param: "colors".into(),
+            key: key.into(),
+        }
+    }
+
+    fn bar_texts(app: &App) -> Vec<String> {
+        app.bar().actions.iter().map(|a| a.text.clone()).collect()
+    }
+
+    /// The palette's colour names, in file order.
+    fn colours(app: &App) -> Vec<String> {
+        (app.edit_rows().into_iter())
+            .filter_map(|r| match r {
+                EditRow::Colour { key, .. } => Some(key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn palette_colour_rows() {
+        let (_tmp, mut app) = editing_in("palette", "brand");
+        assert_eq!(
+            colours(&app),
+            ["primary", "teal", "sand", "orange", "accent"]
+        );
+        assert!(bar_texts(&app).contains(&"(I)mport".to_string()));
+        down_to(&mut app, |r| *r == colour("primary"));
+        assert_eq!(app.flow_status(), "brand.primary = #264653");
+        assert_eq!(app.bar().title, "Colour Actions");
+        assert_eq!(
+            bar_texts(&app),
+            [
+                "(e)dit",
+                "(C)picker",
+                "(r)ename",
+                "(i)nsert colour",
+                "(d)elete",
+                "(J)later",
+            ]
+        );
+        keys(&mut app, "j");
+        assert!(bar_texts(&app).contains(&"(K)earlier".to_string()));
+    }
+
+    #[test]
+    fn insert_rename_move_and_delete_colours() {
+        let (_tmp, mut app) = editing_in("palette", "brand");
+        down_to(&mut app, |r| *r == colour("teal"));
+
+        // `i` adds a copy below, and the cursor goes to it.
+        keys(&mut app, "isea⏎");
+        assert_eq!(
+            colours(&app),
+            ["primary", "teal", "sea", "sand", "orange", "accent"]
+        );
+        assert!(read(&app, "brand").contains("sea = \"#2a9d8f\""));
+        assert_eq!(app.edit_view, Some(colour("sea")));
+
+        // `J` / `K` move it; the cursor follows.
+        keys(&mut app, "J");
+        assert_eq!(
+            colours(&app),
+            ["primary", "teal", "sand", "sea", "orange", "accent"]
+        );
+        assert_eq!(app.edit_view, Some(colour("sea")));
+        keys(&mut app, "K");
+        assert_eq!(colours(&app)[2], "sea");
+
+        // `r` renames the colour, not the node.
+        keys(&mut app, "rocean⏎");
+        assert_eq!(app.focus.as_deref(), Some("brand"));
+        assert_eq!(app.edit_view, Some(colour("ocean")));
+
+        // `d` removes an unused colour at once; the cursor takes the next row.
+        keys(&mut app, "d");
+        assert_eq!(
+            colours(&app),
+            ["primary", "teal", "sand", "orange", "accent"]
+        );
+        assert_eq!(app.edit_view, Some(colour("sand")));
+
+        // A used one asks first, then disconnects its users.
+        down_to(&mut app, |r| *r == colour("accent"));
+        keys(&mut app, "d");
+        assert!(matches!(app.mode, super::super::Mode::Confirm { .. }));
+        keys(&mut app, "y");
+        assert!(!colours(&app).contains(&"accent".to_string()));
+        assert!(!read(&app, "accent_dark").contains("brand.accent"));
+    }
+
+    #[test]
+    fn import_from_any_row() {
+        let (_tmp, mut app) = editing_in("palette", "brand");
+        keys(&mut app, "I");
+        assert!(matches!(
+            &app.mode,
+            super::super::Mode::Prompt {
+                purpose: super::super::Prompt::Import { .. },
+                ..
+            }
+        ));
     }
 }

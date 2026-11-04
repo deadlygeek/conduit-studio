@@ -96,9 +96,10 @@ pub enum Prompt {
         port: String,
     },
     Rename,
-    /// Name for a new palette color.
+    /// Name for a new palette color, a copy of `after` placed below it (else the last).
     AddEntry {
         param: String,
+        after: Option<String>,
     },
     RenameEntry {
         param: String,
@@ -435,12 +436,13 @@ impl App {
                 })?;
                 Ok(None)
             }
-            Prompt::AddEntry { param } => {
+            Prompt::AddEntry { param, after } => {
                 let color = self.entry_color().unwrap_or_else(|| "#808080".into());
                 self.apply(format!("added {focus}.{input}"), |dir, _| {
-                    ops::set_entry(dir, &focus, &param, input, &color.into())
+                    ops::insert_entry(dir, &focus, &param, after.as_deref(), input, &color.into())
                 })?;
                 self.select_row(|r| matches!(r, Row::Entry { key, .. } if key == input));
+                self.follow_colour(&param, input);
                 Ok(None)
             }
             Prompt::RenameEntry { param, key } => {
@@ -452,6 +454,7 @@ impl App {
                     |dir, project| ops::rename_entry(dir, project, &focus, &param, &key, input),
                 )?;
                 self.select_row(|r| matches!(r, Row::Entry { key, .. } if key == input));
+                self.follow_colour(&param, input);
                 Ok(None)
             }
             Prompt::Import { param } => {

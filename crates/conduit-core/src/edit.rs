@@ -1008,6 +1008,83 @@ pub fn set_entry(
     })
 }
 
+/// Rebuilds a table's entries in a new order, keeping each entry's comments.
+fn reorder_entries(
+    table: &mut dyn TableLike,
+    change: impl FnOnce(&mut Vec<(String, Item)>) -> EditResult<()>,
+) -> EditResult<()> {
+    let mut entries: Vec<(String, Item)> = table
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect();
+    change(&mut entries)?;
+    table.clear();
+    for (key, item) in entries {
+        table.insert(&key, item);
+    }
+    Ok(())
+}
+
+/// Adds entry `key` to a table param just after entry `after` (e.g. a copy of a palette
+/// colour below it); at the end if `after` is `None`.
+pub fn insert_entry(
+    dir: &Path,
+    node: &str,
+    param: &str,
+    after: Option<&str>,
+    key: &str,
+    value: &toml::Value,
+) -> EditResult<Change> {
+    check_entry_name(key)?;
+    let value = to_edit_value(value)?;
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            reorder_entries(entries_mut(doc, param)?, |entries| {
+                if entries.iter().any(|(k, _)| k == key) {
+                    return Err(EditError::Invalid(format!("`{key}` already exists")));
+                }
+                let at = match after {
+                    Some(after) => {
+                        1 + entries
+                            .iter()
+                            .position(|(k, _)| k == after)
+                            .ok_or_else(|| EditError::Invalid(format!("no entry `{after}`")))?
+                    }
+                    None => entries.len(),
+                };
+                entries.insert(at, (key.to_string(), Item::Value(value)));
+                Ok(())
+            })
+        })
+    })
+}
+
+/// Moves entry `key` of a table param one place earlier (`step` -1) or later (1).
+pub fn move_entry(
+    dir: &Path,
+    node: &str,
+    param: &str,
+    key: &str,
+    step: isize,
+) -> EditResult<Change> {
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            reorder_entries(entries_mut(doc, param)?, |entries| {
+                let i = (entries.iter().position(|(k, _)| k == key))
+                    .ok_or_else(|| EditError::Invalid(format!("no entry `{key}`")))?;
+                let j = (i.checked_add_signed(step).filter(|j| *j < entries.len())).ok_or_else(
+                    || {
+                        let end = if step < 0 { "first" } else { "last" };
+                        EditError::Invalid(format!("`{key}` is already {end}"))
+                    },
+                )?;
+                entries.swap(i, j);
+                Ok(())
+            })
+        })
+    })
+}
+
 /// Renames an entry (keeping its position and comments) and rewrites every reference to
 /// the output it provides (`node.old` → `node.new`).
 pub fn rename_entry(
@@ -1726,6 +1803,30 @@ mod tests {
         assert!(!f.read("t").contains("p.sun"));
         change.undo().unwrap();
         assert_eq!(f.snapshot(), before);
+    }
+
+    #[test]
+    fn insert_and_move_entries() {
+        let f = Fixture::new(&[("p", PAL), ("t", TINT)]);
+        let after = f.apply_and_undo(|| {
+            insert_entry(f.path(), "p", "colors", Some("sky"), "sea", &"navy".into())
+        });
+        assert!(
+            after["p.toml"]
+                .ends_with("sky = \"#87ceeb\" # blue\nsea = \"navy\"\nsun = \"yellow\"\n"),
+            "{after:?}"
+        );
+        assert!(insert_entry(f.path(), "p", "colors", None, "sun", &"red".into()).is_err());
+
+        let after = f.apply_and_undo(|| move_entry(f.path(), "p", "colors", "sun", -1));
+        assert!(
+            after["p.toml"].ends_with("sun = \"yellow\"\nsky = \"#87ceeb\" # blue\n"),
+            "{after:?}"
+        );
+        assert!(
+            move_entry(f.path(), "p", "colors", "sun", 1).is_err(),
+            "already last"
+        );
     }
 
     #[test]

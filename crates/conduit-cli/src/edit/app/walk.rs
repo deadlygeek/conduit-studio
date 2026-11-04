@@ -376,9 +376,14 @@ impl App {
                 globals: globals(GLOBALS_MOVING),
             };
         }
-        let (title, actions) = self
+        let (title, mut actions) = self
             .edit_actions()
             .unwrap_or_else(|| self.focus_actions(focus));
+        // A palette's import works from any row of its edit view (§7.1). A colour row's
+        // bar is full without it, so it's listed on the others.
+        if self.edit_view.is_some() && self.entries_param().is_some() && title != "Colour Actions" {
+            actions.push(item("(I)mport"));
+        }
         Bar {
             title,
             actions,

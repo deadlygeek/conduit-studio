@@ -306,13 +306,17 @@ impl App {
             self.message = Some("o adds a color to a palette".into());
             return;
         };
+        let after = match self.current_row() {
+            Some(Row::Entry { key, .. }) => Some(key.clone()),
+            _ => None,
+        };
         let node = self.focused().expect("has a palette param");
         let taken = |k: &str| node.params.get(&param).and_then(|t| t.get(k)).is_some();
         let name = (1..)
             .map(|n| format!("c{n}"))
             .find(|k| !taken(k))
             .expect("unbounded");
-        self.open_prompt(Prompt::AddEntry { param }, name);
+        self.open_prompt(Prompt::AddEntry { param, after }, name);
     }
 
     /// `x` on a palette color: remove it (after confirmation if something uses it).

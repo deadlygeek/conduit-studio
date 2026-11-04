@@ -53,7 +53,11 @@ fn a_detached_array_draws_the_same() {
         read(dir, "odd").contains("layer = \"grid_out6\""),
         "the tint follows its copy"
     );
-    assert!(read(dir, "comp").contains("\"grid_out1\""));
+    let group = read(dir, "grid_group");
+    assert!(
+        group.contains("[\"grid_out1\", \"grid_out2\", \"grid_out3\", \"grid_out4\", \"grid_out5\", \"odd\", \"grid_out7\", \"grid_out8\"]"),
+        "the group now takes the detached copies:\n{group}"
+    );
     assert_eq!(render(dir).as_raw(), before.as_raw(), "pixel for pixel");
 
     change.undo().unwrap();

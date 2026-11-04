@@ -177,8 +177,75 @@ impl Node for Tint {
     }
 }
 
+/// Layer in, `count` copies out (`out1`…), grouped.
+struct Rep;
+impl Node for Rep {
+    fn spec(&self) -> NodeSpec {
+        NodeSpec {
+            kind: "rep",
+            inputs: vec![PortSpec::new("layer", ValueType::Layer)],
+            outputs: vec![
+                PortSpec::new("out", ValueType::Layer)
+                    .repeated(&["count"])
+                    .grouped(),
+            ],
+            params: vec![ParamSpec::int("count", 1, 8, "2").default("2").fixed()],
+            gui: false,
+        }
+    }
+    fn eval(&self, inputs: &Inputs, params: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
+        let n = params
+            .get("count")
+            .and_then(|v| v.as_integer())
+            .unwrap_or(2);
+        let layer = inputs.layer("layer")?.clone();
+        let values = (1..=n)
+            .map(|i| (format!("out{i}"), Value::Layer(layer.clone())))
+            .collect();
+        Ok(Outputs { values })
+    }
+}
+
+/// Layer in, the same layer out: stands in for a tweak such as `tint`.
+struct Shade;
+impl Node for Shade {
+    fn spec(&self) -> NodeSpec {
+        NodeSpec {
+            kind: "shade",
+            inputs: vec![PortSpec::new("layer", ValueType::Layer)],
+            outputs: vec![PortSpec::new("out", ValueType::Layer)],
+            params: vec![],
+            gui: false,
+        }
+    }
+    fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
+        Ok(Outputs::out(Value::Layer(inputs.layer("layer")?.clone())))
+    }
+}
+
+/// A list of layers in, the first one out: stands in for `group`.
+struct Gather;
+impl Node for Gather {
+    fn spec(&self) -> NodeSpec {
+        NodeSpec {
+            kind: "gather",
+            inputs: vec![PortSpec::new("items", ValueType::Layer).multi()],
+            outputs: vec![PortSpec::new("out", ValueType::Layer)],
+            params: vec![],
+            gui: false,
+        }
+    }
+    fn eval(&self, inputs: &Inputs, _: &toml::Table, _: &mut EvalCtx) -> NodeResult<Outputs> {
+        let first = inputs.layers("items")?[0].clone();
+        Ok(Outputs::out(Value::Layer(first)))
+    }
+}
+
 pub fn registry() -> Registry {
     let mut r = Registry::new();
+    r.register(Gather);
+    r.register(Rep);
+    r.register(Shade);
     r.register(Source);
     r.register(Wrap);
     r.register(Pass);

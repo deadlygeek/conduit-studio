@@ -305,6 +305,16 @@ outputs follows the params too (`columns × rows`, or the number of characters),
 "HELLO" becomes "HI" while `word.char5` is still used, that's a load error until whatever
 uses it is reconnected. Nothing guesses which letter you meant.
 
+**Each comes with a group.** Adding an `array` or `split_text` in `conduit edit` also adds
+an ordinary `group` (`grid_group`, `word_group`) whose `layers` take every item in order,
+and anything the new node was connected to takes the group instead. To tweak one item,
+insert a node into its conduit (`word.char3 → tint → word_group`); a `transform` after the
+group moves the lot. When `conduit edit` changes `columns`, `rows` or `text`, every list
+that takes all the items (directly or through such tweaks) is kept in step: new items
+are added after the last one, and items that no longer exist are dropped. A tweak of an
+item that no longer exists stays, and shows as an error. Edits made outside the editor
+aren't synced; the load errors say what to fix. (The port is marked `.grouped()`.)
+
 `split_text` shapes the whole text once, so kerning is kept, and turns ligatures off so
 "fi" is two letters. Each letter's image is just its ink, so a `transform` turns it about
 its own centre.
@@ -318,7 +328,7 @@ the spacing they had, so changing the font or size later won't re-kern them. In
 `conduit_core::detach_plan` works out the nodes and `edit::detach_node` writes them.
 
 `examples/array` tints one tile of a grid, and `examples/split_text` recolours one letter
-and turns another.
+and turns another, each through its group.
 
 ### Groups
 

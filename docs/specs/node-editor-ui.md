@@ -1,12 +1,16 @@
-# Node editor UI — flow view (spec, draft 12)
+# Node editor UI — flow view (spec, draft 13)
 
-Status: **draft 12**, 2026-11-04 — no open questions. Derived from the durdraw
+Status: **draft 13**, 2026-11-04 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
 with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
+
+Changes from draft 12: a node whose items belong together (`array`, `split_text`) comes
+with a `group` gathering them, and the editor keeps that group in step with the count
+(§6.9).
 
 Changes from draft 11: `X` detaches an `array` or `split_text` node, replacing it with
 ordinary nodes for good (§6.2, §6.7). In the flow view it no longer dissolves; that's `d`.
@@ -639,6 +643,24 @@ change the graph under the flow. Both are handled as `[` to a changed flow is (�
 
 Undo doesn't take you back to the flow where the undone edit was made; `[` does that.
 
+### 6.9 Grouped outputs **[decided]**
+
+A node whose repeated outputs are marked grouped (`array`, `split_text`) never arrives on
+its own. Adding it (`a`), inserting it (`i` on a conduit) or adding it to feed an input
+(`i` on an end) also adds a `group` named `<id>_group`, whose `layers` take every item in
+order. Whatever the new node would have fed takes the group instead, so inserting an
+`array` into `place → comp.layers[0]` gives `place → grid → grid.out1…8 → grid_group →
+comp`. It's one change: the status says `inserted grid (array) before comp.layers,
+grouped by grid_group`, and one `u` removes both.
+
+Changing a param that sets the item count (`columns`, `rows`, `text`), by typing, by a
+nudge or by resetting it, also updates every list input that takes all of the items,
+directly or through a chain of one-input nodes (a tweak such as `char3 → tint`). New
+items go after the last item; an entry that took a removed item directly is dropped. A
+tweak of a removed item is left in the list and shows as an error: the editor never
+guesses where it belongs. A list taking only some of the items is left alone. It's part
+of the same change as the param, so one `u` undoes both.
+
 ## 7. Edit view
 
 `e` on a node opens it enlarged (`node-edit`), at full width with no cap on names.
@@ -892,3 +914,4 @@ No open questions remain. Answers given while drafting:
 | Box layout | Top-aligned, one fixed gap of about 6 columns (§4.1). |
 | Going from the edit view to a connected node | `h` on a connected input row, `l` on a connected output row; opens that node's edit view on the same conduit's row; redraws the flow through it; a flow change (§7.2). |
 | Detaching a generated group (`array`, `split_text`) so each item can be tweaked | `X`, for good: ordinary nodes replace it, uses are rewired, nothing links back; asks first; focus on the node that took over the flow's output; a flow change (§6.7). |
+| Getting a generator's items into a group | The editor adds `<id>_group` with every item when the node is added, and keeps lists that take every item in step when the count changes; tweaks of removed items stay as errors (§6.9). No `all` output. |

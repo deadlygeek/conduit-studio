@@ -1049,6 +1049,73 @@ mod tests {
     }
 
     #[test]
+    fn an_array_comes_with_a_group_that_follows_its_count() {
+        let (_tmp, mut app) = effects_on("comp");
+        keys(&mut app, "jjf"); // logo_at → comp.layers[0]
+        keys(&mut app, "i");
+        pick(&mut app, "array");
+        keys(&mut app, "⏎"); // the suggested id
+        let array = input(&app, "array_1_group", "layers");
+        assert_eq!(array, ["array_1.out1", "array_1.out2", "array_1.out3"]);
+        assert_eq!(
+            input(&app, "comp", "layers")[0],
+            "array_1_group",
+            "the group takes its place"
+        );
+        assert_eq!(input(&app, "array_1", "layer"), ["logo_at"]);
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+
+        // A tweak on one item, then more columns: the new copies join the group after it.
+        std::fs::write(
+            app.dir.join("shade.toml"),
+            "type = \"invert\"\n\n[inputs]\nlayer = \"array_1.out2\"\n",
+        )
+        .unwrap();
+        let group = app.dir.join("array_1_group.toml");
+        let text = std::fs::read_to_string(&group).unwrap();
+        std::fs::write(&group, text.replace("\"array_1.out2\"", "\"shade\"")).unwrap();
+        app.reload_from_disk();
+
+        app.focus = Some("array_1".into());
+        app.submit_prompt(
+            Prompt::Param {
+                name: "columns".into(),
+            },
+            "5",
+        )
+        .unwrap();
+        assert_eq!(
+            input(&app, "array_1_group", "layers"),
+            [
+                "array_1.out1",
+                "shade",
+                "array_1.out3",
+                "array_1.out4",
+                "array_1.out5"
+            ]
+        );
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+        app.submit_prompt(
+            Prompt::Param {
+                name: "columns".into(),
+            },
+            "",
+        )
+        .unwrap(); // back to the default, 3
+        assert_eq!(
+            input(&app, "array_1_group", "layers"),
+            ["array_1.out1", "shade", "array_1.out3"]
+        );
+
+        // Each edit is one undo; undoing the insert removes the array and its group.
+        keys(&mut app, "uu");
+        assert_eq!(input(&app, "array_1_group", "layers").len(), 3);
+        keys(&mut app, "u");
+        assert!(app.project.get("array_1").is_none() && app.project.get("array_1_group").is_none());
+        assert_eq!(input(&app, "comp", "layers")[0], "logo_at");
+    }
+
+    #[test]
     fn i_into_the_flow_conduit_keeps_focus_on_the_end() {
         let (_tmp, mut app) = effects_on("comp");
         keys(&mut app, "jjf"); // logo_at → comp.layers[0], now in the flow

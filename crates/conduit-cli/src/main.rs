@@ -212,7 +212,12 @@ fn print_nodes(registry: &Registry) {
                         _ => format!("`{r}`"),
                     })
                     .collect();
-                println!("  out  {name:<10} {} (N = {})", p.ty, per.join(" × "));
+                let grouped = if p.grouped { ", grouped" } else { "" };
+                println!(
+                    "  out  {name:<10} {} (N = {}{grouped})",
+                    p.ty,
+                    per.join(" × ")
+                );
                 continue;
             }
             println!("  out  {:<10} {}", p.name, p.ty);

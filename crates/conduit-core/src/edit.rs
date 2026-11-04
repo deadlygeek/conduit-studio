@@ -31,6 +31,12 @@ pub struct Change {
 }
 
 impl Change {
+    /// This change followed by `later`, undone together (later first).
+    pub fn then(mut self, later: Change) -> Change {
+        self.before.extend(later.before);
+        self
+    }
+
     /// Restores every touched file to its state before the edit.
     pub fn undo(&self) -> EditResult<()> {
         for (path, contents) in self.before.iter().rev() {
@@ -553,9 +559,10 @@ pub fn detach_node(
         for new in &plan.nodes {
             let mut doc = DocumentMut::new();
             doc.insert("type", toml_edit::value(new.kind));
-            let mut inputs = toml_edit::Table::new();
+            // Every source for a port, in order: several (a list input) become an array.
+            let mut by_port: Vec<(&str, Vec<String>)> = Vec::new();
             for (port, source) in &new.inputs {
-                let refs: Vec<String> = match source {
+                let found: Vec<String> = match source {
                     DetachedSource::Input(from) => node
                         .inputs
                         .get(from)
@@ -565,6 +572,13 @@ pub fn detach_node(
                         .collect(),
                     DetachedSource::Node(name) => vec![new_id(name)],
                 };
+                match by_port.iter_mut().find(|(p, _)| p == port) {
+                    Some((_, refs)) => refs.extend(found),
+                    None => by_port.push((port, found)),
+                }
+            }
+            let mut inputs = toml_edit::Table::new();
+            for (port, refs) in by_port {
                 let value = match refs.as_slice() {
                     [] => continue,
                     [one] => toml_edit::Value::from(one.as_str()),
@@ -611,6 +625,218 @@ pub fn detach_node(
         }
         tx.remove(&node.path)
     })
+}
+
+// --- groups of repeated outputs --------------------------------------------------------
+
+/// The names of `node`'s outputs from repeated port `port` with these params, in order.
+fn repeated_names(
+    spec: &NodeSpec,
+    port: &crate::node::PortSpec,
+    params: &toml::Table,
+) -> Vec<String> {
+    (1..=spec.repeat_count(port, params))
+        .map(|i| format!("{}{i}", port.name))
+        .collect()
+}
+
+/// Adds node `group_id` of kind `group_kind`, whose list input `group_port` takes every
+/// output of `id`'s grouped repeated outputs in order, and moves anything already using
+/// one of those outputs onto the group. One undo step.
+pub fn group_repeated(
+    dir: &Path,
+    project: &Project,
+    id: &str,
+    group_id: &str,
+    group_kind: &str,
+    group_port: &str,
+) -> EditResult<Change> {
+    let node = project.get(id).ok_or_else(|| missing(id))?;
+    let spec = node.spec.as_ref().ok_or_else(|| missing(id))?;
+    let names: Vec<String> = spec
+        .outputs
+        .iter()
+        .filter(|p| p.grouped)
+        .flat_map(|p| repeated_names(spec, p, &node.params))
+        .collect();
+    if names.is_empty() {
+        return Err(EditError::Invalid(format!(
+            "`{id}` has no outputs to group"
+        )));
+    }
+    let refs = names.iter().map(|n| {
+        Reference {
+            node: id.to_string(),
+            port: n.clone(),
+        }
+        .short()
+    });
+    let mut doc = DocumentMut::new();
+    doc.insert("type", toml_edit::value(group_kind));
+    let mut inputs = toml_edit::Table::new();
+    inputs.insert(
+        group_port,
+        toml_edit::value(refs.collect::<toml_edit::Array>()),
+    );
+    doc.insert("inputs", Item::Table(inputs));
+    let text = format!("# Every item of {id}, kept in step with its outputs\n{doc}");
+
+    transact(|tx| {
+        add_raw(tx, dir, group_id, &text)?;
+        let users = consumer_ids(project, id, |c| names.contains(&c.output) && c.node != id);
+        for user in users {
+            tx.update(&node_path(dir, user), |doc| {
+                rewrite_references(doc, |r| {
+                    (r.node == id && names.contains(&r.port)).then(|| Reference {
+                        node: group_id.into(),
+                        port: "out".into(),
+                    })
+                });
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Which of `node`'s outputs in `names` `r` carries: `r` itself, or followed upstream
+/// through nodes with one connected (non-param) input, such as a `tint` hung off an item.
+fn traced_output(project: &Project, node: &str, names: &[String], r: &Reference) -> Option<String> {
+    let mut r = r.clone();
+    for _ in 0..64 {
+        if r.node == node {
+            return names.contains(&r.port).then_some(r.port);
+        }
+        let n = project.get(&r.node)?;
+        let spec = n.spec.as_ref()?;
+        let mut feeds = n
+            .inputs
+            .iter()
+            .filter(|(port, _)| spec.input(port).is_some_and(|p| !p.param));
+        let (_, refs) = feeds.next()?;
+        if feeds.next().is_some() || refs.len() != 1 {
+            return None;
+        }
+        r = refs[0].clone();
+    }
+    None
+}
+
+/// Sets param `name` of `node` (`None` removes it, so its default applies), like
+/// [`set_param`] / [`remove_param`]. When that changes how many repeated outputs the node
+/// has, every list input that gathers all of them (directly or through tweaks, see
+/// [`traced_output`]) is kept in step: new outputs are added after the last item, and
+/// entries that took a removed output directly are dropped. A tweak of a removed output
+/// is left as it is, so it shows as an error. One undo step.
+pub fn set_param_synced(
+    dir: &Path,
+    project: &Project,
+    node: &str,
+    name: &str,
+    value: Option<&toml::Value>,
+) -> EditResult<Change> {
+    let pn = project.get(node).ok_or_else(|| missing(node))?;
+    let mut new_params = pn.params.clone();
+    match value {
+        Some(v) => new_params.insert(name.to_string(), v.clone()),
+        None => new_params.remove(name),
+    };
+    // (list owner, port, old outputs, new outputs) to bring in step.
+    let mut lists = Vec::new();
+    if let Some(spec) = &pn.spec {
+        for port in spec.outputs.iter().filter(|p| !p.repeat.is_empty()) {
+            let old = repeated_names(spec, port, &pn.params);
+            let new = repeated_names(spec, port, &new_params);
+            if old == new || old.is_empty() {
+                continue;
+            }
+            for (owner, n) in &project.nodes {
+                for (list, refs) in &n.inputs {
+                    let multi = n
+                        .spec
+                        .as_ref()
+                        .and_then(|s| s.input(list))
+                        .is_some_and(|p| p.multi);
+                    let traced: BTreeSet<String> = refs
+                        .iter()
+                        .filter_map(|r| traced_output(project, node, &old, r))
+                        .collect();
+                    if multi && old.iter().all(|o| traced.contains(o)) {
+                        lists.push((owner.clone(), list.clone(), old.clone(), new.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            match value {
+                Some(v) => set_param_in(doc, name, v)?,
+                None => {
+                    table_mut(doc, "params")?.remove(name);
+                }
+            }
+            unlink_param_in(doc, name);
+            Ok(())
+        })?;
+        for (owner, list, old, new) in &lists {
+            tx.update(&node_path(dir, owner), |doc| {
+                sync_list(doc, project, node, list, old, new)
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// Brings list input `list` in step with `node`'s outputs going from `old` to `new` (see
+/// [`set_param_synced`]).
+fn sync_list(
+    doc: &mut DocumentMut,
+    project: &Project,
+    node: &str,
+    list: &str,
+    old: &[String],
+    new: &[String],
+) -> EditResult<()> {
+    let item = table_mut(doc, "inputs")?
+        .get_mut(list)
+        .ok_or_else(|| invalid_input(list))?;
+    if !item.is_array() {
+        // A single reference written for a list input: make it a list.
+        let single = item.as_value().ok_or_else(|| invalid_input(list))?.clone();
+        let mut items = toml_edit::Array::new();
+        items.push(single.decorated("", ""));
+        replace_value(item, toml_edit::Value::Array(items));
+    }
+    let items = item.as_array_mut().ok_or_else(|| invalid_input(list))?;
+    let parse = |v: &toml_edit::Value| v.as_str().and_then(|s| Reference::parse(s).ok());
+
+    // Drop entries that took a removed output directly.
+    items.retain(|v| {
+        !parse(v).is_some_and(|r| r.node == node && old.contains(&r.port) && !new.contains(&r.port))
+    });
+    // Add the new outputs after the last entry carrying one of the node's outputs.
+    let last = items
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| {
+            parse(v)
+                .and_then(|r| traced_output(project, node, old, &r))
+                .is_some()
+        })
+        .map(|(i, _)| i + 1)
+        .last()
+        .unwrap_or(items.len());
+    let added = new.iter().filter(|n| !old.contains(n));
+    for (k, name) in added.enumerate() {
+        let r = Reference {
+            node: node.to_string(),
+            port: name.clone(),
+        };
+        items.insert(last + k, r.short());
+    }
+    Ok(())
 }
 
 /// One connection: `node.port[index]` takes `source` (`index` is 0 for single inputs).
@@ -1918,6 +2144,137 @@ mod tests {
         assert!(
             move_entry(f.path(), "p", "colors", "sun", 1).is_err(),
             "already last"
+        );
+    }
+
+    #[test]
+    fn detach_writes_the_plan_and_rewires_uses() {
+        use crate::node::{DetachPlan, DetachedNode, DetachedSource};
+        let f = fixture();
+        let node = |name: &str, kind, inputs: Vec<(&str, DetachedSource)>| DetachedNode {
+            name: name.into(),
+            comment: format!("{name}, detached"),
+            kind,
+            inputs: inputs.into_iter().map(|(p, s)| (p.into(), s)).collect(),
+            params: toml::Table::new(),
+        };
+        let plan = DetachPlan {
+            nodes: vec![
+                node(
+                    "a",
+                    "wrap",
+                    vec![("image", DetachedSource::Input("image".into()))],
+                ),
+                node(
+                    "b",
+                    "wrap",
+                    vec![("image", DetachedSource::Input("image".into()))],
+                ),
+                // Several sources for one list port are written as an array.
+                node(
+                    "all",
+                    "sink",
+                    vec![
+                        ("items", DetachedSource::Node("a".into())),
+                        ("items", DetachedSource::Node("b".into())),
+                    ],
+                ),
+            ],
+            outputs: vec![("out".into(), "b".into())],
+        };
+        let after = f.apply_and_undo(|| detach_node(f.path(), &f.project(), "w", &plan));
+        assert!(!after.contains_key("w.toml"));
+        assert_eq!(
+            after["w_a.toml"],
+            "# a, detached\ntype = \"wrap\"\n\n[inputs]\nimage = \"src\"\n"
+        );
+        assert!(after["w_b.toml"].contains("image = \"src\""));
+        assert!(after["w_all.toml"].contains("items = [\"w_a\", \"w_b\"]"));
+        assert!(after["s.toml"].contains("\"w_b\""), "{}", after["s.toml"]);
+    }
+
+    const REP_SRC: &str = "type = \"source\"\n";
+    const REP_WRAP: &str = "type = \"wrap\"\n[inputs]\nimage = \"src\"\n";
+    const REP: &str = "type = \"rep\"\n[inputs]\nlayer = \"w\"\n[params]\ncount = 3\n";
+    /// `r.out2` tweaked on its way into the group.
+    const REP_SHADE: &str = "type = \"shade\"\n[inputs]\nlayer = \"r.out2\"\n";
+    const REP_GROUP: &str =
+        "type = \"sink\"\n[inputs]\nitems = [\"r.out1\", \"t\", \"r.out3\"] # the items\n";
+
+    fn rep_fixture(extra: &[(&str, &str)]) -> Fixture {
+        let mut files = vec![("src", REP_SRC), ("w", REP_WRAP), ("r", REP)];
+        files.extend_from_slice(extra);
+        Fixture::new(&files)
+    }
+
+    #[test]
+    fn group_repeated_gathers_every_output_and_takes_over_its_uses() {
+        let f = rep_fixture(&[("s", "type = \"sink\"\n[inputs]\nitems = [\"r.out1\"]\n")]);
+        let after = f.apply_and_undo(|| {
+            group_repeated(f.path(), &f.project(), "r", "r_group", "gather", "items")
+        });
+        assert_eq!(
+            after["r_group.toml"],
+            "# Every item of r, kept in step with its outputs\ntype = \"gather\"\n\n\
+             [inputs]\nitems = [\"r.out1\", \"r.out2\", \"r.out3\"]\n"
+        );
+        assert!(
+            after["s.toml"].contains("items = [\"r_group\"]"),
+            "{}",
+            after["s.toml"]
+        );
+        let err = group_repeated(f.path(), &f.project(), "w", "w_group", "sink", "items");
+        assert!(err.is_err(), "wrap has nothing to group");
+    }
+
+    #[test]
+    fn a_larger_count_adds_outputs_to_the_group() {
+        let f = rep_fixture(&[("t", REP_SHADE), ("g", REP_GROUP)]);
+        let five = toml::Value::Integer(5);
+        let after = f
+            .apply_and_undo(|| set_param_synced(f.path(), &f.project(), "r", "count", Some(&five)));
+        assert!(after["r.toml"].contains("count = 5"));
+        assert!(
+            after["g.toml"].contains(
+                "items = [\"r.out1\", \"t\", \"r.out3\", \"r.out4\", \"r.out5\"] # the items"
+            ),
+            "{}",
+            after["g.toml"]
+        );
+    }
+
+    #[test]
+    fn a_smaller_count_drops_outputs_but_leaves_tweaks() {
+        let f = rep_fixture(&[("t", REP_SHADE), ("g", REP_GROUP)]);
+        let two = toml::Value::Integer(2);
+        let after =
+            f.apply_and_undo(|| set_param_synced(f.path(), &f.project(), "r", "count", Some(&two)));
+        assert!(
+            after["g.toml"].contains("items = [\"r.out1\", \"t\"]"),
+            "{}",
+            after["g.toml"]
+        );
+
+        // Dropping the tweaked item leaves the tweak in the list, now an error to fix.
+        let one = toml::Value::Integer(1);
+        set_param_synced(f.path(), &f.project(), "r", "count", Some(&one)).unwrap();
+        assert!(f.read("g").contains("items = [\"r.out1\", \"t\"]"));
+        assert!(!f.project().is_valid(), "t takes the gone r.out2");
+    }
+
+    #[test]
+    fn only_lists_that_gather_every_output_follow() {
+        let partial = "type = \"sink\"\n[inputs]\nitems = [\"r.out1\", \"r.out2\"]\n";
+        let f = rep_fixture(&[("t", REP_SHADE), ("g", REP_GROUP), ("p", partial)]);
+        // Removing `count` goes back to its default, 2.
+        let after =
+            f.apply_and_undo(|| set_param_synced(f.path(), &f.project(), "r", "count", None));
+        assert!(!after["r.toml"].contains("count"));
+        assert!(after["g.toml"].contains("items = [\"r.out1\", \"t\"]"));
+        let p = f.read("p");
+        assert_eq!(
+            p, partial,
+            "a list with only some of the outputs is left alone"
         );
     }
 

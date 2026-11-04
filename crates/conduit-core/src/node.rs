@@ -28,6 +28,10 @@ pub struct PortSpec {
     /// value, a text param as its number of non-whitespace characters. Empty for an
     /// ordinary output.
     pub repeat: &'static [&'static str],
+    /// Repeated outputs only: the items belong together, so editors gather them into a
+    /// group when the node is added and keep that group in step with the count (see
+    /// [`crate::edit::group_repeated`], [`crate::edit::set_param_synced`]).
+    pub grouped: bool,
 }
 
 impl PortSpec {
@@ -40,6 +44,7 @@ impl PortSpec {
             param: false,
             entries: false,
             repeat: &[],
+            grouped: false,
         }
     }
 
@@ -62,6 +67,12 @@ impl PortSpec {
     /// See [`PortSpec::repeat`].
     pub const fn repeated(mut self, params: &'static [&'static str]) -> Self {
         self.repeat = params;
+        self
+    }
+
+    /// See [`PortSpec::grouped`].
+    pub const fn grouped(mut self) -> Self {
+        self.grouped = true;
         self
     }
 }

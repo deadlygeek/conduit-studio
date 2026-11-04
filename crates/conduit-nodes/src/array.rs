@@ -118,7 +118,11 @@ impl Node for Array {
         NodeSpec {
             kind: "array",
             inputs: vec![PortSpec::new("layer", ValueType::Layer)],
-            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated(&["columns", "rows"])],
+            outputs: vec![
+                PortSpec::new("out", ValueType::Layer)
+                    .repeated(&["columns", "rows"])
+                    .grouped(),
+            ],
             params: vec![
                 ParamSpec::int("columns", 1, MAX_SIDE, "3")
                     .default("3")

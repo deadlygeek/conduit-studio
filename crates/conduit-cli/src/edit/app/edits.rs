@@ -362,8 +362,12 @@ impl App {
             Prompt::Param { name } => self.set_param(&name, input).map(|()| None),
             Prompt::AddId { kind } => {
                 let spec = self.spec(&kind)?;
-                self.apply(format!("added {input} ({kind})"), |dir, _| {
-                    ops::add_node(dir, input, &spec)
+                let group = self.group_for(input, &spec);
+                let label = format!("added {input} ({kind}){}", group_label(&group));
+                let registry = self.registry.clone();
+                self.apply(label, |dir, _| {
+                    let change = ops::add_node(dir, input, &spec)?;
+                    with_group(dir, &registry, input, group.as_deref(), change)
                 })?;
                 let action = self.focus_on(input);
                 // A new palette: offer to fill it straight away.
@@ -379,9 +383,16 @@ impl App {
                 index,
             } => {
                 let spec = self.spec(&kind)?;
-                let label = format!("inserted {input} ({kind}) before {node}.{port}");
+                let group = self.group_for(input, &spec);
+                let label = format!(
+                    "inserted {input} ({kind}) before {node}.{port}{}",
+                    group_label(&group)
+                );
+                let registry = self.registry.clone();
                 self.apply(label, |dir, project| {
-                    ops::insert_between(dir, project, &node, &port, index, input, &spec)
+                    let change =
+                        ops::insert_between(dir, project, &node, &port, index, input, &spec)?;
+                    with_group(dir, &registry, input, group.as_deref(), change)
                 })?;
                 Ok(self.focus_on(input))
             }
@@ -422,9 +433,14 @@ impl App {
                 let spec = self.spec(&kind)?;
                 let target = self.input_spec(&port).ok_or("no such input")?.clone();
                 let output = output_of(&spec, target.ty).ok_or("no matching output")?;
-                let label = format!("added {input} ({kind}) feeding {focus}.{port}");
+                let group = self.group_for(input, &spec);
+                let label = format!(
+                    "added {input} ({kind}) feeding {focus}.{port}{}",
+                    group_label(&group)
+                );
+                let registry = self.registry.clone();
                 self.apply(label, |dir, _| {
-                    ops::add_feeding_to(
+                    let change = ops::add_feeding_to(
                         dir,
                         input,
                         &spec,
@@ -433,7 +449,8 @@ impl App {
                         &focus,
                         &port,
                         target.multi,
-                    )
+                    )?;
+                    with_group(dir, &registry, input, group.as_deref(), change)
                 })?;
                 Ok(None)
             }
@@ -527,8 +544,8 @@ impl App {
             if spec.as_ref().is_some_and(|p| p.required) {
                 return Err(format!("`{name}` is required"));
             }
-            return self.apply(format!("reset {id}.{name}"), |dir, _| {
-                ops::remove_param(dir, &id, name)
+            return self.apply(format!("reset {id}.{name}"), |dir, project| {
+                ops::set_param_synced(dir, project, &id, name, None)
             });
         }
         let value = match &spec {
@@ -536,8 +553,8 @@ impl App {
             None => parse_literal(input),
         };
         self.check_param(&node, name, &value)?;
-        self.apply(format!("set {id}.{name} = {value}"), |dir, _| {
-            ops::set_param(dir, &id, name, &value)
+        self.apply(format!("set {id}.{name} = {value}"), |dir, project| {
+            ops::set_param_synced(dir, project, &id, name, Some(&value))
         })
     }
 
@@ -763,7 +780,8 @@ impl App {
         }
         self.check_param(&node, &name, &new)?;
 
-        let change = ops::set_param(&self.dir, &node_id, &name, &new).map_err(|e| e.to_string())?;
+        let change = ops::set_param_synced(&self.dir, &self.project, &node_id, &name, Some(&new))
+            .map_err(|e| e.to_string())?;
         // Repeated nudges of one param undo together.
         let key = format!("{node_id}.{name}");
         let label = format!("nudged {key} to {}", plain(&new));
@@ -1095,6 +1113,51 @@ impl App {
 }
 
 /// `a.items, b.image` for a list of uses.
+/// The node kind and list input that gather a node's grouped outputs (see
+/// `PortSpec::grouped`).
+const GROUP_KIND: &str = "group";
+const GROUP_PORT: &str = "layers";
+
+impl App {
+    /// The id for the group a new node `id` of kind `spec` gets, if its outputs are grouped.
+    fn group_for(&self, id: &str, spec: &NodeSpec) -> Option<String> {
+        let grouped = spec.outputs.iter().any(|p| p.grouped);
+        let registered = self.registry.spec(GROUP_KIND).is_some();
+        (grouped && registered).then(|| self.free_id_like(&format!("{id}_group")))
+    }
+}
+
+/// `change` (which added node `id`), followed by adding `group` gathering `id`'s outputs
+/// when there is one, as one change.
+fn with_group(
+    dir: &Path,
+    registry: &conduit_core::Registry,
+    id: &str,
+    group: Option<&str>,
+    change: Change,
+) -> EditResult<Change> {
+    let Some(group) = group else {
+        return Ok(change);
+    };
+    let grouped = inspect(dir, registry)
+        .map_err(|e| ops::EditError::Invalid(e.to_string()))
+        .and_then(|project| ops::group_repeated(dir, &project, id, group, GROUP_KIND, GROUP_PORT));
+    match grouped {
+        Ok(later) => Ok(change.then(later)),
+        Err(e) => {
+            let _ = change.undo();
+            Err(e)
+        }
+    }
+}
+
+fn group_label(group: &Option<String>) -> String {
+    group
+        .as_ref()
+        .map(|g| format!(", grouped by {g}"))
+        .unwrap_or_default()
+}
+
 pub fn uses<'a>(consumers: impl IntoIterator<Item = &'a Consumer>) -> String {
     consumers
         .into_iter()

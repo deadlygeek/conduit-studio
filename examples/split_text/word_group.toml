@@ -1,0 +1,5 @@
+# Every item of word, kept in step with its outputs; two letters go through tweaks
+type = "group"
+
+[inputs]
+layers = ["word.char1", "word.char2", "red_l", "word.char4", "tilted_o"]

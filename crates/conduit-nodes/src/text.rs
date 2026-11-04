@@ -510,7 +510,11 @@ impl SplitText {
         NodeSpec {
             kind: "split_text",
             inputs: vec![],
-            outputs: vec![PortSpec::new("char", ValueType::Layer).repeated(&["text"])],
+            outputs: vec![
+                PortSpec::new("char", ValueType::Layer)
+                    .repeated(&["text"])
+                    .grouped(),
+            ],
             params,
             gui: false,
         }

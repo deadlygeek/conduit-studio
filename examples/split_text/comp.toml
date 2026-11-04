@@ -1,6 +1,6 @@
-# The letters drawn back together, with the two tweaked ones swapped in
+# The word drawn onto the canvas
 type = "composite"
 
 [inputs]
 base = "bg"
-layers = ["word.char1", "word.char2", "red_l", "word.char4", "tilted_o"]
+layers = ["word_group"]

@@ -1,0 +1,5 @@
+# Every item of grid, kept in step with its outputs; copy 6 goes through its tint
+type = "group"
+
+[inputs]
+layers = ["grid.out1", "grid.out2", "grid.out3", "grid.out4", "grid.out5", "odd", "grid.out7", "grid.out8"]

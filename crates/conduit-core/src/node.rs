@@ -23,6 +23,9 @@ pub struct PortSpec {
     /// Outputs only: stands for one output per entry of the table param with the same
     /// name (e.g. a palette's `colors`), named after the entry's key.
     pub entries: bool,
+    /// Outputs only: stands for outputs `{name}1`..`{name}N`, where N is the value of the
+    /// named int param (which must be fixed, see [`ParamSpec::fixed`]).
+    pub repeat: Option<&'static str>,
 }
 
 impl PortSpec {
@@ -34,6 +37,7 @@ impl PortSpec {
             optional: false,
             param: false,
             entries: false,
+            repeat: None,
         }
     }
 
@@ -50,6 +54,12 @@ impl PortSpec {
     /// See [`PortSpec::entries`].
     pub const fn entries(mut self) -> Self {
         self.entries = true;
+        self
+    }
+
+    /// See [`PortSpec::repeat`].
+    pub const fn repeated(mut self, param: &'static str) -> Self {
+        self.repeat = Some(param);
         self
     }
 }
@@ -111,6 +121,9 @@ pub struct ParamSpec {
     /// Value written into new nodes, as a TOML literal (required params).
     pub example: &'static str,
     pub doc: &'static str,
+    /// Gets an input so another node can feed it (number, color and font params only).
+    /// False for params that decide the node's outputs.
+    pub linkable: bool,
 }
 
 impl ParamSpec {
@@ -122,6 +135,7 @@ impl ParamSpec {
             default: None,
             example,
             doc: "",
+            linkable: true,
         }
     }
 
@@ -170,6 +184,12 @@ impl ParamSpec {
     /// Makes the param optional with no default (e.g. "use the node id").
     pub fn optional(mut self) -> Self {
         self.required = false;
+        self
+    }
+
+    /// Typed into the node file only: no input feeds it (see [`ParamSpec::linkable`]).
+    pub fn fixed(mut self) -> Self {
+        self.linkable = false;
         self
     }
 
@@ -287,6 +307,23 @@ impl NodeSpec {
     pub fn outputs_for(&self, params: &toml::Table) -> Vec<(String, ValueType)> {
         let mut out = Vec::new();
         for port in &self.outputs {
+            if let Some(param) = port.repeat {
+                // Out-of-range counts are clamped here; load reports them.
+                let spec = self.param(param);
+                let n = params
+                    .get(param)
+                    .and_then(|v| v.as_integer())
+                    .or_else(|| spec?.default_value()?.as_integer())
+                    .unwrap_or(0);
+                let max = match spec.map(|p| &p.kind) {
+                    Some(ParamKind::Int { max, .. }) => *max,
+                    _ => 0,
+                };
+                for i in 1..=n.min(max) {
+                    out.push((format!("{}{i}", port.name), port.ty));
+                }
+                continue;
+            }
             if !port.entries {
                 out.push((port.name.to_string(), port.ty));
                 continue;
@@ -321,7 +358,17 @@ impl NodeSpec {
     ///
     /// Panics if a number param has no default or a param's name clashes with an input.
     pub fn with_param_inputs(mut self) -> Self {
-        for p in &self.params {
+        for param in self.outputs.iter().filter_map(|o| o.repeat) {
+            let p = self.param(param);
+            assert!(
+                p.is_some_and(|p| matches!(p.kind, ParamKind::Int { .. })
+                    && p.default.is_some()
+                    && !p.linkable),
+                "`{}`: repeat param `{param}` must be a fixed int param with a default",
+                self.kind
+            );
+        }
+        for p in self.params.iter().filter(|p| p.linkable) {
             let ty = match p.kind {
                 ParamKind::Int { .. } | ParamKind::Float { .. } => ValueType::Number,
                 ParamKind::Color => ValueType::Color,
@@ -693,6 +740,44 @@ mod tests {
             "{}",
             spec.template()
         );
+    }
+
+    fn repeat_spec(count: ParamSpec) -> NodeSpec {
+        NodeSpec {
+            kind: "dup",
+            inputs: vec![],
+            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated("count")],
+            params: vec![count],
+            gui: false,
+        }
+    }
+
+    #[test]
+    fn repeated_outputs_follow_their_param() {
+        let spec = repeat_spec(ParamSpec::int("count", 1, 4, "2").default("2").fixed())
+            .with_param_inputs();
+        let names = |s: &str| -> Vec<String> {
+            spec.outputs_for(&toml::from_str(s).unwrap())
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect()
+        };
+        assert_eq!(names(""), ["out1", "out2"]);
+        assert_eq!(names("count = 3"), ["out1", "out2", "out3"]);
+        assert_eq!(names("count = 99").len(), 4);
+        assert_eq!(names("count = -1"), Vec::<String>::new());
+        assert_eq!(
+            spec.output_type(&toml::Table::new(), "out2"),
+            Some(ValueType::Layer)
+        );
+        // A fixed param gets no input.
+        assert!(spec.input("count").is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "must be a fixed int param")]
+    fn repeat_params_must_be_fixed() {
+        let _ = repeat_spec(ParamSpec::int("count", 1, 4, "2").default("2")).with_param_inputs();
     }
 
     #[test]

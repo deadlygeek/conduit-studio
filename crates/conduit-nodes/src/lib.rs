@@ -3,6 +3,7 @@
 
 mod color;
 mod composite;
+mod duplicate;
 mod effect;
 pub mod font;
 mod hsl;
@@ -25,6 +26,7 @@ use conduit_core::Registry;
 
 pub use color::ColorNode;
 pub use composite::Composite;
+pub use duplicate::Duplicate;
 pub use font::Font;
 pub use hsl::Hsl;
 pub use image::Image;
@@ -49,6 +51,7 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Hsl);
     registry.register(Tint);
     registry.register(Invert);
+    registry.register(Duplicate);
     registry.register(Composite);
     registry.register(Preview);
     registry.register(Int);

@@ -1,0 +1,7 @@
+# 300x100 canvas
+type = "rect"
+
+[params]
+color = "#f4f1ea"
+width = 300
+height = 100

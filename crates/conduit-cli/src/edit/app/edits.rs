@@ -385,9 +385,7 @@ impl App {
                 let ty = self
                     .param_input_type(&param)
                     .ok_or("not a linkable param")?;
-                let output = output_of(&spec, ty)
-                    .ok_or("no matching output")?
-                    .to_string();
+                let output = output_of(&spec, ty).ok_or("no matching output")?;
                 // Start the new node at the param's current value.
                 let params = match (self.current_value(&param), param_input_of(&spec, ty)) {
                     (Some(value), Some(name)) => {
@@ -418,9 +416,7 @@ impl App {
             Prompt::FeedInputId { kind, port } => {
                 let spec = self.spec(&kind)?;
                 let target = self.input_spec(&port).ok_or("no such input")?.clone();
-                let output = output_of(&spec, target.ty)
-                    .ok_or("no matching output")?
-                    .to_string();
+                let output = output_of(&spec, target.ty).ok_or("no matching output")?;
                 let label = format!("added {input} ({kind}) feeding {focus}.{port}");
                 self.apply(label, |dir, _| {
                     ops::add_feeding_to(
@@ -1080,12 +1076,13 @@ fn type_label(spec: &NodeSpec) -> String {
     )
 }
 
-/// The first (fixed) output that can feed a `ty` param.
-fn output_of(spec: &NodeSpec, ty: ValueType) -> Option<&'static str> {
-    spec.outputs
-        .iter()
-        .find(|o| !o.entries && o.ty.coerces_to(ty))
-        .map(|o| o.name)
+/// The first output of a new node of this kind (default params, so no palette entries)
+/// that can feed a `ty` param.
+fn output_of(spec: &NodeSpec, ty: ValueType) -> Option<String> {
+    spec.outputs_for(&toml::Table::new())
+        .into_iter()
+        .find(|(_, t)| t.coerces_to(ty))
+        .map(|(name, _)| name)
 }
 
 /// The param a new feeding node is seeded with (e.g. `int`'s `value`, `color`'s `color`).

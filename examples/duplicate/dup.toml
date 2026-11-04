@@ -1,0 +1,8 @@
+# Three copies of the tile: outputs dup.out1, dup.out2, dup.out3
+type = "duplicate"
+
+[inputs]
+layer = "tile"
+
+[params]
+count = 3

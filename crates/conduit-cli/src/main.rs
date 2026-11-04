@@ -202,6 +202,11 @@ fn print_nodes(registry: &Registry) {
                 println!("  out  <name>     {} (one per entry of `{}`)", p.ty, p.name);
                 continue;
             }
+            if let Some(param) = p.repeat {
+                let name = format!("{0}1..{0}N", p.name);
+                println!("  out  {name:<10} {} (one per `{param}`)", p.ty);
+                continue;
+            }
             println!("  out  {:<10} {}", p.name, p.ty);
         }
         for p in &spec.params {

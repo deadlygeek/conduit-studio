@@ -213,6 +213,7 @@ onto a canvas (`composite`) or realized (`realize`).
 | `hsl` | `layer`: layer | `hue`, `saturation`, `lightness`, `alpha` (as on `color`) — see [Color effects](#color-effects) | layer: every pixel adjusted |
 | `tint` | `layer`: layer | `black` (default black), `white` (default white), `amount` (0–100, default 100) — see [Color effects](#color-effects) | layer: each pixel's lightness mapped between `black` and `white` |
 | `invert` | `layer`: layer | — | layer: colors inverted, alpha kept |
+| `duplicate` | `layer`: layer | `count` (1–32, default 2; not linkable) | `out1` … `outN`: the same layer, once per output (no `out`) — see [Duplicating](#duplicating) |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
@@ -243,6 +244,26 @@ After Effects' y-down directions:
 - To apply a pixel effect after a transform, `realize` the layer first: it renders the
   layer onto its own bounding box (no canvas, so nothing is clipped) and still lands in the
   same place.
+
+### Duplicating
+
+Any output can already feed several inputs. `duplicate` makes that split a node of its own,
+with numbered outputs, so each copy can go on to its own transform:
+
+```toml
+# dup.toml
+type = "duplicate"
+
+[inputs]
+layer = "tile"
+
+[params]
+count = 3          # outputs dup.out1, dup.out2, dup.out3
+```
+
+No pixels are copied. `count` decides which outputs exist, so it's typed in, never linked.
+Lowering it while `dup.out3` is still used is a load error until whatever uses it is reconnected.
+`examples/duplicate` places three copies of one square side by side.
 
 ### Color effects
 
@@ -505,6 +526,7 @@ examples/text      text in system fonts, colored and transformed
 examples/effects   hsl, tint and invert, including after a rotation
 examples/image     image files from the project's assets/ folder
 examples/font      text in a font file kept in the project
+examples/duplicate one layer duplicated and each copy moved
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks the
@@ -529,7 +551,8 @@ examples/font      text in a font file kept in the project
   hex lists, CSS/JSON exports, GIMP palettes) in `conduit-core/src/palette.rs`.
 - A palette's colors are outputs because its output port is marked `.entries()`: the
   node's actual outputs are the keys of the `[params.colors]` table
-  (`NodeSpec::outputs_for(params)`).
+  (`NodeSpec::outputs_for(params)`). Likewise a port marked `.repeated("count")` stands for
+  `out1`…`outN` (`duplicate`); its count param is `.fixed()`, so it gets no input.
 - **IPC format** (`conduit-ipc`): each message is a `u32` little-endian length followed by
   a one-byte tag: `1` frame (`u32` width, `u32` height, RGBA bytes), `2` error (UTF-8 text),
   `3` close. A preview window exits when its stdin closes, so stopping the runner closes

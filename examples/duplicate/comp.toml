@@ -1,0 +1,6 @@
+# Each copy drawn onto the canvas in its own place
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["copy1", "copy2", "copy3"]

@@ -905,15 +905,19 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
                 }),
         );
     }
-    rows.extend(
-        node.spec
-            .iter()
-            .flat_map(|s| &s.outputs)
-            .filter(|o| !o.entries)
-            .map(|o| Row::Output {
-                port: o.name.to_string(),
-            }),
-    );
+    // Every output except palette entries, which are listed above (repeated outputs such
+    // as a `duplicate`'s `out1`, `out2` follow the node's params).
+    if let Some(spec) = &node.spec {
+        let mut params = node.params.clone();
+        for o in spec.outputs.iter().filter(|o| o.entries) {
+            params.remove(o.name);
+        }
+        rows.extend(
+            spec.outputs_for(&params)
+                .into_iter()
+                .map(|(port, _)| Row::Output { port }),
+        );
+    }
     let prefix = format!("{}: ", node.path.display());
     rows.extend(project.errors_for(&node.id).into_iter().map(|e| {
         let text = e.to_string();

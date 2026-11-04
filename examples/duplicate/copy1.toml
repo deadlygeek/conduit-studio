@@ -1,0 +1,9 @@
+# Copy 1, placed at x = 30
+type = "transform"
+
+[inputs]
+layer = "dup.out1"
+
+[params]
+x = 30
+y = 30

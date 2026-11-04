@@ -1,0 +1,7 @@
+# 40x40 square, the image that gets duplicated
+type = "rect"
+
+[params]
+color = "#e76f51"
+width = 40
+height = 40

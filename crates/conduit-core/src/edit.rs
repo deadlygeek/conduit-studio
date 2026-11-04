@@ -378,7 +378,7 @@ pub fn add_feeding_to(
     port: &str,
     multi: bool,
 ) -> EditResult<Change> {
-    if spec.output(output).is_none() {
+    if spec.output_type(params, output).is_none() {
         return Err(EditError::Invalid(format!(
             "`{}` has no output `{output}`",
             spec.kind
@@ -436,10 +436,12 @@ pub fn insert_between(
                 spec.kind
             ))
         })?;
+    // A new node has default params, so e.g. a `duplicate`'s outputs are `out1`, `out2`.
     let new_output = spec
-        .outputs
-        .iter()
-        .find(|o| o.ty.coerces_to(target_port.ty))
+        .outputs_for(&toml::Table::new())
+        .into_iter()
+        .find(|(_, ty)| ty.coerces_to(target_port.ty))
+        .map(|(name, _)| name)
         .ok_or_else(|| {
             EditError::Invalid(format!(
                 "`{}` has no output usable as {}",
@@ -448,7 +450,7 @@ pub fn insert_between(
         })?;
     let new_ref = Reference {
         node: new_id.to_string(),
-        port: new_output.name.to_string(),
+        port: new_output,
     };
 
     transact(|tx| {
@@ -1180,6 +1182,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::node::{ParamSpec, PortSpec};
     use crate::project::inspect;
     use crate::test_nodes::registry;
 
@@ -1495,6 +1498,20 @@ mod tests {
             "comment kept: {}",
             f.read("s")
         );
+    }
+
+    #[test]
+    fn insert_between_uses_a_new_nodes_actual_outputs() {
+        let f = fixture();
+        let project = f.project();
+        // A kind whose outputs are numbered by a param (like `duplicate`): a new node has
+        // the default count, so it connects through `out1`, never the port's bare name.
+        let mut dup = registry().spec("pass").unwrap().clone();
+        let ty = dup.outputs[0].ty;
+        dup.outputs = vec![PortSpec::new("out", ty).repeated("count")];
+        dup.params = vec![ParamSpec::int("count", 1, 4, "2").default("2").fixed()];
+        insert_between(f.path(), &project, "s", "items", 1, "d", &dup).unwrap();
+        assert!(f.read("s").contains("\"d.out1\""), "{}", f.read("s"));
     }
 
     #[test]

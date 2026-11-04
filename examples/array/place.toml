@@ -1,0 +1,9 @@
+# Where the first copy goes; the grid grows right and down from here
+type = "transform"
+
+[inputs]
+layer = "tile"
+
+[params]
+x = 15
+y = 15

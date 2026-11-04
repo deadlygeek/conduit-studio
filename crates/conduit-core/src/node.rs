@@ -23,9 +23,11 @@ pub struct PortSpec {
     /// Outputs only: stands for one output per entry of the table param with the same
     /// name (e.g. a palette's `colors`), named after the entry's key.
     pub entries: bool,
-    /// Outputs only: stands for outputs `{name}1`..`{name}N`, where N is the value of the
-    /// named int param (which must be fixed, see [`ParamSpec::fixed`]).
-    pub repeat: Option<&'static str>,
+    /// Outputs only: stands for outputs `{name}1`..`{name}N`, where N is the product of
+    /// the named params, each fixed (see [`ParamSpec::fixed`]): an int param counts as its
+    /// value, a text param as its number of non-whitespace characters. Empty for an
+    /// ordinary output.
+    pub repeat: &'static [&'static str],
 }
 
 impl PortSpec {
@@ -37,7 +39,7 @@ impl PortSpec {
             optional: false,
             param: false,
             entries: false,
-            repeat: None,
+            repeat: &[],
         }
     }
 
@@ -58,8 +60,8 @@ impl PortSpec {
     }
 
     /// See [`PortSpec::repeat`].
-    pub const fn repeated(mut self, param: &'static str) -> Self {
-        self.repeat = Some(param);
+    pub const fn repeated(mut self, params: &'static [&'static str]) -> Self {
+        self.repeat = params;
         self
     }
 }
@@ -281,6 +283,9 @@ pub fn float_value(v: f64) -> toml::Value {
     }
 }
 
+/// The most outputs a repeated output (see [`PortSpec::repeat`]) can stand for.
+pub const MAX_REPEAT: usize = 256;
+
 /// Static description of a node kind.
 #[derive(Debug, Clone)]
 pub struct NodeSpec {
@@ -307,19 +312,8 @@ impl NodeSpec {
     pub fn outputs_for(&self, params: &toml::Table) -> Vec<(String, ValueType)> {
         let mut out = Vec::new();
         for port in &self.outputs {
-            if let Some(param) = port.repeat {
-                // Out-of-range counts are clamped here; load reports them.
-                let spec = self.param(param);
-                let n = params
-                    .get(param)
-                    .and_then(|v| v.as_integer())
-                    .or_else(|| spec?.default_value()?.as_integer())
-                    .unwrap_or(0);
-                let max = match spec.map(|p| &p.kind) {
-                    Some(ParamKind::Int { max, .. }) => *max,
-                    _ => 0,
-                };
-                for i in 1..=n.min(max) {
+            if !port.repeat.is_empty() {
+                for i in 1..=self.repeat_count(port, params) {
                     out.push((format!("{}{i}", port.name), port.ty));
                 }
                 continue;
@@ -336,6 +330,30 @@ impl NodeSpec {
             }
         }
         out
+    }
+
+    /// How many outputs a repeated output (see [`PortSpec::repeat`]) stands for with these
+    /// params. Out-of-range ints are clamped to 0..=max here (load reports them), and
+    /// the total is capped at [`MAX_REPEAT`].
+    pub fn repeat_count(&self, port: &PortSpec, params: &toml::Table) -> usize {
+        let mut n: usize = 1;
+        for name in port.repeat {
+            let Some(spec) = self.param(name) else {
+                return 0;
+            };
+            let value = params.get(*name).cloned().or_else(|| spec.default_value());
+            let count = match (&spec.kind, value) {
+                (ParamKind::Int { max, .. }, Some(toml::Value::Integer(v))) => {
+                    v.clamp(0, (*max).max(0)) as usize
+                }
+                (ParamKind::Text, Some(toml::Value::String(t))) => {
+                    t.chars().filter(|c| !c.is_whitespace()).count()
+                }
+                _ => 0,
+            };
+            n = n.saturating_mul(count);
+        }
+        n.min(MAX_REPEAT)
     }
 
     /// The type of output `port` on a node with these params.
@@ -358,13 +376,17 @@ impl NodeSpec {
     ///
     /// Panics if a number param has no default or a param's name clashes with an input.
     pub fn with_param_inputs(mut self) -> Self {
-        for param in self.outputs.iter().filter_map(|o| o.repeat) {
+        for param in self.outputs.iter().flat_map(|o| o.repeat) {
             let p = self.param(param);
             assert!(
-                p.is_some_and(|p| matches!(p.kind, ParamKind::Int { .. })
-                    && p.default.is_some()
-                    && !p.linkable),
-                "`{}`: repeat param `{param}` must be a fixed int param with a default",
+                p.is_some_and(|p| !p.linkable
+                    && match p.kind {
+                        ParamKind::Int { .. } => p.default.is_some(),
+                        ParamKind::Text => true,
+                        _ => false,
+                    }),
+                "`{}`: repeat param `{param}` must be a fixed int param with a default, \
+                 or a fixed text param",
                 self.kind
             );
         }
@@ -500,6 +522,49 @@ pub trait Node: Send + Sync {
     fn files(&self, _params: &toml::Table) -> Vec<PathBuf> {
         Vec::new()
     }
+
+    /// For nodes that generate several outputs (`array`, `split_text`): the ordinary nodes
+    /// that would produce the same outputs, so an editor can replace this node with them
+    /// for good ("detach"). Takes what [`Node::eval`] takes. `None` if the kind can't be
+    /// detached.
+    fn detach(
+        &self,
+        _inputs: &Inputs,
+        _params: &toml::Table,
+        _ctx: &mut EvalCtx,
+    ) -> Option<NodeResult<DetachPlan>> {
+        None
+    }
+}
+
+/// What a node becomes when detached (see [`Node::detach`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetachPlan {
+    pub nodes: Vec<DetachedNode>,
+    /// For each output of the detached node, the new node (by [`DetachedNode::name`])
+    /// whose `out` replaces it.
+    pub outputs: Vec<(String, String)>,
+}
+
+/// One node of a [`DetachPlan`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetachedNode {
+    /// Appended to the detached node's id: `grid` + `out6` → `grid_out6`.
+    pub name: String,
+    /// The first line of the new file, as a comment.
+    pub comment: String,
+    pub kind: &'static str,
+    pub inputs: Vec<(String, DetachedSource)>,
+    pub params: toml::Table,
+}
+
+/// Where an input of a [`DetachedNode`] comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetachedSource {
+    /// Whatever fed this input port of the detached node (left out if nothing did).
+    Input(String),
+    /// Another node of the same plan, by [`DetachedNode::name`].
+    Node(String),
 }
 
 /// Deserializes a node's `[params]` table into its typed params struct.
@@ -746,7 +811,7 @@ mod tests {
         NodeSpec {
             kind: "dup",
             inputs: vec![],
-            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated("count")],
+            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated(&["count"])],
             params: vec![count],
             gui: false,
         }
@@ -772,6 +837,44 @@ mod tests {
         );
         // A fixed param gets no input.
         assert!(spec.input("count").is_none());
+    }
+
+    #[test]
+    fn repeated_outputs_multiply_their_params() {
+        let spec = NodeSpec {
+            kind: "grid",
+            inputs: vec![],
+            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated(&["cols", "rows"])],
+            params: vec![
+                ParamSpec::int("cols", 1, 10, "3").default("3").fixed(),
+                ParamSpec::int("rows", 1, 10, "1").default("1").fixed(),
+            ],
+            gui: false,
+        }
+        .with_param_inputs();
+        let count = |s: &str| spec.outputs_for(&toml::from_str(s).unwrap()).len();
+        assert_eq!(count(""), 3);
+        assert_eq!(count("rows = 2"), 6);
+        assert_eq!(count("cols = 10\nrows = 10"), 100);
+    }
+
+    #[test]
+    fn repeated_outputs_count_text_characters() {
+        let spec = NodeSpec {
+            kind: "split",
+            inputs: vec![],
+            outputs: vec![PortSpec::new("char", ValueType::Layer).repeated(&["text"])],
+            params: vec![ParamSpec::text("text", "\"Hi\"").fixed()],
+            gui: false,
+        }
+        .with_param_inputs();
+        let count = |s: &str| spec.outputs_for(&toml::from_str(s).unwrap()).len();
+        assert_eq!(count(""), 0, "missing text: no outputs");
+        assert_eq!(count("text = \"HELLO\""), 5);
+        assert_eq!(count("text = \"a b\\nc\""), 3, "whitespace is skipped");
+        assert_eq!(count("text = \"é✓\""), 2, "characters, not bytes");
+        let long = format!("text = \"{}\"", "x".repeat(1000));
+        assert_eq!(count(&long), MAX_REPEAT);
     }
 
     #[test]

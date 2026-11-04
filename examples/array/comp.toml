@@ -1,0 +1,6 @@
+# Every copy drawn onto the canvas, with copy 6 swapped for its tinted version
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["grid.out1", "grid.out2", "grid.out3", "grid.out4", "grid.out5", "odd", "grid.out7", "grid.out8"]

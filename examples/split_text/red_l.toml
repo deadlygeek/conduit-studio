@@ -1,0 +1,9 @@
+# The third letter (the first L) recoloured on its own
+type = "tint"
+
+[inputs]
+layer = "word.char3"
+
+[params]
+black = "#e76f51"
+white = "#e76f51"

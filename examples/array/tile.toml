@@ -1,0 +1,7 @@
+# 30x30 square, the image that gets repeated
+type = "rect"
+
+[params]
+color = "#e76f51"
+width = 30
+height = 30

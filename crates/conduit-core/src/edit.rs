@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, TableLike};
 
 use crate::graph::{Reference, is_ident};
-use crate::node::NodeSpec;
+use crate::node::{DetachPlan, DetachedSource, NodeSpec};
 use crate::project::{Consumer, Project};
 use crate::value::ValueType;
 
@@ -531,6 +531,81 @@ pub fn delete_node(dir: &Path, project: &Project, id: &str) -> EditResult<Change
         for consumer in consumer_ids(project, id, |c| c.node != id) {
             tx.update(&node_path(dir, consumer), |doc| {
                 remove_references(doc, |r| r.node == id);
+                Ok(())
+            })?;
+        }
+        tx.remove(&node.path)
+    })
+}
+
+/// Replaces node `id` with the nodes of `plan` (from [`crate::detach_plan`]), named
+/// `{id}_{name}`, rewires every use of its outputs to them, and deletes its file. There is
+/// no link back: what the new nodes show was worked out once, now.
+pub fn detach_node(
+    dir: &Path,
+    project: &Project,
+    id: &str,
+    plan: &DetachPlan,
+) -> EditResult<Change> {
+    let node = project.get(id).ok_or_else(|| missing(id))?;
+    let new_id = |name: &str| format!("{id}_{name}");
+    transact(|tx| {
+        for new in &plan.nodes {
+            let mut doc = DocumentMut::new();
+            doc.insert("type", toml_edit::value(new.kind));
+            let mut inputs = toml_edit::Table::new();
+            for (port, source) in &new.inputs {
+                let refs: Vec<String> = match source {
+                    DetachedSource::Input(from) => node
+                        .inputs
+                        .get(from)
+                        .into_iter()
+                        .flatten()
+                        .map(Reference::short)
+                        .collect(),
+                    DetachedSource::Node(name) => vec![new_id(name)],
+                };
+                let value = match refs.as_slice() {
+                    [] => continue,
+                    [one] => toml_edit::Value::from(one.as_str()),
+                    many => many
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<toml_edit::Array>()
+                        .into(),
+                };
+                inputs.insert(port, toml_edit::value(value));
+            }
+            if !inputs.is_empty() {
+                doc.insert("inputs", Item::Table(inputs));
+            }
+            let mut params = toml_edit::Table::new();
+            for (name, value) in &new.params {
+                params.insert(name, toml_edit::value(to_edit_value(value)?));
+            }
+            if !params.is_empty() {
+                doc.insert("params", Item::Table(params));
+            }
+            add_raw(
+                tx,
+                dir,
+                &new_id(&new.name),
+                &format!("# {}\n{doc}", new.comment),
+            )?;
+        }
+
+        for consumer in consumer_ids(project, id, |c| c.node != id) {
+            tx.update(&node_path(dir, consumer), |doc| {
+                rewrite_references(doc, |r| {
+                    let (_, name) = plan
+                        .outputs
+                        .iter()
+                        .find(|(out, _)| r.node == id && *out == r.port)?;
+                    Some(Reference {
+                        node: new_id(name),
+                        port: "out".into(),
+                    })
+                });
                 Ok(())
             })?;
         }
@@ -1508,7 +1583,7 @@ mod tests {
         // the default count, so it connects through `out1`, never the port's bare name.
         let mut dup = registry().spec("pass").unwrap().clone();
         let ty = dup.outputs[0].ty;
-        dup.outputs = vec![PortSpec::new("out", ty).repeated("count")];
+        dup.outputs = vec![PortSpec::new("out", ty).repeated(&["count"])];
         dup.params = vec![ParamSpec::int("count", 1, 4, "2").default("2").fixed()];
         insert_between(f.path(), &project, "s", "items", 1, "d", &dup).unwrap();
         assert!(f.read("s").contains("\"d.out1\""), "{}", f.read("s"));

@@ -20,7 +20,7 @@ impl Node for Duplicate {
         NodeSpec {
             kind: "duplicate",
             inputs: vec![PortSpec::new("layer", ValueType::Layer)],
-            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated("count")],
+            outputs: vec![PortSpec::new("out", ValueType::Layer).repeated(&["count"])],
             params: vec![
                 ParamSpec::int("count", 1, 32, "2")
                     .default("2")

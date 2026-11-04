@@ -1,0 +1,7 @@
+# 180x100 canvas
+type = "rect"
+
+[params]
+color = "#f4f1ea"
+width = 180
+height = 100

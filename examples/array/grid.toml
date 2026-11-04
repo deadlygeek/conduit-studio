@@ -1,0 +1,11 @@
+# 4 x 2 grid with 10px gaps: outputs grid.out1 … grid.out8, across then down
+type = "array"
+
+[inputs]
+layer = "place"
+
+[params]
+columns = 4
+rows = 2
+gap_x = 10
+gap_y = 10

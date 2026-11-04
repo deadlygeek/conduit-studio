@@ -1,0 +1,10 @@
+# HELLO, one layer per letter: word.char1 … word.char5
+type = "split_text"
+
+[params]
+text = "HELLO"
+size = 96
+weight = 700
+color = "#264653"
+x = 40
+y = 20

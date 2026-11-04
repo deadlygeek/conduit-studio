@@ -1,0 +1,7 @@
+# 400x160 canvas
+type = "rect"
+
+[params]
+color = "#f4f1ea"
+width = 400
+height = 160

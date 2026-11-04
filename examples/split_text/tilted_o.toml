@@ -1,0 +1,8 @@
+# The last letter turned about its own centre
+type = "transform"
+
+[inputs]
+layer = "word.char5"
+
+[params]
+rotate = 20

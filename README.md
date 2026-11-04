@@ -214,6 +214,8 @@ onto a canvas (`composite`) or realized (`realize`).
 | `tint` | `layer`: layer | `black` (default black), `white` (default white), `amount` (0–100, default 100) — see [Color effects](#color-effects) | layer: each pixel's lightness mapped between `black` and `white` |
 | `invert` | `layer`: layer | — | layer: colors inverted, alpha kept |
 | `duplicate` | `layer`: layer | `count` (1–32, default 2; not linkable) | `out1` … `outN`: the same layer, once per output (no `out`) — see [Duplicating](#duplicating) |
+| `array` | `layer`: layer | `columns`, `rows` (1–64, default 3 × 1; not linkable), `gap_x`, `gap_y`, `rotate_step`, `scale_step` — see [Arrays](#arrays) | `out1` … `outN`: one copy per cell, across then down (no `out`) |
+| `split_text` | — | `text`'s params, plus `x`, `y` (where the text box goes); `text` isn't linkable — see [Arrays](#arrays) | `char1` … `charN`: one layer per character, spaces and line breaks skipped (no `out`) |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
@@ -264,6 +266,58 @@ count = 3          # outputs dup.out1, dup.out2, dup.out3
 No pixels are copied. `count` decides which outputs exist, so it's typed in, never linked.
 Lowering it while `dup.out3` is still used is a load error until whatever uses it is reconnected.
 `examples/duplicate` places three copies of one square side by side.
+
+### Arrays
+
+`array` repeats a layer in a row, column or grid, like Blender's Array modifier, and
+`split_text` sets text with each character as a layer of its own. Both give every item
+its own output, already in place, so you can tweak one item by hanging a node off its
+output:
+
+```toml
+# grid.toml: outputs grid.out1 … grid.out8, across then down
+type = "array"
+
+[inputs]
+layer = "tile"
+
+[params]
+columns = 4
+rows = 2
+gap_x = 10        # between cells; a cell is the layer's bounding box
+gap_y = 10
+rotate_step = 0   # each copy turns this many degrees more than the one before
+scale_step = 1    # … and is this many times the size
+
+# word.toml: outputs word.char1 … word.char5
+type = "split_text"
+
+[params]
+text = "HELLO"
+size = 96
+x = 40            # where the text box's top-left goes (one transform can't move them all)
+y = 20
+```
+
+The items stay derived: change the tile or the word and every item follows. The number of
+outputs follows the params too (`columns × rows`, or the number of characters), so if
+"HELLO" becomes "HI" while `word.char5` is still used, that's a load error until whatever
+uses it is reconnected. Nothing guesses which letter you meant.
+
+`split_text` shapes the whole text once, so kerning is kept, and turns ligatures off so
+"fi" is two letters. Each letter's image is just its ink, so a `transform` turns it about
+its own centre.
+
+**Detaching** replaces an `array` or `split_text` with ordinary nodes, for good: each copy
+becomes a `transform` (named `grid_out1`, …), and each letter becomes a one-character
+`text` (`word_char1_text`) plus a `transform` (`word_char1`). Everything that used an
+output is rewired to the new node. After that, nothing links back. Detached letters keep
+the spacing they had, so changing the font or size later won't re-kern them. In
+`conduit edit`'s flow view, `X` on the node detaches it (it asks first; `u` undoes). In code,
+`conduit_core::detach_plan` works out the nodes and `edit::detach_node` writes them.
+
+`examples/array` tints one tile of a grid, and `examples/split_text` recolours one letter
+and turns another.
 
 ### Color effects
 
@@ -527,6 +581,8 @@ examples/effects   hsl, tint and invert, including after a rotation
 examples/image     image files from the project's assets/ folder
 examples/font      text in a font file kept in the project
 examples/duplicate one layer duplicated and each copy moved
+examples/array     a grid of one tile, with one copy tinted
+examples/split_text a word split into letters, one recoloured and one turned
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks the
@@ -551,8 +607,13 @@ examples/duplicate one layer duplicated and each copy moved
   hex lists, CSS/JSON exports, GIMP palettes) in `conduit-core/src/palette.rs`.
 - A palette's colors are outputs because its output port is marked `.entries()`: the
   node's actual outputs are the keys of the `[params.colors]` table
-  (`NodeSpec::outputs_for(params)`). Likewise a port marked `.repeated("count")` stands for
-  `out1`…`outN` (`duplicate`); its count param is `.fixed()`, so it gets no input.
+  (`NodeSpec::outputs_for(params)`). Likewise a port marked `.repeated(&["count"])` stands
+  for `out1`…`outN` (`duplicate`). N is the product of the named params (`array`'s
+  `columns × rows`), where a text param counts its non-whitespace characters
+  (`split_text`). Those params are `.fixed()`, so they get no input.
+- A node that generates several outputs can implement `Node::detach`. It returns the
+  ordinary nodes that would produce the same outputs, worked out from its evaluated
+  inputs.
 - **IPC format** (`conduit-ipc`): each message is a `u32` little-endian length followed by
   a one-byte tag: `1` frame (`u32` width, `u32` height, RGBA bytes), `2` error (UTF-8 text),
   `3` close. A preview window exits when its stdin closes, so stopping the runner closes

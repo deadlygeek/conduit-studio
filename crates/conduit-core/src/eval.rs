@@ -5,7 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Graph, GraphNode, Reference};
-use crate::node::{EvalCtx, GuiHost, Inputs, Node, NodeSpec, ParamKind};
+use crate::node::{DetachPlan, EvalCtx, GuiHost, Inputs, Node, NodeSpec, NullHost, ParamKind};
 use crate::registry::Registry;
 use crate::value::Value;
 
@@ -180,14 +180,65 @@ fn fingerprint(
     h.finish()
 }
 
-fn eval_node(
+/// Plans replacing node `id` with ordinary nodes (see [`Node::detach`]): evaluates what
+/// feeds it (no windows open), then asks the node.
+pub fn detach_plan(graph: &Graph, registry: &Registry, id: &str) -> Result<DetachPlan, EvalError> {
+    let node_error = |message: String| EvalError::Node {
+        node: id.to_string(),
+        message,
+    };
+    let target = graph
+        .nodes
+        .iter()
+        .position(|n| n.id == id)
+        .ok_or_else(|| node_error("no such node".into()))?;
+    // Everything that feeds the node comes before it in evaluation order.
+    let mut values = Values::new();
+    for node in &graph.nodes[..target] {
+        let spec = registry
+            .spec(&node.kind)
+            .expect("graph loaded with this registry");
+        let node_impl = registry
+            .get(&node.kind)
+            .expect("graph loaded with this registry");
+        values.extend(eval_node(
+            node,
+            spec,
+            node_impl,
+            &graph.root,
+            &values,
+            &mut NullHost,
+        )?);
+    }
+    let node = &graph.nodes[target];
+    let spec = registry
+        .spec(&node.kind)
+        .expect("graph loaded with this registry");
+    let node_impl = registry
+        .get(&node.kind)
+        .expect("graph loaded with this registry");
+    let (inputs, params) = node_inputs(node, spec, &values)?;
+    let mut ctx = EvalCtx {
+        node_id: &node.id,
+        root: &graph.root,
+        gui: &mut NullHost,
+    };
+    match node_impl.detach(&inputs, &params, &mut ctx) {
+        Some(plan) => plan.map_err(|e| node_error(e.0)),
+        None => Err(node_error(format!(
+            "`{}` nodes can't be detached",
+            node.kind
+        ))),
+    }
+}
+
+/// A node's inputs as it receives them, and its params with linked inputs written over
+/// them.
+fn node_inputs(
     node: &GraphNode,
     spec: &NodeSpec,
-    node_impl: &dyn Node,
-    root: &Path,
     values: &Values,
-    gui: &mut dyn GuiHost,
-) -> Result<Vec<(Reference, Value)>, EvalError> {
+) -> Result<(Inputs, toml::Table), EvalError> {
     let mut inputs = HashMap::new();
     for (port, refs) in &node.inputs {
         let ty = spec.input(port).expect("port validated at load").ty;
@@ -201,18 +252,33 @@ fn eval_node(
         inputs.insert(port.clone(), port_values);
     }
 
+    let params = linked_params(node, spec, &inputs).map_err(|message| EvalError::Node {
+        node: node.id.clone(),
+        message,
+    })?;
+    Ok((Inputs::new(inputs), params))
+}
+
+fn eval_node(
+    node: &GraphNode,
+    spec: &NodeSpec,
+    node_impl: &dyn Node,
+    root: &Path,
+    values: &Values,
+    gui: &mut dyn GuiHost,
+) -> Result<Vec<(Reference, Value)>, EvalError> {
     let node_error = |message: String| EvalError::Node {
         node: node.id.clone(),
         message,
     };
-    let params = linked_params(node, spec, &inputs).map_err(node_error)?;
+    let (inputs, params) = node_inputs(node, spec, values)?;
     let mut ctx = EvalCtx {
         node_id: &node.id,
         root,
         gui,
     };
     let outputs = node_impl
-        .eval(&Inputs::new(inputs), &params, &mut ctx)
+        .eval(&inputs, &params, &mut ctx)
         .map_err(|e| node_error(e.0))?;
 
     let mut outputs = outputs.values;

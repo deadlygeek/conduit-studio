@@ -1,6 +1,7 @@
 //! Built-in node kinds. To add one: create a module implementing `conduit_core::Node`
 //! and register it in [`register_all`].
 
+mod array;
 mod color;
 mod composite;
 mod duplicate;
@@ -24,6 +25,7 @@ mod test_util;
 
 use conduit_core::Registry;
 
+pub use array::Array;
 pub use color::ColorNode;
 pub use composite::Composite;
 pub use duplicate::Duplicate;
@@ -36,7 +38,7 @@ pub use palette::Palette;
 pub use preview::Preview;
 pub use realize::Realize;
 pub use rect::Rect;
-pub use text::Text;
+pub use text::{SplitText, Text};
 pub use tint::Tint;
 pub use transform::Transform;
 
@@ -52,12 +54,15 @@ pub fn register_all(registry: &mut Registry) {
     registry.register(Tint);
     registry.register(Invert);
     registry.register(Duplicate);
+    registry.register(Array);
     registry.register(Composite);
     registry.register(Preview);
     registry.register(Int);
     registry.register(ColorNode);
     registry.register(Palette);
-    registry.register(Text::system());
+    let text = Text::system();
+    registry.register(text.splitter());
+    registry.register(text);
     registry.register(Font);
 }
 

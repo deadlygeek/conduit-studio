@@ -1,0 +1,9 @@
+# One copy tweaked on its own: the second tile of the second row, recoloured
+type = "tint"
+
+[inputs]
+layer = "grid.out6"
+
+[params]
+black = "#264653"
+white = "#264653"

@@ -133,6 +133,15 @@ pub struct App {
     files: Vec<(String, String)>,
     /// A node picked up with `m`, to be put into the next connection chosen.
     pub carrying: Option<String>,
+    /// Show the flow view (spec `docs/specs/node-editor-ui.md`) instead of the three
+    /// panes; `v` switches while the flow view is being built.
+    pub flow_view: bool,
+    /// The last frame was below the flow view's minimum size (§4.6): only `q` works.
+    pub too_small: bool,
+    /// The flow view's scroll position, and the anchor it was last drawn around (a new
+    /// anchor is a flow change, which re-centres the view).
+    pub viewport: super::canvas::Viewport,
+    pub drawn_anchor: Option<String>,
 }
 
 impl App {
@@ -161,6 +170,10 @@ impl App {
             recent_fonts: Vec::new(),
             files: Vec::new(),
             carrying: None,
+            flow_view: true,
+            too_small: false,
+            viewport: Default::default(),
+            drawn_anchor: None,
         };
         app.focus = app.default_focus();
         app.refresh();
@@ -493,6 +506,9 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(Action::Quit);
         }
+        if self.flow_view && self.too_small {
+            return (key.code == KeyCode::Char('q')).then_some(Action::Quit);
+        }
         match std::mem::replace(&mut self.mode, Mode::Normal) {
             Mode::Normal => self.normal_key(key),
             Mode::Help => None,
@@ -633,6 +649,7 @@ impl App {
         }
         match (self.pane, key.code) {
             (_, KeyCode::Char('q')) => return Some(Action::Quit),
+            (_, KeyCode::Char('v')) => self.flow_view = !self.flow_view,
             (_, KeyCode::Char('?')) => self.mode = Mode::Help,
             (_, KeyCode::Char('/')) => self.open_pick(Pick::FindNode),
 

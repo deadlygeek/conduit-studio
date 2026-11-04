@@ -2,7 +2,9 @@
 //! the renderer running alongside it.
 
 mod app;
+mod canvas;
 mod finder;
+mod flow;
 mod view;
 
 use std::path::Path;

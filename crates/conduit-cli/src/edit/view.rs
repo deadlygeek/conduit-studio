@@ -1,5 +1,5 @@
-//! Draws the editor: title, lineage view (inputs | node | used by), status and key hints,
-//! plus the find and help overlays.
+//! Draws the editor: title, the flow view (or the older lineage view: inputs | node |
+//! used by), status and key hints, plus the find and help overlays.
 
 use conduit_core::{ParamSpec, ProjectNode, Reference, Rgba, TreeItem, parse_color, to_hex};
 use ratatui::Frame;
@@ -9,6 +9,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph};
 
 use super::app::{App, ColorEdit, Mode, Pane, Pick, Row, uses};
+use super::canvas;
+use super::flow::Flow;
 use crate::run::{self, Event, Shown};
 
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -18,19 +20,33 @@ const ACCENT: Color = Color::Cyan;
 const SELECTED_BG: Color = Color::Indexed(237);
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    let screen = frame.area();
+    if app.flow_view {
+        // The flow view paints its own black background (§5.1).
+        frame.buffer_mut().set_style(screen, canvas::STANDARD);
+        app.too_small = screen.width < canvas::MIN_WIDTH || screen.height < canvas::MIN_HEIGHT;
+        if app.too_small {
+            draw_too_small(frame, app, screen);
+            return;
+        }
+    }
     let [title, main, status, keys] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(3),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
-    let [up, node, down] = lineage_areas(main, app.rows.len());
+    .areas(screen);
 
     draw_title(frame, app, title);
-    draw_tree(frame, app, Pane::Up, up);
-    draw_node(frame, app, node);
-    draw_tree(frame, app, Pane::Down, down);
+    if app.flow_view {
+        draw_flow(frame, app, main);
+    } else {
+        let [up, node, down] = lineage_areas(main, app.rows.len());
+        draw_tree(frame, app, Pane::Up, up);
+        draw_node(frame, app, node);
+        draw_tree(frame, app, Pane::Down, down);
+    }
     draw_status(frame, app, status);
     draw_keys(frame, app, keys);
 
@@ -42,6 +58,63 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Mode::Color(edit) => draw_color(frame, edit),
         Mode::Normal => {}
     }
+}
+
+/// The flow around the focused node (§4), or a hint in an empty project (§4.8).
+fn draw_flow(frame: &mut Frame, app: &mut App, area: Rect) {
+    let Some(anchor) = app.focus.clone() else {
+        let hint = ["This project has no nodes yet.", "Press a to add one."];
+        let width = hint.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + area.height.saturating_sub(hint.len() as u16) / 2;
+        for (i, line) in hint.iter().enumerate() {
+            frame
+                .buffer_mut()
+                .set_string(x, y + i as u16, line, canvas::STANDARD);
+        }
+        return;
+    };
+    let flow = Flow::build(&app.project, &anchor);
+    let picture = canvas::draw(&app.project, &flow, Some(&anchor));
+    let recentre = app.drawn_anchor.as_deref() != Some(anchor.as_str());
+    let focus = flow.position(&anchor).unwrap_or(0);
+    app.viewport = app
+        .viewport
+        .follow(&picture, focus, area.width, area.height, recentre);
+    app.drawn_anchor = Some(anchor);
+    picture.blit(frame.buffer_mut(), area, app.viewport.x, app.viewport.y);
+}
+
+/// Below the minimum size the flow isn't drawn (§4.6).
+fn draw_too_small(frame: &mut Frame, app: &App, area: Rect) {
+    let files = app.dir.join("*.toml");
+    let lines = [
+        format!(
+            "The terminal is too small for the editor: {}×{}, needs at least {}×{}.",
+            area.width,
+            area.height,
+            canvas::MIN_WIDTH,
+            canvas::MIN_HEIGHT
+        ),
+        String::new(),
+        "Make the window bigger, or edit the node files by hand:".into(),
+        format!("  {}", files.display()),
+        String::new(),
+        "q quit".into(),
+    ];
+    let text: Vec<Line> = lines.into_iter().map(Line::from).collect();
+    let inner = Rect {
+        x: area.x + 2,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(1),
+    };
+    frame.render_widget(
+        Paragraph::new(text)
+            .style(canvas::STANDARD)
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        inner,
+    );
 }
 
 /// A two-cell block of `c` (blended over the background by its alpha).
@@ -593,6 +666,7 @@ const HELP: &[(&str, &str)] = &[
     ),
     ("space", "in a tree: fold / unfold"),
     ("tab", "cycle panes (esc: back to the node)"),
+    ("v", "switch between the flow view and the three panes"),
     (
         "[ / ]",
         "back / forward through focused nodes (also ctrl-o, backspace)",
@@ -760,11 +834,69 @@ mod tests {
             .join(name)
     }
 
-    /// An app on the project in `dir`, which it calls `shown`.
+    /// An app on the project in `dir`, which it calls `shown`, showing the three panes.
     fn app_at(dir: &Path, shown: &Path) -> App {
+        let mut app = flow_app_at(dir, shown);
+        app.flow_view = false;
+        app
+    }
+
+    /// As [`app_at`], showing the flow view.
+    fn flow_app_at(dir: &Path, shown: &Path) -> App {
         let registry = Arc::new(conduit_nodes::registry());
         let project = inspect(dir, &registry).unwrap();
         App::new(shown.to_path_buf(), project, registry)
+    }
+
+    #[test]
+    fn flow_view_draws_the_flow_around_the_focus() {
+        let mut app = flow_app_at(&example_dir("effects"), Path::new("examples/effects"));
+        let screen = render(&mut app, 80, 24);
+        let lines: Vec<&str> = screen.lines().collect();
+        assert!(lines[0].contains("conduit edit examples/effects"));
+        assert_eq!(
+            lines[3].trim_end(),
+            "    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮"
+        );
+        assert_eq!(
+            lines[6].trim_end(),
+            "    │      out─┼──────┼─base        │  ╭───┼─image     │"
+        );
+        // Black background everywhere, even off the canvas.
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(79, 23)].bg, Color::Black);
+    }
+
+    #[test]
+    fn flow_view_too_small_only_quits() {
+        let mut app = flow_app_at(&example_dir("basic"), Path::new("examples/basic"));
+        let screen = render(&mut app, 62, 18);
+        // The message wraps at this width.
+        assert!(screen.contains("too small for the editor: 62×18"));
+        assert!(screen.contains("80×24."));
+        assert!(screen.contains("examples/basic/*.toml"));
+        let focus = app.focus.clone();
+        app.handle_key(KeyEvent::from(KeyCode::Char('h')));
+        assert_eq!(app.focus, focus);
+        assert_eq!(
+            app.handle_key(KeyEvent::from(KeyCode::Char('q'))),
+            Some(super::super::app::Action::Quit)
+        );
+        // Growing back draws the flow again.
+        let screen = render(&mut app, 80, 24);
+        assert!(screen.contains("╭─ preview"));
+        render(&mut app, 1, 1);
+    }
+
+    #[test]
+    fn flow_view_empty_project_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = flow_app_at(dir.path(), Path::new("story"));
+        let screen = render(&mut app, 80, 24);
+        assert!(screen.contains("This project has no nodes yet."));
+        assert!(screen.contains("Press a to add one."));
     }
 
     fn example() -> App {

@@ -216,6 +216,7 @@ onto a canvas (`composite`) or realized (`realize`).
 | `duplicate` | `layer`: layer | `count` (1–32, default 2; not linkable) | `out1` … `outN`: the same layer, once per output (no `out`) — see [Duplicating](#duplicating) |
 | `array` | `layer`: layer | `columns`, `rows` (1–64, default 3 × 1; not linkable), `gap_x`, `gap_y`, `rotate_step`, `scale_step` — see [Arrays](#arrays) | `out1` … `outN`: one copy per cell, across then down (no `out`) |
 | `split_text` | — | `text`'s params, plus `x`, `y` (where the text box goes); `text` isn't linkable — see [Arrays](#arrays) | `char1` … `charN`: one layer per character, spaces and line breaks skipped (no `out`) |
+| `group` | `layers`: list of layers | — | layer: the layers drawn together, where they were — see [Groups](#groups) |
 | `composite` | `base`: image, `layers`: list of layers (optional) | — | `base` with each layer drawn over it in order (resampled once, alpha blended, clipped to `base`) |
 | `preview` | `image`: image | `title` (optional) | — (shows the image in a window) |
 | `int` | — | `value` (default 0) | number |
@@ -318,6 +319,45 @@ the spacing they had, so changing the font or size later won't re-kern them. In
 
 `examples/array` tints one tile of a grid, and `examples/split_text` recolours one letter
 and turns another.
+
+### Groups
+
+To move, turn or recolour many layers the same way, `group` them and act on the group
+once:
+
+```toml
+# letters.toml
+type = "group"
+
+[inputs]
+layers = ["word.char1", "word.char2", "red_l", "word.char4", "word.char5"]
+
+# tilted.toml: the whole word turns as one piece
+type = "transform"
+
+[inputs]
+layer = "letters"
+
+[params]
+rotate = -10
+```
+
+`group` draws its layers in order onto their joint bounding box and outputs one layer
+that lands where they were, so it goes into `composite` like any other layer, and
+`transform`, `tint` and the other effects work on it unchanged. Like grouping in Figma or
+Merge → Transform in Nuke, a transform of the group turns and scales it about the group's
+centre. `anchor_x` / `anchor_y` move the pivot.
+
+Moving is the same whether the layers move as a group or one by one, but turning isn't. To
+turn each layer about its own centre by the same amount instead, link one `int` into
+each layer's own `transform.rotate` (or `scale`). Tweaks to single layers (`red_l` above)
+go before the group.
+
+The group is pixels: a layer that was rotated or scaled before grouping is drawn into it,
+and a transform of the group resamples it again. Layers moved by whole pixels, such as
+letters and `array` copies, stay exact.
+
+`examples/group` tilts a split word with one recoloured letter.
 
 ### Color effects
 
@@ -583,6 +623,7 @@ examples/font      text in a font file kept in the project
 examples/duplicate one layer duplicated and each copy moved
 examples/array     a grid of one tile, with one copy tinted
 examples/split_text a word split into letters, one recoloured and one turned
+examples/group     a split word grouped and tilted as one piece
 ```
 
 - Non-GUI nodes run inside the `conduit` process. Each render loads every file, checks the

@@ -1,0 +1,6 @@
+# The tilted word on the canvas
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["tilted"]

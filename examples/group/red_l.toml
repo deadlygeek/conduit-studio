@@ -1,0 +1,9 @@
+# One letter tweaked on its own, before grouping
+type = "tint"
+
+[inputs]
+layer = "word.char3"
+
+[params]
+black = "#e76f51"
+white = "#e76f51"

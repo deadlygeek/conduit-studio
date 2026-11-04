@@ -1,0 +1,5 @@
+# The letters drawn together as one layer, so one transform moves them all
+type = "group"
+
+[inputs]
+layers = ["word.char1", "word.char2", "red_l", "word.char4", "word.char5"]

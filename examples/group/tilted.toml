@@ -1,0 +1,8 @@
+# The whole word turned about its centre
+type = "transform"
+
+[inputs]
+layer = "letters"
+
+[params]
+rotate = -10

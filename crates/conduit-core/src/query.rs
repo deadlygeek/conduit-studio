@@ -112,6 +112,42 @@ impl Project {
         source == target || self.descendants(target).contains(source)
     }
 
+    /// Inputs `(node, port)` that output `source` may be connected to: type-compatible
+    /// and not creating a cycle, in node and port order. Empty if `source` is unknown.
+    pub fn compatible_targets(&self, source: &Reference) -> Vec<(String, String)> {
+        let Some(ty) = self
+            .get(&source.node)
+            .and_then(|n| n.spec.as_ref()?.output_type(&n.params, &source.port))
+        else {
+            return Vec::new();
+        };
+        // Feeding an ancestor of `source` (or itself) would make a cycle.
+        let mut ancestors = BTreeSet::from([source.node.clone()]);
+        let mut stack = vec![source.node.clone()];
+        while let Some(id) = stack.pop() {
+            for r in self
+                .get(&id)
+                .into_iter()
+                .flat_map(|n| n.inputs.values().flatten())
+            {
+                if ancestors.insert(r.node.clone()) {
+                    stack.push(r.node.clone());
+                }
+            }
+        }
+        self.nodes
+            .values()
+            .filter(|n| !ancestors.contains(&n.id))
+            .flat_map(|n| {
+                n.spec
+                    .iter()
+                    .flat_map(|s| &s.inputs)
+                    .filter(|p| ty.coerces_to(p.ty))
+                    .map(|p| (n.id.clone(), p.name.to_string()))
+            })
+            .collect()
+    }
+
     /// Outputs that may be connected to `node`'s input `port`: type-compatible and not
     /// creating a cycle. Empty if the node or port is unknown.
     pub fn compatible_sources(&self, node: &str, port: &str) -> Vec<Reference> {
@@ -273,6 +309,23 @@ mod tests {
     }
 
     #[test]
+    fn compatible_targets_respect_types_and_cycles() {
+        let p = diamond();
+        let a = Reference::parse("a").unwrap();
+        let targets: Vec<String> = p
+            .compatible_targets(&a)
+            .into_iter()
+            .map(|(n, port)| format!("{n}.{port}"))
+            .collect();
+        // Not a itself or src (its ancestor); c, the wraps and the sink take images.
+        assert_eq!(targets, ["c.image", "s.items", "wa.image", "wc.image"]);
+        assert!(
+            p.compatible_targets(&Reference::parse("ghost").unwrap())
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn large_graph() {
         // A 2000-node chain plus a sink fed by 500 wraps of the chain's start.
         let mut files: Vec<(String, String)> = vec![("n0".into(), "type = \"source\"".into())];
@@ -301,6 +354,9 @@ mod tests {
         assert_eq!(p.downstream_tree("n0", None).len(), 1999 + 500 + 500);
         assert_eq!(p.upstream_tree("sink", Some(1)).len(), 500);
         assert_eq!(p.compatible_sources("n5", "image").len(), 5); // n0..n4
+        let n1995 = Reference::parse("n1995").unwrap();
+        // Downstream of it n1996..n1999, plus the 500 wraps and the sink.
+        assert_eq!(p.compatible_targets(&n1995).len(), 4 + 500 + 1);
         assert!(
             start.elapsed() < Duration::from_secs(5),
             "took {:?}",

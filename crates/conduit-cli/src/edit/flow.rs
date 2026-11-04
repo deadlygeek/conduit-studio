@@ -47,6 +47,16 @@ impl Flow {
         self.extend_downstream(project);
     }
 
+    /// Keeps `nodes[i..]` and rebuilds the upstream side from `nodes[i]`'s first connected
+    /// input (§6.7: `d` on the flow's conduit).
+    pub fn rebuild_upstream(&mut self, project: &Project, i: usize) {
+        self.nodes.drain(..i.min(self.nodes.len()));
+        self.links.drain(..i.min(self.links.len()));
+        if !self.nodes.is_empty() {
+            self.extend_upstream(project);
+        }
+    }
+
     /// Where `node` is in the flow.
     pub fn position(&self, node: &str) -> Option<usize> {
         self.nodes.iter().position(|n| n == node)

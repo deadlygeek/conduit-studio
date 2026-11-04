@@ -888,21 +888,28 @@ fn draw_color(frame: &mut Frame, edit: &ColorEdit) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// Keys of the flow view, grouped as in the spec's §6. Only the keys that work so far.
+/// Keys of the flow view, grouped as in the spec's §6.
 const FLOW_HELP: &[(&str, &str)] = &[
     ("h / l", "upstream / downstream: node, conduit, node, …"),
     ("j / k", "into a node's rows, next / previous row"),
     ("esc", "back to the node"),
     ("g / G", "first / last node of the flow"),
-    ("f / ⏎", "on a ▣ end: bring its conduit into the flow"),
+    ("f", "on a ▣ end: bring its conduit into the flow"),
+    ("[ / ]", "back / forward through flow changes"),
+    ("⏎", "the focus's primary action (bold in the bar)"),
+    ("e", "edit the node (in the three panes, for now)"),
+    ("c", "connect: pick a source; on an output, a new user"),
+    ("i", "insert a new node into a conduit, or feeding an input"),
+    ("d", "dissolve a node; disconnect a conduit or end"),
+    ("K / J", "move a list entry earlier / later"),
+    ("m", "pick up a node; m or ⏎ on a conduit drops it there"),
     ("/", "find a node; the flow is rebuilt around it"),
-    ("[ / ]", "back / forward"),
     ("a", "add a node"),
     ("r / D", "rename / delete the node"),
     ("u", "undo"),
     ("p / P", "probe the focus / follow the focus"),
     ("E", "open the node in $EDITOR"),
-    ("v", "switch to the three panes (to edit, for now)"),
+    ("v", "switch to the three panes"),
     ("q", "quit"),
 ];
 

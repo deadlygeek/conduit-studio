@@ -97,6 +97,13 @@ impl App {
         let on_flow = self.flow_focus.as_ref().is_some_and(|f| f.node() == id)
             && self.flow.position(&id).is_some();
         if !on_flow {
+            // A jump (`/`, `a`, …) is a flow change; an edit records its own (`pending`).
+            if self.pending.is_none()
+                && let Some(old) = self.flow_focus.clone()
+            {
+                let flow = std::mem::take(&mut self.flow);
+                self.remember_flow(flow, old);
+            }
             self.flow = Flow::build(&self.project, &id);
             self.flow_focus = Some(Focus::Node(id));
             self.recentre = true;
@@ -149,15 +156,23 @@ impl App {
             KeyCode::Esc => Move::ToNode,
             KeyCode::Char('g') | KeyCode::Home => Move::First,
             KeyCode::Char('G') | KeyCode::End => Move::Last,
-            KeyCode::Char('f') | KeyCode::Enter => {
-                if self.flow.bring_in(&self.project, &focus).is_some() {
-                    self.recentre = true;
-                    self.flow_focus = self.flow.locate(&self.project, &focus);
-                }
+            KeyCode::Char('f') => return Some(self.bring_in(&focus)),
+            KeyCode::Char('[') | KeyCode::Backspace if self.carrying.is_none() => {
+                self.flow_history(true);
                 return Some(None);
             }
-            KeyCode::Char('p') => return Some(self.probe(self.flow_probe_target())),
-            _ => return None,
+            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.flow_history(true);
+                return Some(None);
+            }
+            KeyCode::Char(']') if self.carrying.is_none() => {
+                self.flow_history(false);
+                return Some(None);
+            }
+            KeyCode::Char('p') if self.carrying.is_none() => {
+                return Some(self.probe(self.flow_probe_target()));
+            }
+            _ => return self.flow_verb(key, focus),
         };
         Some(
             self.flow
@@ -166,15 +181,18 @@ impl App {
         )
     }
 
-    /// Global keys that work in the flow view for now; the focus verbs (`c`, `d`, `i`,
-    /// …) come with the flow edits.
+    /// Global keys the flow view leaves to the editor's own handlers (§6.2); `r`, `D`,
+    /// `p` and history are handled with the focus.
     pub(super) fn is_flow_global(key: &KeyEvent) -> bool {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         matches!(
             key.code,
-            KeyCode::Char('q' | 'v' | '?' | '/' | 'a' | 'r' | 'D' | 'u' | 'P' | 'E' | '[' | ']')
-                | KeyCode::Backspace
-        ) || (ctrl && key.code == KeyCode::Char('o'))
+            KeyCode::Char('q' | 'v' | '?' | '/' | 'a' | 'u' | 'P' | 'E')
+        )
+    }
+
+    /// The global keys that still work while a node is picked up (§6.5).
+    pub(super) fn is_moving_global(key: &KeyEvent) -> bool {
+        matches!(key.code, KeyCode::Char('q' | '?' | '/'))
     }
 
     /// What `p` probes (§6.2): a node's first output, the source feeding a conduit or
@@ -570,15 +588,6 @@ mod tests {
         app.focus = Some(id.into());
         app.sync_flow();
         app
-    }
-
-    #[test]
-    fn verbs_are_quiet_until_they_exist() {
-        let mut app = app("effects");
-        press(&mut app, "hh");
-        let before = (app.flow.clone(), app.flow_focus.clone());
-        press(&mut app, "cdiXKJmo");
-        assert_eq!((app.flow.clone(), app.flow_focus.clone()), before);
     }
 
     #[test]

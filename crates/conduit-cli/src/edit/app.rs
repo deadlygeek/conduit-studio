@@ -3,6 +3,7 @@
 mod colors;
 mod edits;
 mod files;
+mod flow_edits;
 mod fonts;
 mod live;
 mod walk;
@@ -148,6 +149,11 @@ pub struct App {
     pub recentre: bool,
     /// A render finished since the last key: the status line shows its result.
     pub show_render: bool,
+    /// A flow-view edit waiting for its popups to close (see `flow_edits.rs`).
+    pending: Option<flow_edits::Pending>,
+    /// Flow history (§6.1): the flow and focus before each flow change, and after `[`.
+    flow_back: Vec<(super::flow::Flow, super::flow::Focus)>,
+    flow_forward: Vec<(super::flow::Flow, super::flow::Focus)>,
 }
 
 impl App {
@@ -183,6 +189,9 @@ impl App {
             viewport: Default::default(),
             recentre: true,
             show_render: false,
+            pending: None,
+            flow_back: Vec::new(),
+            flow_forward: Vec::new(),
         };
         app.focus = app.default_focus();
         app.refresh();
@@ -517,6 +526,7 @@ impl App {
         self.show_render = false;
         let action = self.handle_key_inner(key);
         if self.flow_view {
+            self.finish_flow_edit();
             self.sync_flow();
         }
         action
@@ -652,8 +662,18 @@ impl App {
 
     fn normal_key(&mut self, key: KeyEvent) -> Option<Action> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if self.flow_view {
+            if let Some(action) = self.flow_key(key) {
+                return action;
+            }
+            if !Self::is_flow_global(&key)
+                || self.carrying.is_some() && !Self::is_moving_global(&key)
+            {
+                return None;
+            }
+        }
         // Carrying a node (`m`): `⏎` drops it, `esc` cancels; everything else works as usual.
-        if let Some(id) = self.carrying.clone() {
+        if let Some(id) = self.carrying.clone().filter(|_| !self.flow_view) {
             match key.code {
                 KeyCode::Enter => {
                     self.carrying = None;
@@ -666,14 +686,6 @@ impl App {
                     return None;
                 }
                 _ => {}
-            }
-        }
-        if self.flow_view && self.carrying.is_none() {
-            if let Some(action) = self.flow_key(key) {
-                return action;
-            }
-            if !Self::is_flow_global(&key) {
-                return None;
             }
         }
         match (self.pane, key.code) {

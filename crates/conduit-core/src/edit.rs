@@ -277,6 +277,22 @@ fn invalid_input(port: &str) -> EditError {
     EditError::Invalid(format!("input `{port}` is not a reference or list"))
 }
 
+/// Makes `node`'s input `port` (list element `index`, or the single value) take `source`
+/// instead of what it takes now.
+pub fn reconnect(
+    dir: &Path,
+    node: &str,
+    port: &str,
+    index: usize,
+    source: &Reference,
+) -> EditResult<Change> {
+    transact(|tx| {
+        tx.update(&node_path(dir, node), |doc| {
+            replace_reference(doc, port, index, source)
+        })
+    })
+}
+
 /// Disconnects `node`'s input `port`: the list element at `index`, or the whole input.
 /// Removing a list's last element removes the input.
 pub fn disconnect(dir: &Path, node: &str, port: &str, index: Option<usize>) -> EditResult<Change> {
@@ -345,6 +361,22 @@ pub fn add_feeding(
     node: &str,
     port: &str,
 ) -> EditResult<Change> {
+    add_feeding_to(dir, new_id, spec, params, output, node, port, false)
+}
+
+/// As [`add_feeding`]; with `multi`, the new node is appended to the list input `port`
+/// instead of replacing what's there.
+#[allow(clippy::too_many_arguments)]
+pub fn add_feeding_to(
+    dir: &Path,
+    new_id: &str,
+    spec: &NodeSpec,
+    params: &toml::Table,
+    output: &str,
+    node: &str,
+    port: &str,
+    multi: bool,
+) -> EditResult<Change> {
     if spec.output(output).is_none() {
         return Err(EditError::Invalid(format!(
             "`{}` has no output `{output}`",
@@ -363,7 +395,7 @@ pub fn add_feeding(
                 .try_for_each(|(name, value)| set_param_in(doc, name, value))
         })?;
         tx.update(&node_path(dir, node), |doc| {
-            connect_in(doc, port, &source, false)
+            connect_in(doc, port, &source, multi)
         })
     })
 }
@@ -1119,6 +1151,39 @@ mod tests {
             after["w.toml"],
             "type = \"wrap\"\n\n[inputs]\nimage = \"src\"\n"
         );
+    }
+
+    #[test]
+    fn reconnect_replaces_one_entry() {
+        let f = fixture();
+        let before = f.project().get("s").unwrap().inputs["items"].clone();
+        let other = Reference::parse("src").unwrap();
+        f.apply_and_undo(|| reconnect(f.path(), "s", "items", 0, &other));
+        reconnect(f.path(), "s", "items", 0, &other).unwrap();
+        let after = &f.project().get("s").unwrap().inputs["items"].clone();
+        assert_eq!(after[0], other);
+        assert_eq!(after[1..], before[1..]);
+    }
+
+    #[test]
+    fn add_feeding_to_a_list_appends() {
+        let f = fixture();
+        let spec = registry().spec("wrap").unwrap().clone();
+        let before = f.project().get("s").unwrap().inputs["items"].len();
+        add_feeding_to(
+            f.path(),
+            "w2",
+            &spec,
+            &toml::Table::new(),
+            "out",
+            "s",
+            "items",
+            true,
+        )
+        .unwrap();
+        let items = f.project().get("s").unwrap().inputs["items"].clone();
+        assert_eq!(items.len(), before + 1);
+        assert_eq!(items.last().unwrap().node, "w2");
     }
 
     #[test]

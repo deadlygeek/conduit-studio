@@ -16,10 +16,21 @@ use crate::edit::finder;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pick {
     FindNode,
-    /// A source for the focused node's input.
+    /// A source for the focused node's input: list entry `index` if given, else the
+    /// input (appended to a list).
     Connect {
         port: String,
         multi: bool,
+        index: Option<usize>,
+    },
+    /// A new user for the focused node's `output` (flow view: `(c)onnect to`).
+    ConnectTo {
+        output: String,
+    },
+    /// The type of a new node to feed the focused node's input `port` (flow view: `i` on
+    /// an unconnected input or a list's slot).
+    FeedInput {
+        port: String,
     },
     /// The type of a new node.
     AddType,
@@ -49,6 +60,8 @@ impl Pick {
         match self {
             Pick::FindNode => "find node".into(),
             Pick::Connect { port, .. } => format!("connect {focus}.{port} to"),
+            Pick::ConnectTo { output } => format!("connect {focus}.{output} to"),
+            Pick::FeedInput { port } => format!("feed {focus}.{port} from a new"),
             Pick::AddType => "add node of type".into(),
             Pick::InsertType { node, port, .. } => format!("insert before {node}.{port}: type"),
             Pick::FeedType { param } => format!("feed {focus}.{param} from a new"),
@@ -77,6 +90,11 @@ pub enum Prompt {
         kind: String,
         param: String,
     },
+    /// Id for a new node feeding the focused node's input `port` (see [`Pick::FeedInput`]).
+    FeedInputId {
+        kind: String,
+        port: String,
+    },
     Rename,
     /// Name for a new palette color.
     AddEntry {
@@ -98,7 +116,8 @@ impl Prompt {
             Prompt::Param { name } => format!("{focus}.{name} (empty = default)"),
             Prompt::AddId { kind }
             | Prompt::InsertId { kind, .. }
-            | Prompt::FeedId { kind, .. } => format!("id for new {kind}"),
+            | Prompt::FeedId { kind, .. }
+            | Prompt::FeedInputId { kind, .. } => format!("id for new {kind}"),
             Prompt::Rename => format!("rename {focus} to"),
             Prompt::AddEntry { .. } => format!("name for the new color in {focus}"),
             Prompt::RenameEntry { key, .. } => format!("rename {focus}.{key} to"),
@@ -121,7 +140,10 @@ impl App {
         if self.pick_items(&purpose).is_empty() && purpose != Pick::FindNode {
             self.message = Some(match purpose {
                 Pick::Connect { .. } => "no compatible outputs to connect".into(),
-                Pick::InsertType { .. } | Pick::FeedType { .. } => "no node type fits here".into(),
+                Pick::ConnectTo { .. } => "no input can take this output".into(),
+                Pick::InsertType { .. } | Pick::FeedType { .. } | Pick::FeedInput { .. } => {
+                    "no node type fits here".into()
+                }
                 _ => "nothing to choose from".into(),
             });
             return;
@@ -156,6 +178,43 @@ impl App {
                     .compatible_sources(focus, port)
                     .into_iter()
                     .map(|r| (r.to_string(), format!("{}  {}", r.short(), kind(&r.node))))
+                    .collect()
+            }
+            Pick::ConnectTo { output } => {
+                let Some(focus) = &self.focus else {
+                    return Vec::new();
+                };
+                let source = Reference {
+                    node: focus.clone(),
+                    port: output.clone(),
+                };
+                self.project
+                    .compatible_targets(&source)
+                    .into_iter()
+                    .map(|(node, port)| {
+                        let n = self.project.get(&node);
+                        let refs = n.and_then(|n| n.inputs.get(&port));
+                        let multi = n
+                            .and_then(|n| n.spec.as_ref()?.input(&port))
+                            .is_some_and(|p| p.multi);
+                        let now = match refs.map(Vec::as_slice) {
+                            _ if multi => "  (append)".to_string(),
+                            Some([r, ..]) => format!("  ← {}", r.short()),
+                            _ => String::new(),
+                        };
+                        let label = format!("{node}.{port}{now}  {}", kind(&node));
+                        (format!("{node}.{port}"), label)
+                    })
+                    .collect()
+            }
+            Pick::FeedInput { port } => {
+                let Some(ty) = self.input_spec(port).map(|p| p.ty) else {
+                    return Vec::new();
+                };
+                self.registry
+                    .specs()
+                    .filter(|s| output_of(s, ty).is_some())
+                    .map(|s| (s.kind.to_string(), type_label(s)))
                     .collect()
             }
             Pick::AddType => self
@@ -213,14 +272,39 @@ impl App {
     pub(super) fn choose(&mut self, purpose: Pick, key: String) -> Option<Action> {
         match purpose {
             Pick::FindNode => return self.focus_on(&key),
-            Pick::Connect { port, multi } => {
+            Pick::Connect { port, multi, index } => {
                 let (Some(focus), Ok(source)) = (self.focus.clone(), Reference::parse(&key)) else {
                     return None;
                 };
-                let label = format!("connected {focus}.{port} ← {}", source.short());
-                self.apply_or_report(label, |dir, _| {
-                    ops::connect(dir, &focus, &port, &source, multi)
+                let entry = index.map_or(port.clone(), |i| format!("{port}[{i}]"));
+                let label = format!("connected {focus}.{entry} ← {}", source.short());
+                self.apply_or_report(label, |dir, _| match index {
+                    Some(i) => ops::reconnect(dir, &focus, &port, i, &source),
+                    None => ops::connect(dir, &focus, &port, &source, multi),
                 });
+            }
+            Pick::ConnectTo { output } => {
+                let (Some(focus), Some((node, port))) = (self.focus.clone(), key.split_once('.'))
+                else {
+                    return None;
+                };
+                let source = Reference {
+                    node: focus,
+                    port: output,
+                };
+                let multi = self
+                    .project
+                    .get(node)
+                    .and_then(|n| n.spec.as_ref()?.input(port))
+                    .is_some_and(|p| p.multi);
+                let label = format!("connected {node}.{port} ← {}", source.short());
+                self.apply_or_report(label, |dir, _| {
+                    ops::connect(dir, node, port, &source, multi)
+                });
+            }
+            Pick::FeedInput { port } => {
+                let id = self.free_id(&key);
+                self.open_prompt(Prompt::FeedInputId { kind: key, port }, id);
             }
             Pick::AddType => {
                 let id = self.free_id(&key);
@@ -329,6 +413,27 @@ impl App {
                 );
                 self.open_file_picker();
                 Ok(action)
+            }
+            Prompt::FeedInputId { kind, port } => {
+                let spec = self.spec(&kind)?;
+                let target = self.input_spec(&port).ok_or("no such input")?.clone();
+                let output = output_of(&spec, target.ty)
+                    .ok_or("no matching output")?
+                    .to_string();
+                let label = format!("added {input} ({kind}) feeding {focus}.{port}");
+                self.apply(label, |dir, _| {
+                    ops::add_feeding_to(
+                        dir,
+                        input,
+                        &spec,
+                        &toml::Table::new(),
+                        &output,
+                        &focus,
+                        &port,
+                        target.multi,
+                    )
+                })?;
+                Ok(None)
             }
             Prompt::AddEntry { param } => {
                 let color = self.entry_color().unwrap_or_else(|| "#808080".into());
@@ -467,7 +572,11 @@ impl App {
             }
         };
         let multi = self.input_spec(&port).is_some_and(|p| p.multi);
-        self.open_pick(Pick::Connect { port, multi });
+        self.open_pick(Pick::Connect {
+            port,
+            multi,
+            index: None,
+        });
     }
 
     /// `d`: disconnect the connection under the cursor; on a linked param, go back to
@@ -869,7 +978,7 @@ impl App {
     // --- helpers -----------------------------------------------------------------------
 
     /// Runs an edit; on success records it for undo, re-reads the project and reports it.
-    fn apply(
+    pub(super) fn apply(
         &mut self,
         label: String,
         edit: impl FnOnce(&Path, &Project) -> EditResult<Change>,

@@ -57,6 +57,9 @@ pub(in crate::edit) enum After {
         i: usize,
         j: usize,
     },
+    /// `id` was detached; the flow is rebuilt around `landing`, the new node that took
+    /// over the output the flow ran through (else the first new node).
+    Detached { id: String, landing: String },
     /// The moved node landed; the flow is redrawn through it (§6.5).
     Dropped { id: String },
     /// The flow is now `flow` with the focus on `focus` (a slide, §6.5).
@@ -305,6 +308,13 @@ impl App {
                     self.land(flow, focus, None);
                 }
             }
+            After::Detached { id, landing } => {
+                if self.project.get(&id).is_some() || self.project.get(&landing).is_none() {
+                    return; // cancelled or failed
+                }
+                let flow = Flow::build(project, &landing);
+                self.land(flow, Focus::Node(landing), before);
+            }
             After::Dropped { id } => {
                 let flow = Flow::build(project, &id);
                 self.land(flow, Focus::Node(id), before);
@@ -373,6 +383,7 @@ impl App {
                 self.expect(After::Renamed { old: id.clone() });
                 self.open_prompt(Prompt::Rename, id);
             }
+            'X' => self.detach(&focus),
             'K' => self.reorder(&focus, -1),
             'J' => self.reorder(&focus, 1),
             'm' => self.pick_up(&focus),
@@ -384,6 +395,28 @@ impl App {
             _ => return None,
         }
         Some(None)
+    }
+
+    /// `X` (§6.2): detach the focus's node (asks first).
+    fn detach(&mut self, focus: &Focus) {
+        let id = focus.node().to_string();
+        let Some(plan) = self.start_detach(&id) else {
+            return;
+        };
+        // The output the flow leaves `id` through, if any.
+        let through = self
+            .flow
+            .links
+            .iter()
+            .find(|l| l.source == id)
+            .map(|l| l.output.clone());
+        let landing = through
+            .and_then(|out| plan.outputs.iter().find(|(o, _)| *o == out))
+            .or(plan.outputs.first())
+            .map(|(_, name)| format!("{id}_{name}"));
+        if let Some(landing) = landing {
+            self.expect(After::Detached { id, landing });
+        }
     }
 
     /// `⏎`: the focus's primary action (§6.3).
@@ -1097,6 +1130,76 @@ mod tests {
         assert_eq!(app.flow.nodes, ["logo", "logo_at", "comp", "preview"]);
         assert_eq!(focused_end(&app), "logo→logo_at.layer");
         assert!(app.flow_back.is_empty(), "not a flow change");
+    }
+
+    fn flow_on(example: &str, id: &str) -> (tempfile::TempDir, App) {
+        let (tmp, mut app) = temp_project(example);
+        app.flow_view = true;
+        app.focus = Some(id.into());
+        app.sync_flow();
+        app.flow_back.clear();
+        (tmp, app)
+    }
+
+    #[test]
+    fn detach_lands_on_the_node_that_took_over_the_flow() {
+        let (_tmp, mut app) = flow_on("array", "grid");
+        let out = app
+            .flow
+            .links
+            .iter()
+            .find(|l| l.source == "grid")
+            .unwrap()
+            .output
+            .clone();
+        keys(&mut app, "X");
+        let Mode::Confirm { question, .. } = &app.mode else {
+            panic!("asks first: {:?}", app.flow_status());
+        };
+        assert!(
+            question.starts_with("Detach `grid`? Makes 8 nodes; grid.out"),
+            "{question}"
+        );
+        keys(&mut app, "y");
+        assert!(app.project.get("grid").is_none());
+        assert_eq!(focused_end(&app), format!("grid_{out}"));
+        assert_eq!(app.flow_back.len(), 1, "a flow change");
+        assert!(
+            app.flow.nodes.contains(&"place".to_string()),
+            "fed by what fed the array"
+        );
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+
+        keys(&mut app, "u");
+        assert!(app.project.get("grid").is_some() && app.project.get("grid_out1").is_none());
+    }
+
+    #[test]
+    fn detach_splits_text_into_text_and_transform_nodes() {
+        let (_tmp, mut app) = flow_on("split_text", "word");
+        keys(&mut app, "Xy");
+        assert!(app.project.get("word").is_none());
+        assert_eq!(
+            app.project.get("word_char3_text").unwrap().kind.as_deref(),
+            Some("text")
+        );
+        assert!(app.project.is_valid(), "{:?}", app.project.errors);
+    }
+
+    #[test]
+    fn only_generators_detach() {
+        let (_tmp, mut app) = flow_on("array", "place");
+        keys(&mut app, "X");
+        assert!(!matches!(app.mode, Mode::Confirm { .. }));
+        assert_eq!(
+            app.flow_status(),
+            "can't detach place: place: `transform` nodes can't be detached"
+        );
+        // Cancelling leaves everything as it was.
+        let (_tmp, mut app) = flow_on("array", "grid");
+        keys(&mut app, "X⎋");
+        assert!(app.project.get("grid").is_some());
+        assert_eq!(focused_end(&app), "grid");
     }
 
     #[test]

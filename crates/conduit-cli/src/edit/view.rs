@@ -1215,6 +1215,10 @@ const FLOW_HELP: &[(&str, &str)] = &[
         "find a node (the flow is rebuilt around it) / add a node",
     ),
     ("r / D", "rename / delete the node"),
+    (
+        "X",
+        "detach an array or split_text into ordinary nodes, for good",
+    ),
     ("u  p / P", "undo; probe the focus / follow the focus"),
     (
         "E  v",

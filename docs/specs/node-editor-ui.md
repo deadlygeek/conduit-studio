@@ -1,12 +1,15 @@
-# Node editor UI — flow view (spec, draft 11)
+# Node editor UI — flow view (spec, draft 12)
 
-Status: **draft 11**, 2026-11-04 — no open questions. Derived from the durdraw
+Status: **draft 12**, 2026-11-04 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
 with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
+
+Changes from draft 11: `X` detaches an `array` or `split_text` node, replacing it with
+ordinary nodes for good (§6.2, §6.7). In the flow view it no longer dissolves; that's `d`.
 
 Changes from draft 10: in the edit view, `h` on a connected input row and `l` on a
 connected output row go to the node at the other end and open its edit view, on the row
@@ -414,10 +417,10 @@ linked param's row is just a conduit end (§6.3); nudges there do nothing — to
 value, edit the node feeding it.
 
 Global, whatever the focus: `a` add a node · `r` rename the node · `D` delete the node
-(hard: connections removed, not reconnected) · `u` undo · `p` / `P` probe · `E` open in
-`$EDITOR` · `/` find · `?` help · `q` quit.
+(hard: connections removed, not reconnected) · `X` detach the node (§6.7) · `u` undo ·
+`p` / `P` probe · `E` open in `$EDITOR` · `/` find · `?` help · `q` quit.
 
-**[decided]** "The node" for `r`, `D`, `E` and `p`: the focused node; for a conduit end,
+**[decided]** "The node" for `r`, `D`, `X`, `E` and `p`: the focused node; for a conduit end,
 the node the row belongs to; for a conduit, its **downstream** node. `p` on a conduit or
 an input end probes the source output feeding it, and on an output end that output — as
 `p` on a row does today.
@@ -599,6 +602,15 @@ The question says what changes: `Dissolve `toned`? Connects square → comp.laye
 
 A node left with no users after a delete stays in the project; only `/` reaches it if no
 flow does.
+
+**Detaching** (`X`) replaces a node that makes many items (`array`, `split_text`) with
+ordinary nodes, one per output (`grid_out1` …, or `word_char1` with its
+`word_char1_text`). Everything that used an output now uses its new node, and nothing
+links back. It asks first, saying how many nodes it makes and one rewiring:
+`Detach `grid`? Makes 8 nodes; grid.out1 → grid_out1 …?`. It's one `u`. Other kinds say
+why not in the status line. Focus goes to the new node that took over the output the
+flow ran through (else the first new node), and the flow is rebuilt around it. This is a
+flow change: re-centre and a history step.
 
 **Disconnecting** (`d` on a conduit or an end) doesn't ask first: it removes no file, and
 `u` puts it back.
@@ -808,7 +820,7 @@ has room, shows everything.
 | `c` / `d` link / unlink a param | `c` / `d` on the param (edit view) or its input row |
 | `d` disconnect | `d` on a conduit or end |
 | `i` insert into a connection or feed a param | `i` on a conduit, end, or param |
-| `X` dissolve | `d` on a node |
+| `X` dissolve | `d` on a node; `X` now detaches (§6.7) |
 | `m` move, drop with `m`/`⏎` | unchanged; plus `H` / `L` to slide a node along the flow |
 | `K` / `J` reorder | unchanged, on a list-entry end |
 | `r` / `o` / `x` on a palette color · `I` import | `r` / `i` / `d` on a colour row, `I` (edit view, §7.1) |
@@ -879,3 +891,4 @@ No open questions remain. Answers given while drafting:
 | `j` / `k` on a conduit, `C`, `?` | Nothing; `C` is an edit-view focus action; `?` is today's help screen (§6.1, §6.2). |
 | Box layout | Top-aligned, one fixed gap of about 6 columns (§4.1). |
 | Going from the edit view to a connected node | `h` on a connected input row, `l` on a connected output row; opens that node's edit view on the same conduit's row; redraws the flow through it; a flow change (§7.2). |
+| Detaching a generated group (`array`, `split_text`) so each item can be tweaked | `X`, for good: ordinary nodes replace it, uses are rewired, nothing links back; asks first; focus on the node that took over the flow's output; a flow change (§6.7). |

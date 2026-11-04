@@ -5,8 +5,8 @@ use std::path::Path;
 
 use conduit_core::edit::{self as ops, Change, EditResult};
 use conduit_core::{
-    Consumer, NodeSpec, ParamKind, ParamSpec, Project, ProjectNode, Reference, ValueType,
-    float_value, inspect,
+    Consumer, DetachPlan, NodeSpec, ParamKind, ParamSpec, Project, ProjectNode, Reference,
+    ValueType, float_value, inspect,
 };
 
 use super::{Action, App, Mode, Row};
@@ -131,7 +131,12 @@ impl Prompt {
 pub enum Confirm {
     Delete(String),
     Dissolve(String),
-    RemoveEntry { param: String, key: String },
+    /// Replace the node with the plan's nodes (see `conduit_core::detach_plan`).
+    Detach(String, DetachPlan),
+    RemoveEntry {
+        param: String,
+        key: String,
+    },
 }
 
 impl App {
@@ -857,6 +862,40 @@ impl App {
         };
     }
 
+    /// `X` in the flow view: replace an `array` or `split_text` with ordinary nodes, after
+    /// confirmation. The plan is worked out now, from the project as it renders.
+    pub(super) fn start_detach(&mut self, id: &str) -> Option<DetachPlan> {
+        let plan = conduit_core::load(&self.dir, &self.registry)
+            .map_err(|e| e.to_string())
+            .and_then(|graph| {
+                conduit_core::detach_plan(&graph, &self.registry, id).map_err(|e| e.to_string())
+            });
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(e) => {
+                self.message = Some(format!("can't detach {id}: {e}"));
+                return None;
+            }
+        };
+        let users = self.project.consumers(id);
+        let mut question = format!("Detach `{id}`? Makes {} nodes", plan.nodes.len());
+        if let Some((out, name)) = users
+            .first()
+            .and_then(|c| plan.outputs.iter().find(|(out, _)| *out == c.output))
+        {
+            question += &format!("; {id}.{out} → {id}_{name}");
+            if users.len() > 1 {
+                question += " …";
+            }
+        }
+        question.push('?');
+        self.mode = Mode::Confirm {
+            question,
+            purpose: Confirm::Detach(id.to_string(), plan.clone()),
+        };
+        Some(plan)
+    }
+
     pub(super) fn confirmed(&mut self, purpose: Confirm) {
         match purpose {
             Confirm::RemoveEntry { param, key } => self.remove_entry(&param, &key),
@@ -869,6 +908,12 @@ impl App {
                     .and_then(|p| p.through.map(|(_, r)| format!(" ({} → …)", r.short())))
                     .unwrap_or_default();
                 self.remove_node(format!("dissolved {id}{through}"), &id, ops::dissolve_node);
+            }
+            Confirm::Detach(id, plan) => {
+                let label = format!("detached {id} into {} nodes", plan.nodes.len());
+                self.apply_or_report(label, |dir, project| {
+                    ops::detach_node(dir, project, &id, &plan)
+                });
             }
         }
     }

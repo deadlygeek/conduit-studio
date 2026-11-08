@@ -7,6 +7,7 @@ mod files;
 mod flow_edits;
 mod fonts;
 mod live;
+mod spotlight;
 mod walk;
 
 use std::collections::BTreeSet;
@@ -130,6 +131,10 @@ pub struct App {
     pub message: Option<String>,
     pub probe: Option<Reference>,
     pub probe_follow: bool,
+    /// Spotlight (`s`): what the focus draws is tinted in the preview.
+    pub spotlight: bool,
+    /// The spotlight targets last sent to the renderer.
+    spotlight_sent: Vec<String>,
     /// Installed font families for the font picker, loaded when it first opens.
     fonts: Option<Arc<Vec<conduit_nodes::text::FontFamily>>>,
     /// Fonts chosen in this session, most recent last; listed first in the picker.
@@ -184,6 +189,8 @@ impl App {
             message: None,
             probe: None,
             probe_follow: false,
+            spotlight: false,
+            spotlight_sent: Vec::new(),
             fonts: None,
             recent_fonts: Vec::new(),
             files: Vec::new(),
@@ -781,6 +788,7 @@ impl App {
             (pane @ (Pane::Up | Pane::Down), KeyCode::Char(' ')) => self.toggle_collapse(pane),
 
             (_, KeyCode::Char('p')) => return self.probe(self.probe_target()),
+            (_, KeyCode::Char('s')) => self.toggle_spotlight(),
             (_, KeyCode::Char('P')) => {
                 self.probe_follow = !self.probe_follow;
                 if self.probe_follow {

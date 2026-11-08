@@ -88,6 +88,9 @@ pub fn edit(dir: &Path, registry: Arc<Registry>) -> anyhow::Result<()> {
                 }
                 None => {}
             }
+            if let Some(targets) = app.spotlight_changed() {
+                runner.send(Command::Highlight(targets));
+            }
         }
     })();
     for mut picker in pickers {

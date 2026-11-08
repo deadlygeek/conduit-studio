@@ -27,6 +27,9 @@ pub enum Command {
     /// Show this output in the probe window, now and after every render.
     Probe(Reference),
     ProbeOff,
+    /// Tint what these nodes draw in every window, and re-render (empty: stop). See
+    /// [`Evaluator::set_highlight`].
+    Highlight(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,6 +213,10 @@ impl Runner {
                 Input::Command(Command::ProbeOff) => {
                     self.probe = None;
                     self.probe_gui.close_all();
+                }
+                Input::Command(Command::Highlight(nodes)) => {
+                    self.evaluator.set_highlight(nodes);
+                    self.render();
                 }
                 Input::Quit => break,
             }
@@ -444,6 +451,26 @@ mod tests {
 
         handle.send(Command::ProbeOff);
         drop(handle); // stops the runner thread and closes windows
+    }
+
+    /// Highlighting re-renders the node and what it feeds, and stopping does again.
+    #[test]
+    fn highlight_rerenders() {
+        let (_tmp, project, script) = setup();
+        let options = Options {
+            preview_program: script,
+            quiet: true,
+        };
+        let handle = spawn(&project, Arc::new(conduit_nodes::registry()), options).unwrap();
+        expect_event(&handle, "first render", |e| {
+            matches!(e, Event::Rendered { .. })
+        });
+        // Only the GUI node re-runs on a plain re-render; a highlight re-runs more.
+        let rerun = |e: &Event| matches!(e, Event::Rendered { stats, .. } if stats.evaluated > 1);
+        handle.send(Command::Highlight(vec!["black_sq".into()]));
+        expect_event(&handle, "highlighted render", rerun);
+        handle.send(Command::Highlight(vec![]));
+        expect_event(&handle, "unhighlighted render", rerun);
     }
 
     /// Changing an image a node reads re-renders, like changing a node file.

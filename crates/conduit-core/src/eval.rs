@@ -1,13 +1,15 @@
 //! Evaluating a loaded graph, skipping nodes whose inputs and params haven't changed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::graph::{Graph, GraphNode, Reference};
 use crate::node::{DetachPlan, EvalCtx, GuiHost, Inputs, Node, NodeSpec, NullHost, ParamKind};
+use crate::raster;
 use crate::registry::Registry;
-use crate::value::Value;
+use crate::value::{Layer, Value};
 
 /// Every output produced during an evaluation, keyed by `node.port`.
 pub type Values = HashMap<Reference, Value>;
@@ -52,9 +54,22 @@ pub fn evaluate(
 pub struct Evaluator {
     /// Node id → fingerprint of what produced its outputs, and the outputs.
     cache: HashMap<String, (u64, Vec<(Reference, Value)>)>,
+    /// Nodes whose images and layers are tinted with [`HIGHLIGHT`], so editors can show
+    /// where a node ends up in the output (see [`Evaluator::set_highlight`]).
+    highlight: HashSet<String>,
 }
 
+/// The color highlighted nodes are tinted toward, and by how much.
+pub const HIGHLIGHT: ([u8; 3], f32) = ([255, 0, 255], 0.6);
+
 impl Evaluator {
+    /// Tints the images and layers these nodes output, as they are evaluated, so
+    /// everything downstream carries the tint to where the node ends up. Only the
+    /// highlighted nodes and what they feed re-run when this changes.
+    pub fn set_highlight(&mut self, nodes: impl IntoIterator<Item = String>) {
+        self.highlight = nodes.into_iter().collect();
+    }
+
     pub fn evaluate(
         &mut self,
         graph: &Graph,
@@ -76,14 +91,26 @@ impl Evaluator {
                 .get(&node.kind)
                 .expect("graph loaded with this registry");
             let files = node_impl.files(&node.params);
-            let fingerprint = fingerprint(node, &graph.root, &files, &fingerprints);
+            let highlighted = self.highlight.contains(&node.id);
+            let mut fingerprint = fingerprint(node, &graph.root, &files, &fingerprints);
+            if highlighted {
+                fingerprint = fingerprint.wrapping_add(1);
+            }
             fingerprints.insert(&node.id, fingerprint);
 
             let outputs = match self.cache.remove(&node.id) {
                 Some((fp, outputs)) if fp == fingerprint && !spec.gui => outputs,
                 _ => {
                     stats.evaluated += 1;
-                    eval_node(node, spec, node_impl, &graph.root, &values, gui)?
+                    let outputs = eval_node(node, spec, node_impl, &graph.root, &values, gui)?;
+                    if highlighted {
+                        outputs
+                            .into_iter()
+                            .map(|(r, v)| (r, highlight(v)))
+                            .collect()
+                    } else {
+                        outputs
+                    }
                 }
             };
             for (r, v) in &outputs {
@@ -94,6 +121,19 @@ impl Evaluator {
         // Nodes that are gone (or failed) are dropped from the cache.
         self.cache = cache;
         Ok((values, stats))
+    }
+}
+
+/// `value` tinted with [`HIGHLIGHT`] if it is an image or layer.
+fn highlight(value: Value) -> Value {
+    let (color, amount) = HIGHLIGHT;
+    match value {
+        Value::Image(image) => Value::Image(Arc::new(raster::tint_toward(&image, color, amount))),
+        Value::Layer(layer) => Value::Layer(Layer {
+            image: Arc::new(raster::tint_toward(&layer.image, color, amount)),
+            ..layer
+        }),
+        other => other,
     }
 }
 
@@ -368,5 +408,42 @@ mod tests {
         // Rewiring wb to `a` re-runs wb (its source changed) and the sink.
         files[3].1 = "type = \"wrap\"\n[inputs]\nimage = \"a\"";
         assert_eq!(run(&files), (2, vec![("s".into(), 4), ("s".into(), 4)]));
+    }
+
+    #[test]
+    fn highlight_tints_a_node_and_reruns_what_it_feeds() {
+        let reg = registry();
+        let graph = graph(&[
+            ("a", "type = \"source\"\n[params]\nsize = 2"),
+            ("b", "type = \"source\"\n[params]\nsize = 3"),
+            ("wa", "type = \"wrap\"\n[inputs]\nimage = \"a\""),
+            ("wb", "type = \"wrap\"\n[inputs]\nimage = \"b\""),
+            ("s", "type = \"sink\"\n[inputs]\nitems = [\"wa\", \"wb\"]"),
+        ]);
+        let pixel = |values: &Values, node: &str| match &values[&Reference::parse(node).unwrap()] {
+            Value::Layer(l) => l.image.get_pixel(0, 0).0,
+            Value::Image(i) => i.get_pixel(0, 0).0,
+            _ => unreachable!(),
+        };
+        let mut evaluator = Evaluator::default();
+        let run = |evaluator: &mut Evaluator| {
+            evaluator
+                .evaluate(&graph, &reg, &mut Recorder::default())
+                .unwrap()
+        };
+        run(&mut evaluator);
+
+        evaluator.set_highlight(["a".to_string()]);
+        let (values, stats) = run(&mut evaluator);
+        // a, wa and the sink re-run; b and wb are reused.
+        assert_eq!(stats.evaluated, 3);
+        assert_eq!(pixel(&values, "a"), [153, 0, 153, 0], "alpha is kept");
+        assert_eq!(pixel(&values, "wa"), [153, 0, 153, 0], "carried downstream");
+        assert_eq!(pixel(&values, "wb"), [0, 0, 0, 0]);
+
+        evaluator.set_highlight([]);
+        let (values, stats) = run(&mut evaluator);
+        assert_eq!(stats.evaluated, 3);
+        assert_eq!(pixel(&values, "wa"), [0, 0, 0, 0]);
     }
 }

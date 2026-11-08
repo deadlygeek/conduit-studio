@@ -186,7 +186,7 @@ impl App {
     pub(super) fn is_flow_global(key: &KeyEvent) -> bool {
         matches!(
             key.code,
-            KeyCode::Char('q' | 'v' | '?' | '/' | 'a' | 'u' | 'P' | 'E')
+            KeyCode::Char('q' | 'v' | '?' | '/' | 'a' | 'u' | 'P' | 'E' | 's')
         )
     }
 
@@ -197,7 +197,7 @@ impl App {
 
     /// What `p` probes (§6.2): a node's first output, the source feeding a conduit or
     /// input end, or an output end's output.
-    fn flow_probe_target(&self) -> Option<Reference> {
+    pub(super) fn flow_probe_target(&self) -> Option<Reference> {
         match self.flow_focus.as_ref()? {
             Focus::Node(id) => self.default_probe(id),
             Focus::Conduit(link) => Some(Reference {
@@ -238,6 +238,9 @@ impl App {
         };
         if !main.is_empty() {
             parts.push(main);
+        }
+        if self.spotlight {
+            parts.push("✦ spotlight".into());
         }
         let errors = self.project.errors.len();
         if errors > 0 {

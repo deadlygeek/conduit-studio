@@ -189,6 +189,19 @@ fn unpremultiply(p: [f32; 4]) -> Rgba<u8> {
     Rgba([channel(p[0]), channel(p[1]), channel(p[2]), a.round() as u8])
 }
 
+/// `image` with every pixel's color mixed toward `color` by `amount` (0–1), alpha kept so
+/// shapes stay as they were.
+pub fn tint_toward(image: &RgbaImage, color: [u8; 3], amount: f32) -> RgbaImage {
+    let mut out = image.clone();
+    for p in out.pixels_mut() {
+        for i in 0..3 {
+            let c = f32::from(p[i]);
+            p[i] = (c + (f32::from(color[i]) - c) * amount).round() as u8;
+        }
+    }
+    out
+}
+
 /// Alpha-over of `src` onto `dst`. Written by hand because `image::imageops::overlay`
 /// rounds an opaque result down to alpha 254.
 pub fn blend_over(src: Rgba<u8>, dst: Rgba<u8>) -> Rgba<u8> {

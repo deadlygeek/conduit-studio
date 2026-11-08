@@ -1,12 +1,15 @@
-# Node editor UI — flow view (spec, draft 13)
+# Node editor UI — flow view (spec, draft 14)
 
-Status: **draft 13**, 2026-11-04 — no open questions. Derived from the durdraw
+Status: **draft 14**, 2026-11-08 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
 with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
+
+Changes from draft 13: `s` turns on a spotlight that tints, in the preview, what the
+focus draws, following the focus (§6.2, §6.10).
 
 Changes from draft 12: a node whose items belong together (`array`, `split_text`) comes
 with a `group` gathering them, and the editor keeps that group in step with the count
@@ -422,7 +425,7 @@ value, edit the node feeding it.
 
 Global, whatever the focus: `a` add a node · `r` rename the node · `D` delete the node
 (hard: connections removed, not reconnected) · `X` detach the node (§6.7) · `u` undo ·
-`p` / `P` probe · `E` open in `$EDITOR` · `/` find · `?` help · `q` quit.
+`p` / `P` probe · `s` spotlight (§6.10) · `E` open in `$EDITOR` · `/` find · `?` help · `q` quit.
 
 **[decided]** "The node" for `r`, `D`, `X`, `E` and `p`: the focused node; for a conduit end,
 the node the row belongs to; for a conduit, its **downstream** node. `p` on a conduit or
@@ -660,6 +663,24 @@ items go after the last item; an entry that took a removed item directly is drop
 tweak of a removed item is left in the list and shows as an error: the editor never
 guesses where it belongs. A list taking only some of the items is left alone. It's part
 of the same change as the param, so one `u` undoes both.
+
+### 6.10 Spotlight **[decided]**
+
+In a big graph it's hard to tell which part of the output a node is responsible for. `s`
+turns the spotlight on or off. While it's on, whatever the focus draws is tinted magenta
+in the preview (and the probe window), and the tint follows the focus as it moves, so
+walking a flow with `h` / `l` lights up each element in turn.
+
+- **What is tinted:** the node `p` would probe (§6.2): the focused node; for a conduit or
+  input end, the source feeding it. A node that draws nothing (a number, colour, palette
+  or font) lights up the nodes it feeds instead.
+- **How:** the node's own images and layers are mixed 60% toward magenta as they are
+  made, alpha kept. Everything downstream carries the tint, so it shows where the element
+  really ends up: placed, transformed, grouped and stacked. Tinting a background tints the
+  whole canvas.
+- Nothing is written to the project and nothing goes on the undo list; the spotlight is
+  gone when the editor closes. The status line shows `✦ spotlight` while it's on.
+- `s` is listed in help but not on the bar's global line, like `P`, `E` and `X`.
 
 ## 7. Edit view
 
@@ -915,3 +936,4 @@ No open questions remain. Answers given while drafting:
 | Going from the edit view to a connected node | `h` on a connected input row, `l` on a connected output row; opens that node's edit view on the same conduit's row; redraws the flow through it; a flow change (§7.2). |
 | Detaching a generated group (`array`, `split_text`) so each item can be tweaked | `X`, for good: ordinary nodes replace it, uses are rewired, nothing links back; asks first; focus on the node that took over the flow's output; a flow change (§6.7). |
 | Getting a generator's items into a group | The editor adds `<id>_group` with every item when the node is added, and keeps lists that take every item in step when the count changes; tweaks of removed items stay as errors (§6.9). No `all` output. |
+| Seeing which part of the output a node draws | `s` spotlight: tint what the focus draws in the preview, following the focus; nothing saved (§6.10). Muting or bypassing nodes was considered and dropped: it needs file-format changes and rules for inputs left without a value. |

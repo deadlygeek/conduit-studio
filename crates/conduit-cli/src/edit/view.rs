@@ -1118,6 +1118,10 @@ const HELP: &[(&str, &str)] = &[
         "probe: show the output under the cursor in a probe window",
     ),
     ("P", "probe follows focus on / off"),
+    (
+        "s",
+        "spotlight: tint what the focus draws in the preview, on / off",
+    ),
     ("q", "quit"),
 ];
 

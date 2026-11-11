@@ -572,6 +572,46 @@ mod tests {
         assert_eq!(ports.last().unwrap(), "out out");
     }
 
+    fn params(app: &App) -> Vec<String> {
+        app.edit_rows()
+            .into_iter()
+            .filter_map(|r| match r {
+                EditRow::Param(p) => Some(p),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_connected_image_hides_the_canvas_fill_params() {
+        let (_tmp, app) = editing_in("canvas", "bg");
+        assert_eq!(params(&app), ["color", "width", "height", "opacity"]);
+
+        let (_tmp, mut app) = editing_in("canvas", "faded");
+        assert_eq!(params(&app), ["opacity"]);
+        // Unlinked from its image, the canvas draws a fill again.
+        down_to(&mut app, input("image"));
+        keys(&mut app, "d");
+        assert!(!read(&app, "faded").contains("image ="));
+        assert_eq!(params(&app), ["color", "width", "height", "opacity"]);
+        // Focus stays on the (now empty) image input row.
+        assert!(input("image")(app.edit_view.as_ref().unwrap()));
+    }
+
+    #[test]
+    fn a_linked_param_stays_visible_while_it_does_not_apply() {
+        let (tmp, mut app) = editing_in("canvas", "faded");
+        let file = tmp.path().join("faded.toml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        let linked = text.replace("image = \"comp\"", "image = \"comp\"\nwidth = \"n\"");
+        std::fs::write(&file, linked).unwrap();
+        let int = "type = \"int\"\n[params]\nvalue = 3\n";
+        std::fs::write(tmp.path().join("n.toml"), int).unwrap();
+        app.reload_from_disk();
+        assert!(app.edit_rows().iter().any(input("width")));
+        assert_eq!(params(&app), ["opacity"]);
+    }
+
     #[test]
     fn unlinking_and_linking_a_param_moves_its_row() {
         let (_tmp, mut app) = editing("placed");

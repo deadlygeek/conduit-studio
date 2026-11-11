@@ -1,0 +1,7 @@
+# 40x30 navy background, drawn from colour and size
+type = "canvas"
+
+[params]
+color = "#000080"
+width = 40
+height = 30

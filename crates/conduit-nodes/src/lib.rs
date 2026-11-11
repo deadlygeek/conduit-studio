@@ -2,6 +2,7 @@
 //! and register it in [`register_all`].
 
 mod array;
+mod canvas;
 mod color;
 mod composite;
 mod duplicate;
@@ -27,6 +28,7 @@ mod test_util;
 use conduit_core::Registry;
 
 pub use array::Array;
+pub use canvas::Canvas;
 pub use color::ColorNode;
 pub use composite::Composite;
 pub use duplicate::Duplicate;
@@ -49,6 +51,7 @@ pub const MAX_DIMENSION: u32 = 16_384;
 
 pub fn register_all(registry: &mut Registry) {
     registry.register(Rect);
+    registry.register(Canvas);
     registry.register(Image);
     registry.register(Transform);
     registry.register(Realize);

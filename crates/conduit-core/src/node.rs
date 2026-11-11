@@ -137,6 +137,9 @@ pub struct ParamSpec {
     /// Gets an input so another node can feed it (number, color and font params only).
     /// False for params that decide the node's outputs.
     pub linkable: bool,
+    /// The param only applies while this input is unconnected (e.g. a canvas's size,
+    /// which a connected image decides instead). Editors hide it meanwhile, unless linked.
+    pub unless_connected: Option<&'static str>,
 }
 
 impl ParamSpec {
@@ -149,6 +152,7 @@ impl ParamSpec {
             example,
             doc: "",
             linkable: true,
+            unless_connected: None,
         }
     }
 
@@ -203,6 +207,12 @@ impl ParamSpec {
     /// Typed into the node file only: no input feeds it (see [`ParamSpec::linkable`]).
     pub fn fixed(mut self) -> Self {
         self.linkable = false;
+        self
+    }
+
+    /// See [`ParamSpec::unless_connected`].
+    pub fn unless_connected(mut self, input: &'static str) -> Self {
+        self.unless_connected = Some(input);
         self
     }
 
@@ -400,6 +410,16 @@ impl NodeSpec {
                  or a fixed text param",
                 self.kind
             );
+        }
+        for p in &self.params {
+            if let Some(input) = p.unless_connected {
+                assert!(
+                    self.input(input).is_some_and(|i| !i.param && !i.multi),
+                    "`{}`: param `{}` depends on `{input}`, which is not a single input",
+                    self.kind,
+                    p.name
+                );
+            }
         }
         for p in self.params.iter().filter(|p| p.linkable) {
             let ty = match p.kind {
@@ -792,6 +812,23 @@ mod tests {
         );
         assert_eq!(ParamKind::Int { min: 1, max: 5 }.to_string(), "int 1..5");
         assert_eq!(ParamKind::Color.to_string(), "color");
+    }
+
+    #[test]
+    #[should_panic(expected = "depends on `nope`")]
+    fn unless_connected_needs_a_single_input() {
+        let _ = NodeSpec {
+            kind: "demo",
+            inputs: vec![],
+            outputs: vec![],
+            params: vec![
+                ParamSpec::int("x", 0, 9, "0")
+                    .default("0")
+                    .unless_connected("nope"),
+            ],
+            gui: false,
+        }
+        .with_param_inputs();
     }
 
     #[test]

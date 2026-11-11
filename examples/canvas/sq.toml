@@ -1,0 +1,7 @@
+# 10x10 white square
+type = "rect"
+
+[params]
+color = "white"
+width = 10
+height = 10

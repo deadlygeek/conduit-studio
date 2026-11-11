@@ -205,6 +205,7 @@ onto a canvas (`composite`) or realized (`realize`).
 | Type | Inputs | Params | Output `out` |
 |---|---|---|---|
 | `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
+| `canvas` | `image`: image (optional) | `color` (default white), `width`, `height` (1–16384, default 1920 × 1080) — used only without an image, and hidden in the editor while one is connected; `opacity` (0–100 %, default 100) | image: the connected image, or a `color` fill, at `opacity` |
 | `image` | — | `path` (relative to the project folder) — see [Images](#images) | image: the file's pixels at its own size |
 | `font` | — | `path` (relative to the project folder) — see [Project fonts](#project-fonts) | font: to link into `text`'s `font` |
 | `transform` | `layer`: layer | `x`, `y`, `rotate`, `scale`, `scale_x`, `scale_y`, `skew_x`, `skew_y`, `anchor_x`, `anchor_y`, `filter` — see [Transforms](#transforms) | layer |

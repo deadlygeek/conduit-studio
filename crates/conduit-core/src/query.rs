@@ -143,6 +143,7 @@ impl Project {
                     .iter()
                     .flat_map(|s| &s.inputs)
                     .filter(|p| ty.coerces_to(p.ty))
+                    .filter(|p| !(p.param && n.param_hidden(p.name)))
                     .map(|p| (n.id.clone(), p.name.to_string()))
             })
             .collect()

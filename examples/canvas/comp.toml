@@ -1,0 +1,6 @@
+# Draw the square over the background
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["placed"]

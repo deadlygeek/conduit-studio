@@ -887,7 +887,7 @@ fn node_rows(project: &Project, node: &ProjectNode) -> Vec<Row> {
         .spec
         .iter()
         .flat_map(|s| &s.params)
-        .filter(|p| p.kind != ParamKind::Colors)
+        .filter(|p| p.kind != ParamKind::Colors && !node.param_hidden(p.name))
         .map(|p| p.name.to_string());
     let extra_params = node
         .params
@@ -1906,7 +1906,8 @@ pub(crate) mod tests {
         select(&mut app, input("base", None));
         press(&mut app, "i");
         let kinds = pick_keys(&app);
-        assert_eq!(kinds, ["composite"], "image → image: only composite fits");
+        assert_eq!(kinds, ["canvas", "composite"], "image → image nodes fit");
+        press(&mut app, "composite");
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Enter); // accept `composite_1`
         assert_eq!(focus(&app), "composite_1");

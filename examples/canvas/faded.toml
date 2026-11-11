@@ -1,0 +1,9 @@
+# The composite as a half-transparent canvas: with an image connected, colour and size
+# don't apply
+type = "canvas"
+
+[inputs]
+image = "comp"
+
+[params]
+opacity = 50

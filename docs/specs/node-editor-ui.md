@@ -1,12 +1,16 @@
-# Node editor UI — flow view (spec, draft 14)
+# Node editor UI — flow view (spec, draft 15)
 
-Status: **draft 14**, 2026-11-08 — no open questions. Derived from the durdraw
+Status: **draft 15**, 2026-11-11 — no open questions. Derived from the durdraw
 sketches in `scratch-pad/`
 (`node-graph-overview`, `node-graph`, `node-graph-node-focus`, `node-graph-conduit-focus`,
 `node-graph-conduit-end-focus`, `node-edit`). Where the sketches disagree with each other or
 with the code, this document decides; decisions are marked **[decided]**. The questions raised along the way and their answers are summarised in
 [§10](#10-decision-log). User stories that walk through the spec screen by screen are in
 [`../stories/`](../stories/).
+
+Changes from draft 14: a param that only applies while an input is unconnected (a
+`canvas`'s colour and size, while it has an image) is left out of the edit view and of
+`c` targets while that input is connected, unless it is linked (§7).
 
 Changes from draft 13: `s` turns on a spotlight that tints, in the preview, what the
 focus draws, following the focus (§6.2, §6.10).
@@ -715,6 +719,11 @@ Port rows are labelled `port ← source` / `port → user` (§8); `x` and `y` ar
 
 - **Rows**: name, then input rows (as in §3.1), then every unlinked param, then output
   rows. Empty sections are omitted.
+- **Params that don't apply** **[decided]**: a param that only applies while an input
+  is unconnected, such as a `canvas`'s `color`, `width` and `height` (which a connected
+  `image` replaces), is left out while that input is connected. It is also left out of
+  `c` targets. If it is linked, it keeps its input row so its conduit stays visible, and
+  `d` on that row unlinks it as usual. Disconnecting the input brings the rows back.
 - **Name row**: `name: <id>`. The focused value is shown in the focus colour; there are no
   other markers (§5.2).
 - **Params**: `name = value`, names padded so `=` lines up. A value at its default is
@@ -937,3 +946,4 @@ No open questions remain. Answers given while drafting:
 | Detaching a generated group (`array`, `split_text`) so each item can be tweaked | `X`, for good: ordinary nodes replace it, uses are rewired, nothing links back; asks first; focus on the node that took over the flow's output; a flow change (§6.7). |
 | Getting a generator's items into a group | The editor adds `<id>_group` with every item when the node is added, and keeps lists that take every item in step when the count changes; tweaks of removed items stay as errors (§6.9). No `all` output. |
 | Seeing which part of the output a node draws | `s` spotlight: tint what the focus draws in the preview, following the focus; nothing saved (§6.10). Muting or bypassing nodes was considered and dropped: it needs file-format changes and rules for inputs left without a value. |
+| Params that do nothing while an input is connected (`canvas` colour and size with an image) | Hidden from the edit view and from `c` targets until the input is disconnected; a linked one keeps its row so its conduit stays visible (§7). |

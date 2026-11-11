@@ -1,0 +1,9 @@
+# Put the square at (5, 5)
+type = "transform"
+
+[inputs]
+layer = "sq"
+
+[params]
+x = 5
+y = 5

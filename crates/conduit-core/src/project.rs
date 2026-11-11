@@ -22,6 +22,23 @@ pub struct ProjectNode {
 }
 
 impl ProjectNode {
+    /// Whether param `name` applies: false while the input it depends on is connected
+    /// (see [`crate::ParamSpec::unless_connected`]).
+    pub fn param_applies(&self, name: &str) -> bool {
+        let input = self
+            .spec
+            .as_ref()
+            .and_then(|s| s.param(name))
+            .and_then(|p| p.unless_connected);
+        input.is_none_or(|i| self.inputs.get(i).is_none_or(Vec::is_empty))
+    }
+
+    /// Whether editors leave param `name` out: it doesn't apply ([`Self::param_applies`])
+    /// and isn't linked, so it has no conduit to show.
+    pub fn param_hidden(&self, name: &str) -> bool {
+        !self.param_applies(name) && self.inputs.get(name).is_none_or(Vec::is_empty)
+    }
+
     /// Every output of this node (palette colors included), or none if its type is unknown.
     pub fn outputs(&self) -> Vec<(String, crate::value::ValueType)> {
         self.spec

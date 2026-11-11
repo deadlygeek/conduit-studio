@@ -159,7 +159,8 @@ class Screen:
 
     def edit_view(self, kind, name, params, outputs=(), inputs=()):
         """The edit view (§7): `params` are "name = value" strings, `inputs` and
-        `outputs` port-row labels such as "layer ← helloWorldLayer"."""
+        `outputs` port-row labels such as "layer ← helloWorldLayer". An input given as
+        (NONE, label) isn't connected, so it has no marker: "image  (optional)"."""
         inner, col, row = 47, 14, 2
         self.put(row, col, "╭─ " + kind + " " + "─" * (inner - len(kind) - 3) + "╮")
         rows = [("text", ""), ("text", " name: " + name), ("rule", None)]
@@ -173,6 +174,8 @@ class Screen:
         for i, (what, text) in enumerate(rows, start=row + 1):
             if what == "rule":
                 self.put(i, col, "│" + "─" * inner + "│")
+            elif what == "in" and isinstance(text, tuple):
+                self.put(i, col, "┼─ " + text[1].ljust(inner - 2) + "│")
             elif what == "in":
                 self.put(i, col - 3, "▣──┼─ " + text.ljust(inner - 2) + "│")
             elif what == "out":

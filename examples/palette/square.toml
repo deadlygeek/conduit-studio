@@ -1,7 +1,7 @@
-type = "rect"
+type = "rectangle"
 
 [inputs]
-color = "accent_dark"
+fill_color = "accent_dark"
 
 [params]
 width = 200

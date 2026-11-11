@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(app.flow_status(), "reset bg.width");
         keys(&mut app, "j");
         keys(&mut app, "k");
-        assert_eq!(app.flow_status(), "bg.width = 100");
+        assert_eq!(app.flow_status(), "bg.width = 1920");
         let texts: Vec<String> = app.bar().actions.iter().map(|a| a.text.clone()).collect();
         assert!(!texts.contains(&"(d)efault".to_string()), "{texts:?}");
     }
@@ -704,7 +704,7 @@ mod tests {
         down_to(&mut app, |r| *r == EditRow::Param("width".into()));
         std::fs::write(
             app.dir.join("bg.toml"),
-            "type = \"rect\"\n[params]\ncolor = \"white\"\nwidth = 0\n",
+            "type = \"canvas\"\n[params]\ncolor = \"white\"\nwidth = 0\n",
         )
         .unwrap();
         app.reload_from_disk();

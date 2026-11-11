@@ -1,7 +1,7 @@
 # 50x50 black square
-type = "rect"
+type = "rectangle"
 
 [params]
-color = "black"
+fill_color = "black"
 width = 50
 height = 50

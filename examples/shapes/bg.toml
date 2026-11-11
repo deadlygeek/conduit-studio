@@ -1,0 +1,7 @@
+# 400x240 canvas the shapes are drawn on
+type = "canvas"
+
+[params]
+color = "#f4f1ea"
+width = 400
+height = 240

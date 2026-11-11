@@ -1,8 +1,8 @@
-type = "rect"
+type = "rectangle"
 
 [inputs]
 width = "size"
 height = "size"
 
 [params]
-color = "#e63946"
+fill_color = "#e63946"

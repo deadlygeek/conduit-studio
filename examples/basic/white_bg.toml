@@ -1,5 +1,5 @@
 # 800x600 white background
-type = "rect"
+type = "canvas"
 
 [params]
 color = "white"

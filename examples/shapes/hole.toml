@@ -1,0 +1,8 @@
+# Circle punched out of the card's centre
+type = "oval"
+
+[params]
+x = 70
+y = 80
+width = 80
+height = 80

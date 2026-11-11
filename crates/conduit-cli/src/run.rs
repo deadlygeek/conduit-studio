@@ -269,7 +269,8 @@ impl Runner {
     }
 
     /// Sends the probed output to the probe window: images as-is, layers as their
-    /// transformed pixels (realized onto their own bounding box), colors as a solid swatch.
+    /// transformed pixels (realized onto their own bounding box), shapes rasterized onto
+    /// theirs, colors as a solid swatch.
     fn show_probe(&mut self) {
         let Some(target) = &self.probe else { return };
         self.probe_gui
@@ -277,6 +278,7 @@ impl Runner {
         let image = match self.values.as_ref().and_then(|v| v.get(target)) {
             Some(Value::Image(image)) => Ok(image.clone()),
             Some(Value::Layer(layer)) => probe_layer(layer),
+            Some(Value::Shape(shape)) => Ok(Arc::new(conduit_core::shape::rasterize(shape).0)),
             Some(Value::Color(c)) => Ok(Arc::new(RgbaImage::from_pixel(256, 256, *c))),
             Some(other) => Err(format!(
                 "`{target}` is a {}, which can't be shown as an image",

@@ -31,7 +31,7 @@ fn check_reports_all_problems() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("a.toml"),
-        "type = \"rect\"\n[params]\ncolor = \"nope\"\nwidth = 1\nheight = 1",
+        "type = \"canvas\"\n[params]\ncolor = \"nope\"\nwidth = 1\nheight = 1",
     )
     .unwrap();
     std::fs::write(
@@ -59,7 +59,14 @@ fn nodes_lists_builtins() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
     for kind in [
-        "rect",
+        "rectangle",
+        "oval",
+        "union",
+        "subtract",
+        "intersect",
+        "exclude",
+        "rasterize",
+        "canvas",
         "text",
         "transform",
         "realize",

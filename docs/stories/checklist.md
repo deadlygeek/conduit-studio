@@ -9,8 +9,8 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
 
 ## Checklist
 
-- [x] **01 — A blue rectangle in a preview window** → [01-first-image.md](01-first-image.md)
-  - From an empty project: add a rect, make it large and blue, add a composite and a
+- [x] **01 — A blue background in a preview window** → [01-first-image.md](01-first-image.md)
+  - From an empty project: add a canvas, make it large and blue, add a composite and a
     preview, connect them.
   - Covered: empty project, adding nodes, the edit view, the colour editor, prompts and
     pickers, connecting first inputs.
@@ -23,7 +23,7 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
   - Likely gaps: where focus lands after `[`; one node feeding two `layers` entries.
 
 - [x] **03 — Reshaping a chain: slide, move, dissolve, delete** → [03-reshaping.md](03-reshaping.md)
-  - Start from `rect → transform → tint → composite`. Slide `tint` with `H` / `L`, pick up
+  - Start from `rectangle → transform → tint → composite`. Slide `tint` with `H` / `L`, pick up
     `transform` with `m` and drop it in another flow, `d` (dissolve) one node, `D` (delete)
     another.
   - Checks: all of §6.5, including a slide refused because the types don't fit; magenta on
@@ -49,7 +49,7 @@ When a story is done: tick it, link it, and add it to the table in [`README.md`]
 
 - [ ] **06 — Palettes**
   - Start from `examples/palette`. Import with `I`; rename, insert, reorder and remove
-    colours; link a rect's colour to one; remove a colour that's in use.
+    colours; link a rectangle's fill colour to one; remove a colour that's in use.
   - Checks: §7.1, palette output rows with swatches.
   - Likely gaps: the "colour in use" confirmation; what happens to linked params when
     their colour is removed; long palettes in a 24-column box.

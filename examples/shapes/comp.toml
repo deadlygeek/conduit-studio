@@ -1,0 +1,6 @@
+# Shapes turn into pixels here, where they meet layer inputs
+type = "composite"
+
+[inputs]
+base = "bg"
+layers = ["punched", "rings"]

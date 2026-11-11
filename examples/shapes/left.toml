@@ -1,0 +1,8 @@
+type = "oval"
+
+[params]
+x = 210
+y = 60
+width = 120
+height = 120
+fill_color = "#e76f51"

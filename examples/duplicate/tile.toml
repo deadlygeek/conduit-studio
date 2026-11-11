@@ -1,7 +1,7 @@
 # 40x40 square, the image that gets duplicated
-type = "rect"
+type = "rectangle"
 
 [params]
-color = "#e76f51"
+fill_color = "#e76f51"
 width = 40
 height = 40

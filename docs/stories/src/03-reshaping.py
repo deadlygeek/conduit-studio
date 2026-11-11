@@ -19,9 +19,9 @@ def comp(*ports, flow_input):
 
 LAYERS_2 = ("base", "layers[0]", "layers[1]")
 
-bg = Node("rect", "bg", outputs=[("out", FLOW)])
-square = Node("rect", "square", outputs=[("out", FLOW)])
-stripe = Node("rect", "stripe", outputs=[("out", FLOW)])
+bg = Node("canvas", "bg", [("image", OPTIONAL)], [("out", FLOW)])
+square = Node("rectangle", "square", outputs=[("out", FLOW)])
+stripe = Node("rectangle", "stripe", outputs=[("out", FLOW)])
 placed = Node("transform", "placed", [("layer", FLOW)], [("out", FLOW)])
 toned = Node("tint", "toned", [("layer", FLOW)], [("out", FLOW)])
 preview = Node("preview", "preview", [("image", FLOW)])

@@ -6,7 +6,7 @@ Spec: [`../specs/node-editor-ui.md`](../specs/node-editor-ui.md) (draft 9).
 change which is drawn on top, and take layers off again, **so that** I can arrange the
 picture without editing the composite's file by hand.
 
-This carries on from story 1: the project `story` has `blue_rect → comp.base`,
+This carries on from story 1: the project `story` has `blue_bg → comp.base`,
 `comp → preview`, and nothing in `comp.layers`. `composite` draws its layers in list
 order, so later layers are drawn on top.
 
@@ -19,21 +19,21 @@ Everything else is white on black. The project has no errors, so nothing is red.
 conduit edit story
 ```
 
-The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`** to `comp`,
+The flow is `blue_bg → comp → preview`, focus on `preview`. **`h`** **`h`** to `comp`,
 **`j`** **`j`** to `layers`.
 
 ```
  conduit edit story  ·  3 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ blue_rect │      │ comp        │      │ preview   │
-    │───────────│      │─────────────│      │───────────│
-    │       out─┼──────┼─base        │  ╭───┼─image     │
-    ╰───────────╯    ·─┼─layers      │  │   ╰───────────╯
-                       │─────────────│  │
-                       │         out─┼──╯
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ blue_bg  │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ·─┼─layers      │  │   ╰───────────╯
+      │      out─┼──╯   │─────────────│  │
+      ╰──────────╯      │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -52,27 +52,29 @@ The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`*
 - Green: `·─┼─` on `layers`, the dimmed marker for an unconnected optional input (§4.3).
   Magenta: `layers`.
 
-**`i`** inserts a new node feeding this input. Type **`rect`**:
+**`i`** inserts a new node feeding this input. Type **`rect`**: the picker only offers
+kinds whose output can be a layer, and `rect` matches `rectangle` and, less closely,
+`intersect`. A rectangle is a vector shape, and a shape can be a layer.
 
 ```
  conduit edit story  ·  3 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ blue_rect │      │ comp        │      │ preview   │
-    │───────────│      │─────────────│      │───────────│
-    │       out─┼──────┼─base        │  ╭───┼─image     │
-    ╰───────────╯    ·─┼─layers      │  │   ╰───────────╯
-                       │─────────────│  │
-                       │         out─┼──╯
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ blue_bg  │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ·─┼─layers      │  │   ╰───────────╯
+      │      out─┼──╯   │─────────────│  │
+      ╰──────────╯      │         out─┼──╯
+                        ╰─────────────╯
 
 
-        ┏ insert before comp.layers: type (1 of 9) ━━━━━━━━━━━━━━━━━━━━┓
+        ┏ insert before comp.layers: type (2 of 19) ━━━━━━━━━━━━━━━━━━━┓
         ┃ / rect▏                                                      ┃
-        ┃ rect  () → (image)                                           ┃
-        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- comp.layers: no layers (optional)
+        ┃ rectangle  () → (shape)                                      ┃
+        ┃ intersect  (shape) → (shape)                                 ┃
+ comp.layers: no layers (optional)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
   Picker Actions ──────────────────────────────────────────────────────────────
 
@@ -87,21 +89,21 @@ The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`*
  conduit edit story  ·  4 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ card     │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ card        │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+                         ╰─────────────╯
 
 
 
 
 
- inserted card (rect) before comp.layers[0]
+ inserted card (rectangle) before comp.layers[0]
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -127,21 +129,21 @@ The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`*
  conduit edit story  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  │ ▣─┼─layers[0]   │  │   ╰───────────╯
-                  │ ▣─┼─layers[1]   │  │
-                  ╰───┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+                     │ ▣─┼─layers[1]   │  │
+                     ╰───┼─layers[2]   │  │
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+                         ╰─────────────╯
 
 
 
- inserted shadow (rect) before comp.layers[2]
+ inserted shadow (rectangle) before comp.layers[2]
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -164,17 +166,17 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
+                       ▣─┼─layers[1]   │  │
+                       ▣─┼─layers[2]   │  │
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+                         ╰─────────────╯
 
 
 
@@ -202,17 +204,17 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-        ┏ insert before comp.layers[0]: type (1 of 9) ━━━━━━━━━━━━━━━━━┓
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
+                       ▣─┼─layers[1]   │  │
+                       ▣─┼─layers[2]   │  │
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+        ┏ insert before comp.layers[0]: type (1 of 14) ━━━━━━━━━━━━━━━━┓
         ┃ / trans▏                                                     ┃
         ┃ transform  (layer) → (layer)                                 ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -231,17 +233,17 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
+                       ▣─┼─layers[1]   │  │
+                       ▣─┼─layers[2]   │  │
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+                         ╰─────────────╯
         ┏ id for new transform ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ shadow_at▏                                                   ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -260,17 +262,17 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ shadow_at   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰─────────────╯    ▣─┼─layers[2]   │  │
-                                         ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+  ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+  │ shadow      │      │ shadow_at   │      │ comp        │      │ preview   │
+  │─────────────│      │─────────────│      │─────────────│      │───────────│
+  │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+  ╰─────────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                       │         out─┼──╯ ▣─┼─layers[1]   │  │
+                       ╰─────────────╯    ▣─┼─layers[2]   │  │
+                                          ·─┼─layers      │  │
+                                            │─────────────│  │
+                                            │         out─┼──╯
+                                            ╰─────────────╯
 
 
 
@@ -294,17 +296,17 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ shadow_at   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰─────────────╯    ▣─┼─layers[2]   │  │
-                                         ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ shadow_at   │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │         out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰─────────────╯    ▣─┼─layers[2]   │  │
+                                            ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
+                                              ╰─────────────╯
 
 
 
@@ -323,16 +325,16 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ shadow_at   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰─────────────╯    ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ shadow_at   │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │         out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰─────────────╯    ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
+                                              ╰─────────────╯
 
 
 
@@ -360,16 +362,16 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ shadow   │      │ shadow_at   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰─────────────╯    ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ shadow      │      │ shadow_at   │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │         out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰─────────────╯    ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
+                                              ╰─────────────╯
 
 
 
@@ -389,15 +391,15 @@ The shadow should be drawn first, under the others. **`K`** **`K`**.
  conduit edit story  ·  7 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ blue_rect │      │ comp        │      │ preview   │
-    │───────────│      │─────────────│      │───────────│
-    │       out─┼──────┼─base        │  ╭───┼─image     │
-    ╰───────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                     ·─┼─layers      │  │
-                       │─────────────│  │
-                       │         out─┼──╯
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ blue_bg  │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ·─┼─layers      │  │
+      ╰──────────╯      │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 

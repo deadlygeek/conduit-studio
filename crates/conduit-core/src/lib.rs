@@ -12,6 +12,7 @@ pub mod project;
 pub mod query;
 pub mod raster;
 pub mod registry;
+pub mod shape;
 pub mod value;
 
 pub use affine::{Affine, Filter};
@@ -30,6 +31,7 @@ pub use palette::parse_palette;
 pub use project::{Consumer, Project, ProjectNode, inspect, inspect_sources};
 pub use query::TreeItem;
 pub use registry::Registry;
+pub use shape::{BooleanOp, Shape, Style};
 pub use value::{FontData, Layer, Value, ValueType};
 
 pub use image::{self, Rgba, RgbaImage};

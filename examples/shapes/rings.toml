@@ -1,0 +1,5 @@
+# Two overlapping circles with the overlap removed; painted like the first (`left`)
+type = "exclude"
+
+[inputs]
+shapes = ["left", "right"]

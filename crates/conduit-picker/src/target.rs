@@ -168,8 +168,8 @@ mod tests {
         assert_eq!(loaded.swatches.len(), 5);
         assert_eq!(loaded.swatches[0].0, "brand.primary");
 
-        // `square.color` is linked to `accent_dark`, which darkens brand.accent.
-        let square = target(tmp.path(), "square", "color", None);
+        // `square.fill_color` is linked to `accent_dark`, which darkens brand.accent.
+        let square = target(tmp.path(), "square", "fill_color", None);
         assert_eq!(to_hex(square.load(&registry).unwrap().color), "#cf401d");
     }
 
@@ -177,11 +177,11 @@ mod tests {
     fn writes_and_restores() {
         let tmp = project();
         let registry = conduit_nodes::registry();
-        let square = target(tmp.path(), "square", "color", None);
+        let square = target(tmp.path(), "square", "fill_color", None);
         let loaded = square.load(&registry).unwrap();
         square.write(Rgba([1, 2, 3, 255])).unwrap();
         let text = std::fs::read_to_string(square.path()).unwrap();
-        assert!(text.contains("color = \"#010203\""), "{text}");
+        assert!(text.contains("fill_color = \"#010203\""), "{text}");
         assert!(
             !text.contains("accent_dark"),
             "typing a color replaces the link"

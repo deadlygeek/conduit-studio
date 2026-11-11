@@ -1,7 +1,7 @@
 # 120x40 bar, the image every transform below starts from
-type = "rect"
+type = "rectangle"
 
 [params]
-color = "#264653"
+fill_color = "#264653"
 width = 120
 height = 40

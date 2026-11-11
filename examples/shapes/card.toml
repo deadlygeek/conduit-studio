@@ -1,0 +1,12 @@
+# Rounded card with a dark outline
+type = "rectangle"
+
+[params]
+x = 30
+y = 40
+width = 160
+height = 160
+corner_radius = 24
+fill_color = "#2a9d8f"
+stroke_width = 4
+stroke_color = "#264653"

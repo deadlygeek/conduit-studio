@@ -1,0 +1,7 @@
+type = "oval"
+
+[params]
+x = 270
+y = 60
+width = 120
+height = 120

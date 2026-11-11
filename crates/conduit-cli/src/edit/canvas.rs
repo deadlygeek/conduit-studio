@@ -685,17 +685,17 @@ mod tests {
         let expected = "
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯";
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯";
         assert_eq!(pic.text(), &expected[1..]);
     }
 

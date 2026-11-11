@@ -23,7 +23,8 @@ conduit edit examples/effects
 
 The anchor is the first sink, `preview` (§4.2). Upstream, `preview.image` leads to `comp`,
 and `comp`'s first connected input is `base`, so the flow is `bg → comp → preview`. The
-three layers are `▣`: connected, but not drawn in this flow.
+three layers are `▣`: connected, but not drawn in this flow. `bg` is a `canvas`; its
+`image` input is `·`, optional and empty.
 
 - Green: the `preview` box. Magenta: the conduit into it.
 - No `(m)ove` or `(H)/(L)` slide: `preview` has no output, so it can't go into a
@@ -41,7 +42,8 @@ three layers are `▣`: connected, but not drawn in this flow.
 
 {{comp}}
 
-- No slide: `bg` has no input to take `comp`'s place, and `preview` has no output.
+- No slide: nothing feeds `bg` (its `image` input is empty), so there's nothing to connect
+  to `comp.base` in its place, and `preview` has no output.
 
 **`j`** goes into the box, onto `base`; **`j`** again, onto `layers[0]`.
 
@@ -102,7 +104,8 @@ its linked param `black`).
 
 {{flow_d}}
 
-- `bar.color` is the flow input: `bar` is a rect whose colour comes from the palette.
+- `bar.fill_color` is the flow input: `bar` is a rectangle whose fill colour comes from
+  the palette.
 - `comp` and `preview` are now off the right edge, beyond `bar_inverted`.
 
 ## 6. Back and forward
@@ -122,7 +125,7 @@ once more to the start. **`]`** goes forward again.
 {{find}}
 
 **`⏎`**. `swatch_shifted` becomes the anchor and the flow is built around it (§4.2):
-upstream through `swatch`, whose only connected input is its linked `color`, to
+upstream through `swatch`, whose only connected input is its linked `fill_color`, to
 `brand.teal`; downstream through `swatch_at` to `comp.layers[1]` and `preview`.
 
 {{flow_e}}

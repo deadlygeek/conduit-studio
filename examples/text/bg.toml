@@ -1,5 +1,5 @@
 # 600x300 canvas
-type = "rect"
+type = "canvas"
 
 [params]
 color = "#f4f1ea"

@@ -1,4 +1,4 @@
-type = "rect"
+type = "canvas"
 
 [params]
 color = "white"

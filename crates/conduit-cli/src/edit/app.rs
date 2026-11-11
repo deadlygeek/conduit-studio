@@ -1117,7 +1117,7 @@ pub(crate) mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
             tmp.path().join("a.toml"),
-            "type = \"rect\"\n[params]\ncolor = \"nope\"\nwidth = 1\nheight = 1\n",
+            "type = \"canvas\"\n[params]\ncolor = \"nope\"\nwidth = 1\nheight = 1\n",
         )
         .unwrap();
         let registry = Arc::new(conduit_nodes::registry());
@@ -1235,7 +1235,7 @@ pub(crate) mod tests {
     #[test]
     fn param_range_is_checked() {
         let (_tmp, mut app) = temp_example();
-        goto(&mut app, "black_sq");
+        goto(&mut app, "white_bg");
         select(&mut app, param("width"));
         key(&mut app, KeyCode::Enter);
         clear(&mut app);
@@ -1268,20 +1268,25 @@ pub(crate) mod tests {
         press(&mut app, "d");
         assert!(read(&app, "comp").contains("layers = [\"placed\"]"));
 
-        // A single input is replaced.
+        // Only images fit a base: a shape is a layer, not a background.
         select(&mut app, input("base", None));
+        press(&mut app, "c");
+        assert_eq!(pick_keys(&app), ["white_bg.out"]);
+        key(&mut app, KeyCode::Esc);
+        // A shape connects to a layer list.
+        select(&mut app, input("layers", Some(0)));
         press(&mut app, "cblack");
         key(&mut app, KeyCode::Enter);
-        assert!(read(&app, "comp").contains("base = \"black_sq\""));
+        assert!(read(&app, "comp").contains("layers = [\"placed\", \"black_sq\"]"));
         assert!(app.project.is_valid());
     }
 
     #[test]
     fn add_node() {
         let (_tmp, mut app) = temp_example();
-        press(&mut app, "arect");
+        press(&mut app, "arectangle");
         key(&mut app, KeyCode::Enter);
-        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "rect_1"));
+        assert!(matches!(&app.mode, Mode::Prompt { input, .. } if input == "rectangle_1"));
         clear(&mut app);
         press(&mut app, "bad id");
         key(&mut app, KeyCode::Enter);
@@ -1290,7 +1295,7 @@ pub(crate) mod tests {
         press(&mut app, "red_box");
         key(&mut app, KeyCode::Enter);
         assert_eq!(focus(&app), "red_box");
-        assert!(read(&app, "red_box").starts_with("type = \"rect\""));
+        assert!(read(&app, "red_box").starts_with("type = \"rectangle\""));
         assert!(app.project.is_valid());
     }
 
@@ -1357,7 +1362,7 @@ pub(crate) mod tests {
         assert!(read(&app, "black_sq").contains("width = 70"));
 
         // Colors can be linked too, but this project has no color outputs to offer.
-        select(&mut app, param("color"));
+        select(&mut app, param("fill_color"));
         press(&mut app, "c");
         assert_eq!(app.mode, Mode::Normal);
         assert_eq!(
@@ -1402,19 +1407,19 @@ pub(crate) mod tests {
         goto(&mut app, "black_sq");
         select(&mut app, param("width"));
         press(&mut app, "{");
-        assert_eq!(int_param(&app, "black_sq", "width"), Some(1));
+        assert_eq!(int_param(&app, "black_sq", "width"), Some(0));
         press(&mut app, "-");
         assert_eq!(
             app.message.as_deref(),
-            Some("black_sq.width is at its minimum, 1")
+            Some("black_sq.width is at its minimum, 0")
         );
 
         // Colors are adjusted in the color editor instead.
-        select(&mut app, param("color"));
+        select(&mut app, param("fill_color"));
         press(&mut app, "+");
         assert_eq!(
             app.message.as_deref(),
-            Some("press ⏎ to adjust `color` in the color editor")
+            Some("press ⏎ to adjust `fill_color` in the color editor")
         );
     }
 
@@ -1764,7 +1769,7 @@ pub(crate) mod tests {
         select(&mut app, entry("primary"));
         press(&mut app, "x");
         assert!(
-            matches!(&app.mode, Mode::Confirm { question, .. } if question.contains("stripe.color"))
+            matches!(&app.mode, Mode::Confirm { question, .. } if question.contains("stripe.fill_color"))
         );
         press(&mut app, "y");
         assert!(!read(&app, "stripe").contains("brand.primary"));
@@ -1842,13 +1847,13 @@ pub(crate) mod tests {
 
         // On a linked color param, typing replaces the link.
         goto(&mut app, "square");
-        select(&mut app, param("color"));
+        select(&mut app, param("fill_color"));
         key(&mut app, KeyCode::Enter);
         press(&mut app, "#123456");
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Enter);
-        assert_eq!(link(&app, "color"), None);
-        assert!(read(&app, "square").contains("color = \"#123456\""));
+        assert_eq!(link(&app, "fill_color"), None);
+        assert!(read(&app, "square").contains("fill_color = \"#123456\""));
     }
 
     #[test]
@@ -1869,11 +1874,11 @@ pub(crate) mod tests {
         assert_eq!(read(&app, "brand"), original);
 
         goto(&mut app, "square");
-        select(&mut app, param("color"));
+        select(&mut app, param("fill_color"));
         let Some(Action::OpenPicker(args)) = press(&mut app, "C") else {
             panic!("expected the picker to open");
         };
-        assert_eq!(&args[1..], ["square", "color"]);
+        assert_eq!(&args[1..], ["square", "fill_color"]);
         select(&mut app, param("width"));
         assert_eq!(press(&mut app, "C"), None);
         assert!(
@@ -1888,14 +1893,17 @@ pub(crate) mod tests {
     fn feed_a_color_param_from_a_color_node() {
         let (_tmp, mut app) = temp_example();
         goto(&mut app, "black_sq");
-        select(&mut app, param("color"));
+        select(&mut app, param("fill_color"));
         press(&mut app, "i");
         let kinds = pick_keys(&app);
         assert_eq!(kinds, ["color"], "palettes only have named outputs");
         key(&mut app, KeyCode::Enter);
-        key(&mut app, KeyCode::Enter); // `black_sq_color`
-        assert!(read(&app, "black_sq_color").contains("color = \"black\""));
-        assert_eq!(link(&app, "color"), Some(reference("black_sq_color")));
+        key(&mut app, KeyCode::Enter); // `black_sq_fill_color`
+        assert!(read(&app, "black_sq_fill_color").contains("color = \"black\""));
+        assert_eq!(
+            link(&app, "fill_color"),
+            Some(reference("black_sq_fill_color"))
+        );
         assert!(app.project.is_valid(), "{:?}", app.project.errors);
     }
 

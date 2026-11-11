@@ -1,7 +1,7 @@
 # 10x10 white square
-type = "rect"
+type = "rectangle"
 
 [params]
-color = "white"
+fill_color = "white"
 width = 10
 height = 10

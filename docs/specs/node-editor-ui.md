@@ -120,7 +120,7 @@ cap is one constant, so it's easy to tune.
 | `node-graph` puts outputs **above** inputs; `node-graph-overview` and `node-edit` put inputs first. | **[decided]** Inputs above outputs. |
 | Empty sections sometimes drawn as a bare divider. | **[decided]** Omit them (§3). |
 | Type abbreviated (`trans`, `compo`). | **[decided]** Full names, width capped (§3.2). |
-| Port names `image`, `layer` (as an output), `background` — none exist. `rect` and `transform` output `out`; `composite` takes `base` and `layers`. | **[decided]** Real port names from the node spec. |
+| Port names `image`, `layer` (as an output), `background` — none exist. `canvas`, `rectangle` and `transform` output `out`; `composite` takes `base` and `layers`. | **[decided]** Real port names from the node spec. |
 | List entries numbered `layer[1]`, `layer[3]`, `layer[2]`. | **[decided]** Real name, 0-based, in list order: `layers[0]`, `layers[1]`, `layers[2]`. |
 | Conduit bar `(d)issolve (i)insert`, titled `Conduit Focus Actions`. | **[decided]** See §6.3. |
 | `node-edit` wraps the focused value in `► ◄`. | **[decided]** No markers: the focus colour (green, bold) is enough. |
@@ -138,10 +138,10 @@ node in it has at most one **flow input** (the row whose conduit is drawn to the
 its left) and at most one **flow output** (the row drawn to the node on its right). Every
 other connected row ends in `▣`.
 
-In `node-graph` the flow is `rect → transform → composite → preview`:
+In `node-graph` the flow is `rectangle → transform → composite → preview`:
 
 ```
-╭─ rect ───────╮   ╭─ transform ─╮      ╭─ composite ─╮    ╭─ preview ─────╮
+╭─ rectangle ──╮   ╭─ transform ─╮      ╭─ composite ─╮    ╭─ preview ─────╮
 │ blue-square  │   │ blue-move   │      │ main-comp   │    │ main-preview  │
 │──────────────│   │─────────────│      │─────────────│    │───────────────│
 │          out─┼───┼─layer       │    ▣─┼─base        │ ╭──┼─image         │
@@ -534,7 +534,7 @@ conduit end, then `m` or `⏎` drops it there (`source → node → user`). `esc
 whole move undoes in one `u`, and no file changes until the drop.
 
 **[decided]** `(m)ove` is offered only on a node that can go into a conduit: one with a
-fed input to pass the conduit through, and an output. A source (`rect`) or a sink
+fed input to pass the conduit through, and an output. A source (`rectangle`) or a sink
 (`preview`) has no `(m)ove`, and pressing `m` says why (§6).
 
 **[decided]** While it's picked up:
@@ -566,7 +566,7 @@ the colour editor keep today's behaviour and look: a centred overlay with a thic
 ```
         ┏ connect comp.base to (1 of 1) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / ▏                                                          ┃
-        ┃ blue_rect  rect                                              ┃
+        ┃ blue_bg  canvas                                              ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 

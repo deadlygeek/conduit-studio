@@ -19,7 +19,7 @@ fn value(values: &Values, r: &str) -> Value {
 }
 
 const SIZE: &str = "type = \"int\"\n[params]\nvalue = 30";
-const SQUARE: &str = r#"type = "rect"
+const SQUARE: &str = r#"type = "canvas"
 [params]
 color = "black"
 width = 5
@@ -66,7 +66,7 @@ fn linked_value_is_range_checked() {
 #[test]
 fn only_numbers_can_be_linked() {
     let bad = SQUARE.replace("height = \"size\"", "height = \"other\"");
-    let other = "type = \"rect\"\n[params]\ncolor = \"red\"";
+    let other = "type = \"canvas\"\n[params]\ncolor = \"red\"";
     let err = render(&[("size", SIZE), ("other", other), ("square", &bad)]).unwrap_err();
     assert!(
         err.contains("expects number, but `other.out` is image"),
@@ -84,7 +84,7 @@ fn changing_an_int_reruns_its_consumers_only() {
             ("square", SQUARE.to_string()),
             (
                 "bg",
-                "type = \"rect\"\n[params]\ncolor = \"white\"".to_string(),
+                "type = \"canvas\"\n[params]\ncolor = \"white\"".to_string(),
             ),
         ];
         let sources = files
@@ -111,8 +111,8 @@ fn color_nodes_feed_color_params() {
     let base = "type = \"color\"\n[params]\ncolor = \"red\"";
     // A second color node takes its base from the first and lightens it.
     let light = "type = \"color\"\n[inputs]\ncolor = \"base\"\n[params]\nlightness = 25";
-    // `color` is required on rect, but a link is enough.
-    let swatch = "type = \"rect\"\n[inputs]\ncolor = \"light\"\n[params]\nwidth = 2\nheight = 2";
+    // A linked color wins over the param.
+    let swatch = "type = \"canvas\"\n[inputs]\ncolor = \"light\"\n[params]\nwidth = 2\nheight = 2";
     let values = render(&[("base", base), ("light", light), ("swatch", swatch)]).unwrap();
     let Value::Color(c) = value(&values, "light") else {
         panic!("expected color")
@@ -127,7 +127,7 @@ fn color_nodes_feed_color_params() {
 #[test]
 fn colors_and_numbers_do_not_mix() {
     let base = "type = \"color\"\n[params]\ncolor = \"red\"";
-    let bad = "type = \"rect\"\n[inputs]\nwidth = \"base\"\n[params]\ncolor = \"white\"";
+    let bad = "type = \"canvas\"\n[inputs]\nwidth = \"base\"\n[params]\ncolor = \"white\"";
     let err = render(&[("base", base), ("r", bad)]).unwrap_err();
     assert!(
         err.contains("expects number, but `base.out` is color"),
@@ -139,7 +139,7 @@ fn colors_and_numbers_do_not_mix() {
 fn palette_colors_feed_color_nodes() {
     let brand = "type = \"palette\"\n[params.colors]\nprimary = \"#264653\"\naccent = \"red\"";
     let dark = "type = \"color\"\n[inputs]\ncolor = \"brand.accent\"\n[params]\nlightness = -25";
-    let swatch = "type = \"rect\"\n[inputs]\ncolor = \"dark\"\n[params]\nwidth = 1\nheight = 1";
+    let swatch = "type = \"canvas\"\n[inputs]\ncolor = \"dark\"\n[params]\nwidth = 1\nheight = 1";
     let values = render(&[("brand", brand), ("dark", dark), ("swatch", swatch)]).unwrap();
     assert!(
         matches!(value(&values, "brand.primary"), Value::Color(c) if c.0 == [0x26, 0x46, 0x53, 255])

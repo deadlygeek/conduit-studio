@@ -11,18 +11,19 @@ preview. The first layer is a chain of three steps.
 
 | File | Type | Feeds |
 |---|---|---|
-| `bg` | rect, 800×600 | `comp.base` |
-| `square` | rect | `placed.layer` |
+| `bg` | canvas, 800×600 | `comp.base` |
+| `square` | rectangle | `placed.layer` |
 | `placed` | transform | `toned.layer` |
 | `toned` | tint | `comp.layers[0]` |
-| `stripe` | rect | `comp.layers[1]` |
+| `stripe` | rectangle | `comp.layers[1]` |
 | `comp` | composite | `preview.image` |
 | `preview` | preview | — |
 
-Port types matter here (from `crates/conduit-nodes`): `rect` outputs an **image**;
-`transform` and `tint` take and output a **layer**; `composite` takes an image as `base`
-and layers as `layers`, and outputs an image; `preview` takes an image. An image can feed
-a layer input, but a layer can't feed an image input.
+Port types matter here (from `crates/conduit-nodes`): `canvas` outputs an **image**;
+`rectangle` outputs a **shape**; `transform` and `tint` take and output a **layer**;
+`composite` takes an image as `base` and layers as `layers`, and outputs an image;
+`preview` takes an image. An image or a shape can feed a layer input, but a layer can't
+feed an image input.
 
 Screens are 80×24. Under each: what's **green** (the focus) and **magenta** (related).
 Everything else is white on black. The project has no errors, so nothing is red.
@@ -40,15 +41,15 @@ type **`ton`**:
  conduit edit chain  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
         ┏ find node (1 of 7) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / ton▏                                                       ┃
         ┃ toned  tint                                                  ┃
@@ -70,8 +71,8 @@ type **`ton`**:
  conduit edit chain  ·  7 nodes
 
 
-ct ───╮      ╭─ transform ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ prev
-are   │      │ placed      │      │ toned    │      │ comp        │      │ previ
+ngle ─╮      ╭─ transform ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ prev
+      │      │ placed      │      │ toned    │      │ comp        │      │ previ
 ──────│      │─────────────│      │──────────│      │─────────────│      │──────
   out─┼──────┼─layer       │  ╭───┼─layer    │    ▣─┼─base        │  ╭───┼─image
 ──────╯      │─────────────│  │   │──────────│  ╭───┼─layers[0]   │  │   ╰──────
@@ -101,23 +102,23 @@ are   │      │ placed      │      │ toned    │      │ comp        �
 ## 2. Slide the tint
 
 **`H`**. `toned` swaps places with `placed` (§6.5): `square` now feeds `toned`, `toned`
-feeds `placed`, and `placed` feeds `comp.layers[0]`. An image into a layer input is
+feeds `placed`, and `placed` feeds `comp.layers[0]`. A shape into a layer input is
 fine, so every type fits.
 
 ```
  conduit edit chain  ·  7 nodes
 
 
-╭─ rect ───╮      ╭─ tint ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─
-│ square   │      │ toned    │      │ placed      │      │ comp        │      │
-│──────────│      │──────────│      │─────────────│      │─────────────│      │─
-│      out─┼──────┼─layer    │  ╭───┼─layer       │    ▣─┼─base        │  ╭───┼─
-╰──────────╯      │──────────│  │   │─────────────│  ╭───┼─layers[0]   │  │   ╰─
-                  │      out─┼──╯   │         out─┼──╯ ▣─┼─layers[1]   │  │
-                  ╰──────────╯      ╰─────────────╯    ·─┼─layers      │  │
-                                                         │─────────────│  │
-                                                         │         out─┼──╯
-                                                         ╰─────────────╯
+╭─ rectangle ─╮      ╭─ tint ───╮      ╭─ transform ─╮      ╭─ composite ─╮
+│ square      │      │ toned    │      │ placed      │      │ comp        │
+│─────────────│      │──────────│      │─────────────│      │─────────────│
+│         out─┼──────┼─layer    │  ╭───┼─layer       │    ▣─┼─base        │  ╭──
+╰─────────────╯      │──────────│  │   │─────────────│  ╭───┼─layers[0]   │  │
+                     │      out─┼──╯   │         out─┼──╯ ▣─┼─layers[1]   │  │
+                     ╰──────────╯      ╰─────────────╯    ·─┼─layers      │  │
+                                                            │─────────────│  │
+                                                            │         out─┼──╯
+                                                            ╰─────────────╯
 
 
 
@@ -134,7 +135,7 @@ fine, so every type fits.
 - Focus stays on `toned`, now second. Green: its box. Magenta: its conduits.
 - A slide isn't a flow change (§6.5): the view scrolls as little as possible to keep a box
   to spare on the left, so `square` comes into view, and `[` history doesn't change.
-- Now only `(L)slide`: `square` is a rect, with no input for `toned` to feed.
+- Now only `(L)slide`: `square` is a rectangle, with no input for `toned` to feed.
 - The tint now applies before the transform. For a tint the image looks the same either
   way; for a `realize` or a filter, the order would matter.
 
@@ -145,16 +146,16 @@ fine, so every type fits.
  conduit edit chain  ·  7 nodes
 
 
-╭─ rect ───╮      ╭─ transform ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─
-│ square   │      │ placed      │      │ toned    │      │ comp        │      │
-│──────────│      │─────────────│      │──────────│      │─────────────│      │─
-│      out─┼──────┼─layer       │  ╭───┼─layer    │    ▣─┼─base        │  ╭───┼─
-╰──────────╯      │─────────────│  │   │──────────│  ╭───┼─layers[0]   │  │   ╰─
-                  │         out─┼──╯   │      out─┼──╯ ▣─┼─layers[1]   │  │
-                  ╰─────────────╯      ╰──────────╯    ·─┼─layers      │  │
-                                                         │─────────────│  │
-                                                         │         out─┼──╯
-                                                         ╰─────────────╯
+╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ tint ───╮      ╭─ composite ─╮
+│ square      │      │ placed      │      │ toned    │      │ comp        │
+│─────────────│      │─────────────│      │──────────│      │─────────────│
+│         out─┼──────┼─layer       │  ╭───┼─layer    │    ▣─┼─base        │  ╭──
+╰─────────────╯      │─────────────│  │   │──────────│  ╭───┼─layers[0]   │  │
+                     │         out─┼──╯   │      out─┼──╯ ▣─┼─layers[1]   │  │
+                     ╰─────────────╯      ╰──────────╯    ·─┼─layers      │  │
+                                                            │─────────────│  │
+                                                            │         out─┼──╯
+                                                            ╰─────────────╯
 
 
 
@@ -181,16 +182,16 @@ another flow. **`h`** **`h`** to `placed`, then **`m`** picks it up.
  conduit edit chain  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ square   │      │ toned    │      │ comp        │      │ preview   │
-    │──────────│      │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │      out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰──────────╯    ·─┼─layers      │  │
-                                        │─────────────│  │
-                                        │         out─┼──╯
-                                        ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ square      │      │ toned    │      │ comp        │      │ preview   │
+    │─────────────│      │──────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │      out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰──────────╯    ·─┼─layers      │  │
+                                           │─────────────│  │
+                                           │         out─┼──╯
+                                           ╰─────────────╯
 
 
 
@@ -224,16 +225,16 @@ another flow. **`h`** **`h`** to `placed`, then **`m`** picks it up.
  conduit edit chain  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ square   │      │ toned    │      │ comp        │      │ preview   │
-    │──────────│      │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │      out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰──────────╯    ·─┼─layers      │  │
-                                        │─────────────│  │
-                                        │         out─┼──╯
-                                        ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ square      │      │ toned    │      │ comp        │      │ preview   │
+    │─────────────│      │──────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │      out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰──────────╯    ·─┼─layers      │  │
+                                           │─────────────│  │
+                                           │         out─┼──╯
+                                           ╰─────────────╯
 
 
 
@@ -257,16 +258,16 @@ another flow. **`h`** **`h`** to `placed`, then **`m`** picks it up.
  conduit edit chain  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ stripe   │      │ placed      │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│    ▣─┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──────┼─layers[1]   │  │
-                      ╰─────────────╯    ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ stripe      │      │ placed      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │─────────────│    ▣─┼─layers[0]   │  │   ╰───────────╯
+                         │         out─┼──────┼─layers[1]   │  │
+                         ╰─────────────╯    ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
+                                              ╰─────────────╯
 
 
 
@@ -284,7 +285,7 @@ another flow. **`h`** **`h`** to `placed`, then **`m`** picks it up.
   a flow change: the view re-centres and it's a step in `[` history.
 - Focus goes to the dropped node, so you can check it or go on to edit it (§6.5).
 - `placed` is now in `comp.layers[1]`'s chain; `layers[0]` (`toned`) is `▣`.
-- No slide: `stripe` is a rect with no input, and past `comp`, `placed` would feed
+- No slide: `stripe` is a rectangle with no input, and past `comp`, `placed` would feed
   `preview` a layer.
 - One `u` would undo the whole move, pick-up and drop together.
 
@@ -298,15 +299,15 @@ The tint isn't wanted after all. **`l`** **`l`** to `comp`, **`j`** **`j`** to
  conduit edit chain  ·  7 nodes
 
 
-    ╭─ rect ───╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ square   │      │ toned    │      │ comp        │      │ preview   │
-    │──────────│      │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-                      │      out─┼──╯ ▣─┼─layers[1]   │  │
-                      ╰──────────╯    ·─┼─layers      │  │
-                                        │─────────────│  │
-                                        │         out─┼──╯
+    ╭─ rectangle ─╮      ╭─ tint ───╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ square      │      │ toned    │      │ comp        │      │ preview   │
+    │─────────────│      │──────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer    │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │──────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+                         │      out─┼──╯ ▣─┼─layers[1]   │  │
+                         ╰──────────╯    ·─┼─layers      │  │
+                                           │─────────────│  │
+                                           │         out─┼──╯
         ┏ confirm ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ Dissolve `toned`? Connects square → comp.layers[0].          ┃
         ┃                                                              ┃
@@ -331,16 +332,16 @@ The tint isn't wanted after all. **`l`** **`l`** to `comp`, **`j`** **`j`** to
  conduit edit chain  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ square   │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ square      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │───────────│
+    │         out─┼──╮ ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯  ╰───┼─layers[0]   │  │   ╰───────────╯
+                       ▣─┼─layers[1]   │  │
+                       ·─┼─layers      │  │
+                         │─────────────│  │
+                         │         out─┼──╯
+                         ╰─────────────╯
 
 
 
@@ -369,15 +370,15 @@ connections are removed, not bridged.
  conduit edit chain  ·  6 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ stripe   │      │ placed      │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    ╰──────────╯      │─────────────│    ▣─┼─layers[0]   │  │   ╰───────────╯
-                      │         out─┼──────┼─layers[1]   │  │
-                      ╰─────────────╯    ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ stripe      │      │ placed      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼──────┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    ╰─────────────╯      │─────────────│    ▣─┼─layers[0]   │  │   ╰───────────╯
+                         │         out─┼──────┼─layers[1]   │  │
+                         ╰─────────────╯    ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
         ┏ confirm ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ Delete `placed`? This disconnects comp.layers[1].            ┃
         ┃                                                              ┃
@@ -398,15 +399,15 @@ connections are removed, not bridged.
  conduit edit chain  ·  5 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ·─┼─layers      │  │
+      ╰──────────╯      │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 

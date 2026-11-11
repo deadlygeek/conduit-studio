@@ -1,8 +1,8 @@
-# Story 1 — a blue rectangle in a preview window
+# Story 1 — a blue background in a preview window
 
 Spec: [`../specs/node-editor-ui.md`](../specs/node-editor-ui.md) (draft 6).
 
-**As** someone starting a new project, **I want** to add a large blue rectangle, put it on
+**As** someone starting a new project, **I want** to add a large blue canvas, put it on
 a composite's background and show the composite in a preview window, **so that** I have a
 first image to build on, without leaving the editor.
 
@@ -48,18 +48,21 @@ The project has no nodes, so there is nothing to focus. The bar has no focus act
 only the global keys that make sense without a node (`[a]dd`, `[u]ndo`, `[/]find`,
 `[?]help`, `[q]uit`).
 
-## 1. Add the rectangle
+## 1. Add the canvas
 
-**`a`**, then type **`rect`**. The type picker narrows to one match.
+A `canvas` is a plain image of one colour, the background for a composite. (A
+`rectangle` is a vector shape, a layer, and can't be a composite's `base`.)
+
+**`a`**, then type **`canv`**. The type picker narrows to one match.
 
 ```
  conduit edit story  ·  0 nodes
 
 
 
-        ┏ add node of type (1 of 14) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-        ┃ / rect▏                                                      ┃
-        ┃ rect  () → (image)                                           ┃
+        ┏ add node of type (1 of 25) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ / canv▏                                                      ┃
+        ┃ canvas  (image) → (image)                                    ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
                         Press a to add one.
 
@@ -79,8 +82,8 @@ only the global keys that make sense without a node (`[a]dd`, `[u]ndo`, `[/]find
 
 ```
 
-**`⏎`** picks `rect`. The id prompt opens on the suggested `rect_1`, highlighted, so typing
-replaces it. Type **`blue_rect`**.
+**`⏎`** picks `canvas`. The id prompt opens on the suggested `canvas_1`, highlighted, so
+typing replaces it. Type **`blue_bg`**.
 
 ```
  conduit edit story  ·  0 nodes
@@ -88,8 +91,8 @@ replaces it. Type **`blue_rect`**.
 
 
 
-        ┏ id for new rect ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-        ┃ blue_rect▏                                                   ┃
+        ┏ id for new canvas ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ blue_bg▏                                                     ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
                         Press a to add one.
 
@@ -109,7 +112,7 @@ replaces it. Type **`blue_rect`**.
 
 ```
 
-**`⏎`**. `blue_rect.toml` is written and the new node becomes the anchor and focus of the
+**`⏎`**. `blue_bg.toml` is written and the new node becomes the anchor and focus of the
 flow (§4.2). It's the only node in the flow, so its `out` row has no marker: nothing uses
 it yet (§4.3).
 
@@ -117,11 +120,13 @@ it yet (§4.3).
  conduit edit story  ·  1 node
 
 
-    ╭─ rect ────╮
-    │ blue_rect │
-    │───────────│
-    │       out─┼─
-    ╰───────────╯
+      ╭─ canvas ─╮
+      │ blue_bg  │
+      │──────────│
+    ·─┼─image    │
+      │──────────│
+      │      out─┼─
+      ╰──────────╯
 
 
 
@@ -129,9 +134,7 @@ it yet (§4.3).
 
 
 
-
-
- added blue_rect (rect)
+ added blue_bg (canvas)
 
   Node Actions ────────────────────────────────────────────────────────────────
 
@@ -140,8 +143,10 @@ it yet (§4.3).
 
 ```
 
-- Green: the whole `blue_rect` box, including the `out─┼─` stub.
-- The bar leaves out `(m)ove`, since nothing feeds `blue_rect` (§6.5), and `(H)/(L)` slide:
+- Green: the whole `blue_bg` box, including the `out─┼─` stub.
+- `·` on `image` (dimmed): a canvas can also start from an image, but that's optional,
+  so not an error.
+- The bar leaves out `(m)ove`, since nothing feeds `blue_bg` (§6.5), and `(H)/(L)` slide:
   there's nothing to slide past.
 
 ## 2. Make it large and blue
@@ -151,22 +156,22 @@ it yet (§4.3).
 ```
  conduit edit story  ·  1 node
 
-              ╭─ rect ────────────────────────────────────────╮
+              ╭─ canvas ──────────────────────────────────────╮
               │                                               │
-              │ name: blue_rect                               │
+              │ name: blue_bg                                 │
               │───────────────────────────────────────────────│
-              │  color  = ██ white (default)                  │
-              │  width  = 100 (default)                       │
-              │  height = 100 (default)                       │
+              ┼─ image  (optional)                            │
+              │───────────────────────────────────────────────│
+              │  color   = ██ white (default)                 │
+              │  width   = 1920 (default)                     │
+              │  height  = 1080 (default)                     │
+              │  opacity = 100 (default)                      │
               │───────────────────────────────────────────────│
               │                                          out ─┼─
               ╰───────────────────────────────────────────────╯
 
 
-
-
-
- blue_rect (rect)
+ blue_bg (canvas)
 
   Name Actions ────────────────────────────────────────────────────────────────
 
@@ -175,29 +180,30 @@ it yet (§4.3).
 
 ```
 
-- Green: `blue_rect`. The rest of the row (`name:`) is magenta.
+- Green: `blue_bg`. The rest of the row (`name:`) is magenta.
+- `image` is an input row, with no marker: it isn't connected.
 
-**`j`** moves to `color`.
+**`j`** moves to `image`, **`j`** again to `color`.
 
 ```
  conduit edit story  ·  1 node
 
-              ╭─ rect ────────────────────────────────────────╮
+              ╭─ canvas ──────────────────────────────────────╮
               │                                               │
-              │ name: blue_rect                               │
+              │ name: blue_bg                                 │
               │───────────────────────────────────────────────│
-              │  color  = ██ white (default)                  │
-              │  width  = 100 (default)                       │
-              │  height = 100 (default)                       │
+              ┼─ image  (optional)                            │
+              │───────────────────────────────────────────────│
+              │  color   = ██ white (default)                 │
+              │  width   = 1920 (default)                     │
+              │  height  = 1080 (default)                     │
+              │  opacity = 100 (default)                      │
               │───────────────────────────────────────────────│
               │                                          out ─┼─
               ╰───────────────────────────────────────────────╯
 
 
-
-
-
- blue_rect.color = white
+ blue_bg.color = white
 
   Param Actions ───────────────────────────────────────────────────────────────
 
@@ -215,9 +221,9 @@ it yet (§4.3).
 ```
  conduit edit story  ·  1 node
 
-              ╭─ rect ────────────────────────────────────────╮
+              ╭─ canvas ──────────────────────────────────────╮
               │                                               │
-            ┏ color  blue_rect.color  (HSL) ━━━━━━━━━━━━━━━━━━━━━━━┓
+            ┏ color  blue_bg.color  (HSL) ━━━━━━━━━━━━━━━━━━━━━━━━━┓
             ┃ ████████████████  #0000ff                            ┃
             ┃ ████████████████  was #ffffff ██                     ┃
             ┃ # blue▏                                              ┃
@@ -226,11 +232,11 @@ it yet (§4.3).
             ┃   L  50%  █████████████████┃█████████████████        ┃
             ┃   A 100%  ██████████████████████████████████┃        ┃
             ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+              │                                          out ─┼─
+              ╰───────────────────────────────────────────────╯
 
 
-
-
- blue_rect.color = blue
+ blue_bg.color = blue
 
   Colour Editor Actions ───────────────────────────────────────────────────────
 
@@ -239,31 +245,31 @@ it yet (§4.3).
 
 ```
 
-- The new colour is written to `blue_rect.toml` straight away, so a preview would follow.
+- The new colour is written to `blue_bg.toml` straight away, so a preview would follow.
 - **`⏎`** keeps it and closes the editor.
 
-**`j`** to `width` (`100` turns green), **`e`**. The prompt opens on `100`, highlighted;
+**`j`** to `width` (`1920` turns green), **`e`**. The prompt opens on `1920`, highlighted;
 type **`800`**.
 
 ```
  conduit edit story  ·  1 node
 
-              ╭─ rect ────────────────────────────────────────╮
+              ╭─ canvas ──────────────────────────────────────╮
               │                                               │
-              │ name: blue_rect                               │
+              │ name: blue_bg                                 │
               │───────────────────────────────────────────────│
-              │  color  = ██ blue                             │
-              │  width  = 100 (default)                       │
-              │  height = 100 (default)                       │
+              ┼─ image  (optional)                            │
               │───────────────────────────────────────────────│
-              │                                          out ─┼─
-              ╰───────────────────────────────────────────────╯
-
-        ┏ blue_rect.width (empty = default) ━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+              │  color   = ██ blue                            │
+              │  width   = 1920 (default)                     │
+              │  height  = 1080 (default)                     │
+        ┏ blue_bg.width (empty = default) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ 800▏                                                         ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+              ╰───────────────────────────────────────────────╯
 
- blue_rect.width = 100
+
+ blue_bg.width = 1920
 
   Prompt Actions ──────────────────────────────────────────────────────────────
 
@@ -277,22 +283,22 @@ type **`800`**.
 ```
  conduit edit story  ·  1 node
 
-              ╭─ rect ────────────────────────────────────────╮
+              ╭─ canvas ──────────────────────────────────────╮
               │                                               │
-              │ name: blue_rect                               │
+              │ name: blue_bg                                 │
               │───────────────────────────────────────────────│
-              │  color  = ██ blue                             │
-              │  width  = 800                                 │
-              │  height = 600                                 │
+              ┼─ image  (optional)                            │
+              │───────────────────────────────────────────────│
+              │  color   = ██ blue                            │
+              │  width   = 800                                │
+              │  height  = 600                                │
+              │  opacity = 100 (default)                      │
               │───────────────────────────────────────────────│
               │                                          out ─┼─
               ╰───────────────────────────────────────────────╯
 
 
-
-
-
- set blue_rect.height = 600
+ set blue_bg.height = 600
 
   Param Actions ───────────────────────────────────────────────────────────────
 
@@ -306,15 +312,19 @@ type **`800`**.
 
 **`esc`** closes the edit view.
 
+- `color`, `width` and `height` only apply while `image` isn't connected.
+
 ```
  conduit edit story  ·  1 node
 
 
-    ╭─ rect ────╮
-    │ blue_rect │
-    │───────────│
-    │       out─┼─
-    ╰───────────╯
+      ╭─ canvas ─╮
+      │ blue_bg  │
+      │──────────│
+    ·─┼─image    │
+      │──────────│
+      │      out─┼─
+      ╰──────────╯
 
 
 
@@ -322,9 +332,7 @@ type **`800`**.
 
 
 
-
-
- blue_rect (rect)  ·  800×600
+ blue_bg (canvas)  ·  800×600
 
   Node Actions ────────────────────────────────────────────────────────────────
 
@@ -341,21 +349,21 @@ type **`800`**.
  conduit edit story  ·  1 node
 
 
-    ╭─ rect ────╮
-    │ blue_rect │
-    │───────────│
-    │       out─┼─
-    ╰───────────╯
+      ╭─ canvas ─╮
+      │ blue_bg  │
+      │──────────│
+    ·─┼─image    │
+      │──────────│
+      │      out─┼─
+      ╰──────────╯
 
 
-
-
-        ┏ add node of type (1 of 14) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┏ add node of type (1 of 25) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / comp▏                                                      ┃
         ┃ composite  (image, layer) → (image)                          ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
- blue_rect (rect)
+ blue_bg (canvas)
 
   Picker Actions ──────────────────────────────────────────────────────────────
 
@@ -370,13 +378,13 @@ type **`800`**.
  conduit edit story  ·  1 node
 
 
-    ╭─ rect ────╮
-    │ blue_rect │
-    │───────────│
-    │       out─┼─
-    ╰───────────╯
-
-
+      ╭─ canvas ─╮
+      │ blue_bg  │
+      │──────────│
+    ·─┼─image    │
+      │──────────│
+      │      out─┼─
+      ╰──────────╯
         ┏ id for new composite ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ comp▏                                                        ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -384,7 +392,7 @@ type **`800`**.
 
 
 
- blue_rect (rect)
+ blue_bg (canvas)
 
   Prompt Actions ──────────────────────────────────────────────────────────────
 
@@ -394,7 +402,7 @@ type **`800`**.
 ```
 
 **`⏎`**. `comp` becomes the anchor. It isn't connected to anything, so the flow is just
-`comp`; `blue_rect` is still in the project but not in this flow.
+`comp`; `blue_bg` is still in the project but not in this flow.
 
 ```
  conduit edit story  ·  2 nodes
@@ -429,7 +437,7 @@ type **`800`**.
   error.
 - `·` on `layers` (dimmed): optional and empty, so not an error.
 
-## 4. Connect the rectangle to the composite's background
+## 4. Connect the canvas to the composite's background
 
 **`j`** moves into the box, onto its first row, `base`.
 
@@ -464,7 +472,7 @@ type **`800`**.
 - The status line says why it's red.
 
 **`c`** opens the source picker. It only offers type-compatible outputs that don't make a
-cycle: here, just `blue_rect`.
+cycle: here, just `blue_bg`.
 
 ```
  conduit edit story  ·  2 nodes
@@ -481,7 +489,7 @@ cycle: here, just `blue_rect`.
 
         ┏ connect comp.base to (1 of 1) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / ▏                                                          ┃
-        ┃ blue_rect  rect                                              ┃
+        ┃ blue_bg  canvas                                              ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
  ✕ comp.base is not connected  ·  1 error
@@ -493,29 +501,29 @@ cycle: here, just `blue_rect`.
 
 ```
 
-**`⏎`**. `comp.toml` gets `base = "blue_rect"`. Focus stays on the same end. The flow is
+**`⏎`**. `comp.toml` gets `base = "blue_bg"`. Focus stays on the same end. The flow is
 rebuilt around the anchor `comp`, and its first connected input is now `base`, so
-`blue_rect` is drawn to its left (§4.2).
+`blue_bg` is drawn to its left (§4.2).
 
 ```
  conduit edit story  ·  2 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮
-    │ blue_rect │      │ comp        │
-    │───────────│      │─────────────│
-    │       out─┼──────┼─base        │
-    ╰───────────╯    ·─┼─layers      │
-                       │─────────────│
-                       │         out─┼─
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮
+      │ blue_bg  │      │ comp        │
+      │──────────│      │─────────────│
+    ·─┼─image    │  ╭───┼─base        │
+      │──────────│  │ ·─┼─layers      │
+      │      out─┼──╯   │─────────────│
+      ╰──────────╯      │         out─┼─
+                        ╰─────────────╯
 
 
 
 
 
 
- connected comp.base ← blue_rect
+ connected comp.base ← blue_bg
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -524,7 +532,7 @@ rebuilt around the anchor `comp`, and its first connected input is now `base`, s
 
 ```
 
-- Green: `─┼─` on `comp.base`. Magenta: `base`, and `out` on `blue_rect` (the other end,
+- Green: `─┼─` on `comp.base`. Magenta: `base`, and `out` on `blue_bg` (the other end,
   now in the flow).
 - The error count is gone and `comp`'s border is no longer red.
 
@@ -536,21 +544,21 @@ rebuilt around the anchor `comp`, and its first connected input is now `base`, s
  conduit edit story  ·  2 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮
-    │ blue_rect │      │ comp        │
-    │───────────│      │─────────────│
-    │       out─┼──────┼─base        │
-    ╰───────────╯    ·─┼─layers      │
-                       │─────────────│
-                       │         out─┼─
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮
+      │ blue_bg  │      │ comp        │
+      │──────────│      │─────────────│
+    ·─┼─image    │  ╭───┼─base        │
+      │──────────│  │ ·─┼─layers      │
+      │      out─┼──╯   │─────────────│
+      ╰──────────╯      │         out─┼─
+                        ╰─────────────╯
 
-        ┏ add node of type (1 of 14) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┏ add node of type (1 of 25) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / prev▏                                                      ┃
         ┃ preview  (image) → ()                                        ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
- connected comp.base ← blue_rect
+ connected comp.base ← blue_bg
 
   Picker Actions ──────────────────────────────────────────────────────────────
 
@@ -563,21 +571,21 @@ rebuilt around the anchor `comp`, and its first connected input is now `base`, s
  conduit edit story  ·  2 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮
-    │ blue_rect │      │ comp        │
-    │───────────│      │─────────────│
-    │       out─┼──────┼─base        │
-    ╰───────────╯    ·─┼─layers      │
-                       │─────────────│
-                       │         out─┼─
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮
+      │ blue_bg  │      │ comp        │
+      │──────────│      │─────────────│
+    ·─┼─image    │  ╭───┼─base        │
+      │──────────│  │ ·─┼─layers      │
+      │      out─┼──╯   │─────────────│
+      ╰──────────╯      │         out─┼─
+                        ╰─────────────╯
 
 
         ┏ id for new preview ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ preview▏                                                     ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
- connected comp.base ← blue_rect
+ connected comp.base ← blue_bg
 
   Prompt Actions ──────────────────────────────────────────────────────────────
 
@@ -647,7 +655,7 @@ alone.
 
 ```
 
-**`c`**. Both `blue_rect` and `comp` output images, so both are offered. **`↓`** to `comp`,
+**`c`**. Both `blue_bg` and `comp` output images, so both are offered. **`↓`** to `comp`,
 **`⏎`**.
 
 ```
@@ -665,7 +673,7 @@ alone.
 
         ┏ connect preview.image to (2 of 2) ━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ / ▏                                                          ┃
-        ┃ blue_rect  rect                                              ┃
+        ┃ blue_bg  canvas                                              ┃
         ┃ comp  composite                                              ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ✕ preview.image is not connected  ·  1 error
@@ -679,20 +687,20 @@ alone.
 
 `preview.toml` gets `image = "comp"`. The flow is rebuilt around `preview`: upstream
 through `image` to `comp`, then through `comp`'s first connected input, `base`, to
-`blue_rect`.
+`blue_bg`.
 
 ```
  conduit edit story  ·  3 nodes
 
 
-    ╭─ rect ────╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ blue_rect │      │ comp        │      │ preview   │
-    │───────────│      │─────────────│      │───────────│
-    │       out─┼──────┼─base        │  ╭───┼─image     │
-    ╰───────────╯    ·─┼─layers      │  │   ╰───────────╯
-                       │─────────────│  │
-                       │         out─┼──╯
-                       ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ blue_bg  │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ·─┼─layers      │  │   ╰───────────╯
+      │      out─┼──╯   │─────────────│  │
+      ╰──────────╯      │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -718,8 +726,8 @@ Keys pressed, in order (text typed into pickers and prompts shown in quotes):
 
 | Step | Keys |
 |---|---|
-| Add the rectangle | `a` "rect" `⏎` "blue_rect" `⏎` |
-| Make it large and blue | `e` `j` `e` `#` "blue" `⏎` `⏎` `j` `e` "800" `⏎` `j` `e` "600" `⏎` `esc` |
+| Add the canvas | `a` "canv" `⏎` "blue_bg" `⏎` |
+| Make it large and blue | `e` `j` `j` `e` `#` "blue" `⏎` `⏎` `j` `e` "800" `⏎` `j` `e` "600" `⏎` `esc` |
 | Add the composite | `a` "comp" `⏎` "comp" `⏎` |
 | Connect it | `j` `c` `⏎` |
 | Add the preview | `a` "prev" `⏎` `⏎` |
@@ -728,8 +736,8 @@ Keys pressed, in order (text typed into pickers and prompts shown in quotes):
 The project folder now holds:
 
 ```toml
-# blue_rect.toml
-type = "rect"
+# blue_bg.toml
+type = "canvas"
 
 [params]
 color = "#0000ff"
@@ -742,7 +750,7 @@ height = 600
 type = "composite"
 
 [inputs]
-base = "blue_rect"
+base = "blue_bg"
 ```
 
 ```toml

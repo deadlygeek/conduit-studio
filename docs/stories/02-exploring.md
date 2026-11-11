@@ -23,17 +23,17 @@ conduit edit examples/effects
  conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -48,7 +48,8 @@ conduit edit examples/effects
 
 The anchor is the first sink, `preview` (§4.2). Upstream, `preview.image` leads to `comp`,
 and `comp`'s first connected input is `base`, so the flow is `bg → comp → preview`. The
-three layers are `▣`: connected, but not drawn in this flow.
+three layers are `▣`: connected, but not drawn in this flow. `bg` is a `canvas`; its
+`image` input is `·`, optional and empty.
 
 - Green: the `preview` box. Magenta: the conduit into it.
 - No `(m)ove` or `(H)/(L)` slide: `preview` has no output, so it can't go into a
@@ -62,17 +63,17 @@ three layers are `▣`: connected, but not drawn in this flow.
  conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -93,17 +94,17 @@ three layers are `▣`: connected, but not drawn in this flow.
  conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -116,7 +117,8 @@ three layers are `▣`: connected, but not drawn in this flow.
 
 ```
 
-- No slide: `bg` has no input to take `comp`'s place, and `preview` has no output.
+- No slide: nothing feeds `bg` (its `image` input is empty), so there's nothing to connect
+  to `comp.base` in its place, and `preview` has no output.
 
 **`j`** goes into the box, onto `base`; **`j`** again, onto `layers[0]`.
 
@@ -124,17 +126,17 @@ three layers are `▣`: connected, but not drawn in this flow.
  conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -283,7 +285,7 @@ its linked param `black`).
 
 
 
- brand.primary → bar.color
+ brand.primary → bar.fill_color
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -304,13 +306,13 @@ its linked param `black`).
  conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ palette ──╮      ╭─ rect ───╮      ╭─ transform ─╮      ╭─ invert ─────╮
-    │ brand      │      │ bar      │      │ bar_turned  │      │ bar_inverted │
-    │────────────│      │──────────│      │─────────────│      │──────────────│
-    │ ██ primary─┼──────┼─color    │  ╭───┼─layer       │  ╭───┼─layer        │
-    │    ██ teal─┼─▣    │──────────│  │   │─────────────│  │   │──────────────│
-    │    ██ sand─┼─     │      out─┼──╯   │         out─┼──╯   │          out─┼─
-    │  ██ orange─┼─     ╰──────────╯      ╰─────────────╯      ╰──────────────╯
+    ╭─ palette ──╮      ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ invert ────
+    │ brand      │      │ bar         │      │ bar_turned  │      │ bar_inverted
+    │────────────│      │─────────────│      │─────────────│      │─────────────
+    │ ██ primary─┼──────┼─fill_color  │  ╭───┼─layer       │  ╭───┼─layer
+    │    ██ teal─┼─▣    │─────────────│  │   │─────────────│  │   │─────────────
+    │    ██ sand─┼─     │         out─┼──╯   │         out─┼──╯   │          out
+    │  ██ orange─┼─     ╰─────────────╯      ╰─────────────╯      ╰─────────────
     │  ██ accent─┼─▣
     ╰────────────╯
 
@@ -318,7 +320,7 @@ its linked param `black`).
 
 
 
- brand.primary → bar.color
+ brand.primary → bar.fill_color
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -327,7 +329,8 @@ its linked param `black`).
 
 ```
 
-- `bar.color` is the flow input: `bar` is a rect whose colour comes from the palette.
+- `bar.fill_color` is the flow input: `bar` is a rectangle whose fill colour comes from
+  the palette.
 - `comp` and `preview` are now off the right edge, beyond `bar_inverted`.
 
 ## 6. Back and forward
@@ -353,7 +356,7 @@ left it.
 
 
 
- back: brand.primary → bar.color
+ back: brand.primary → bar.fill_color
 
   Conduit End Actions ─────────────────────────────────────────────────────────
 
@@ -387,7 +390,7 @@ once more to the start. **`]`** goes forward again.
         ┃ swatch_shifted  hsl                                          ┃
         ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
- back: brand.primary → bar.color
+ back: brand.primary → bar.fill_color
 
   Picker Actions ──────────────────────────────────────────────────────────────
 
@@ -397,22 +400,22 @@ once more to the start. **`]`** goes forward again.
 ```
 
 **`⏎`**. `swatch_shifted` becomes the anchor and the flow is built around it (§4.2):
-upstream through `swatch`, whose only connected input is its linked `color`, to
+upstream through `swatch`, whose only connected input is its linked `fill_color`, to
 `brand.teal`; downstream through `swatch_at` to `comp.layers[1]` and `preview`.
 
 ```
  conduit edit examples/effects  ·  13 nodes
 
 
-tte ──╮      ╭─ rect ───╮      ╭─ hsl ──────────╮      ╭─ transform ─╮      ╭─ c
-      │      │ swatch   │      │ swatch_shifted │      │ swatch_at   │      │ co
-──────│      │──────────│      │────────────────│      │─────────────│      │───
-imary─┼─▣╭───┼─color    │  ╭───┼─layer          │  ╭───┼─layer       │    ▣─┼─ba
- teal─┼──╯   │──────────│  │   │────────────────│  │   │─────────────│    ▣─┼─la
- sand─┼─     │      out─┼──╯   │            out─┼──╯   │         out─┼──────┼─la
-range─┼─     ╰──────────╯      ╰────────────────╯      ╰─────────────╯    ▣─┼─la
-ccent─┼─▣                                                                 ·─┼─la
-──────╯                                                                     │───
+ ──╮      ╭─ rectangle ─╮      ╭─ hsl ──────────╮      ╭─ transform ─╮      ╭─ c
+   │      │ swatch      │      │ swatch_shifted │      │ swatch_at   │      │ co
+───│      │─────────────│      │────────────────│      │─────────────│      │───
+ry─┼─▣╭───┼─fill_color  │  ╭───┼─layer          │  ╭───┼─layer       │    ▣─┼─ba
+al─┼──╯   │─────────────│  │   │────────────────│  │   │─────────────│    ▣─┼─la
+nd─┼─     │         out─┼──╯   │            out─┼──╯   │         out─┼──────┼─la
+ge─┼─     ╰─────────────╯      ╰────────────────╯      ╰─────────────╯    ▣─┼─la
+nt─┼─▣                                                                    ·─┼─la
+───╯                                                                        │───
                                                                             │
                                                                             ╰───
 
@@ -446,17 +449,17 @@ conduit edit examples/transform
  conduit edit examples/transform  ·  8 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -513,17 +516,17 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
  conduit edit examples/transform  ·  8 nodes
 
 
-╭─ rect ───╮      ╭─ transform ─╮      ╭─ transform ─╮      ╭─ realize ─╮      ╭
-│ bar      │      │ turned      │      │ grown       │      │ baked     │      │
-│──────────│      │─────────────│      │─────────────│      │───────────│      │
-│      out─┼─▣╭───┼─layer       │  ╭───┼─layer       │  ╭───┼─layer     │    ▣─┼
-│      out─┼──╯   │─────────────│  │   │─────────────│  │   │───────────│    ▣─┼
-╰──────────╯      │         out─┼─▣│   │         out─┼──╯   │       out─┼──╮ ▣─┼
-                  │         out─┼──╯   ╰─────────────╯      ╰───────────╯  ╰───┼
-                  ╰─────────────╯                                            ·─┼
-                                                                               │
-                                                                               │
-                                                                               ╰
+╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ transform ─╮      ╭─ realize ─╮
+│ bar         │      │ turned      │      │ grown       │      │ baked     │
+│─────────────│      │─────────────│      │─────────────│      │───────────│
+│         out─┼─▣╭───┼─layer       │  ╭───┼─layer       │  ╭───┼─layer     │
+│         out─┼──╯   │─────────────│  │   │─────────────│  │   │───────────│
+╰─────────────╯      │         out─┼─▣│   │         out─┼──╯   │       out─┼──╮
+                     │         out─┼──╯   ╰─────────────╯      ╰───────────╯  ╰─
+                     ╰─────────────╯
+
+
+
 
 
 
@@ -547,17 +550,17 @@ Now both ends of the conduit `turned → comp.layers[0]` are on screen, `turned`
  conduit edit examples/transform  ·  8 nodes
 
 
-    ╭─ rect ───╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bar      │      │ turned      │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │─────────────│      │───────────│
-    │      out─┼─▣╭───┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
-    │      out─┼──╯   │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
-    ╰──────────╯      │         out─┼──╯ ▣─┼─layers[1]   │  │
-                      │         out─┼─▣  ▣─┼─layers[2]   │  │
-                      ╰─────────────╯    ·─┼─layers      │  │
-                                           │─────────────│  │
-                                           │         out─┼──╯
-                                           ╰─────────────╯
+    ╭─ rectangle ─╮      ╭─ transform ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+    │ bar         │      │ turned      │      │ comp        │      │ preview   │
+    │─────────────│      │─────────────│      │─────────────│      │───────────│
+    │         out─┼─▣╭───┼─layer       │    ▣─┼─base        │  ╭───┼─image     │
+    │         out─┼──╯   │─────────────│  ╭───┼─layers[0]   │  │   ╰───────────╯
+    ╰─────────────╯      │         out─┼──╯ ▣─┼─layers[1]   │  │
+                         │         out─┼─▣  ▣─┼─layers[2]   │  │
+                         ╰─────────────╯    ·─┼─layers      │  │
+                                              │─────────────│  │
+                                              │         out─┼──╯
+                                              ╰─────────────╯
 
 
 

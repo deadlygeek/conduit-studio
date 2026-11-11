@@ -4,6 +4,7 @@ use std::sync::Arc;
 use image::{Rgba, RgbaImage};
 
 use crate::affine::{Affine, Filter};
+use crate::shape::{self, Shape};
 
 /// The type of a value flowing along a connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -13,12 +14,17 @@ pub enum ValueType {
     Number,
     Color,
     Font,
+    Shape,
 }
 
 impl ValueType {
     /// Whether a value of type `self` can be fed into a port expecting `target`.
     pub fn coerces_to(self, target: ValueType) -> bool {
-        self == target || matches!((self, target), (ValueType::Image, ValueType::Layer))
+        self == target
+            || matches!(
+                (self, target),
+                (ValueType::Image | ValueType::Shape, ValueType::Layer)
+            )
     }
 }
 
@@ -30,6 +36,7 @@ impl fmt::Display for ValueType {
             ValueType::Number => "number",
             ValueType::Color => "color",
             ValueType::Font => "font",
+            ValueType::Shape => "shape",
         };
         f.write_str(name)
     }
@@ -113,6 +120,7 @@ pub enum Value {
     Number(f64),
     Color(Rgba<u8>),
     Font(FontData),
+    Shape(Shape),
 }
 
 impl Value {
@@ -123,15 +131,20 @@ impl Value {
             Value::Number(_) => ValueType::Number,
             Value::Color(_) => ValueType::Color,
             Value::Font(_) => ValueType::Font,
+            Value::Shape(_) => ValueType::Shape,
         }
     }
 
     /// Converts this value to `target`, applying implicit coercions (image → untransformed
-    /// layer).
+    /// layer, shape → its pixels as a layer placed where the shape is).
     pub fn coerce(self, target: ValueType) -> Option<Value> {
         match (self, target) {
             (v, t) if v.ty() == t => Some(v),
             (Value::Image(image), ValueType::Layer) => Some(Value::Layer(Layer::new(image))),
+            (Value::Shape(s), ValueType::Layer) => {
+                let (image, x, y) = shape::rasterize(&s);
+                Some(Value::Layer(Layer::at(Arc::new(image), x, y)))
+            }
             _ => None,
         }
     }
@@ -146,6 +159,7 @@ impl fmt::Debug for Value {
             Value::Number(n) => write!(f, "Number({n})"),
             Value::Color(c) => write!(f, "Color({:?})", c.0),
             Value::Font(font) => write!(f, "Font({})", font.name),
+            Value::Shape(s) => write!(f, "{s:?}"),
         }
     }
 }
@@ -165,7 +179,21 @@ mod tests {
     }
 
     #[test]
+    fn shape_coerces_to_a_layer_where_it_is() {
+        let s =
+            Shape::rectangle(4.0, 2.0, 0.0, Default::default()).placed(10.0, 20.0, 0.0, 4.0, 2.0);
+        assert!(ValueType::Shape.coerces_to(ValueType::Layer));
+        let Some(Value::Layer(layer)) = Value::Shape(s).coerce(ValueType::Layer) else {
+            panic!("expected layer");
+        };
+        assert_eq!(layer.transform.whole_pixel_offset(), Some((10, 20)));
+        assert_eq!(layer.image.dimensions(), (4, 2));
+        assert!(layer.image.pixels().all(|p| p.0 == [255; 4]));
+    }
+
+    #[test]
     fn incompatible_types_do_not_coerce() {
+        assert!(!ValueType::Layer.coerces_to(ValueType::Shape));
         assert!(Value::Number(1.0).coerce(ValueType::Image).is_none());
         assert!(!ValueType::Layer.coerces_to(ValueType::Image));
     }

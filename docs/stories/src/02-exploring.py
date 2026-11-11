@@ -26,7 +26,7 @@ def comp_fx(flow_input):
 
 
 preview = Node("preview", "preview", [("image", FLOW)])
-bg = Node("rect", "bg", outputs=[("out", FLOW)])
+bg = Node("canvas", "bg", [("image", OPTIONAL)], [("out", FLOW)])
 logo = Node("text", "logo", outputs=[("out", FLOW)])
 
 
@@ -47,10 +47,10 @@ def brand(flow_output):
     return Node("palette", "brand", outputs=[(f"██ {c}", m) for c, m in users.items()])
 
 
-bar = Node("rect", "bar", [("color", FLOW)], [("out", FLOW)])
+bar = Node("rectangle", "bar", [("fill_color", FLOW)], [("out", FLOW)])
 bar_turned = Node("transform", "bar_turned", [("layer", FLOW)], [("out", FLOW)])
 bar_inverted = Node("invert", "bar_inverted", [("layer", FLOW)], [("out", FLOW)])
-swatch = Node("rect", "swatch", [("color", FLOW)], [("out", FLOW)])
+swatch = Node("rectangle", "swatch", [("fill_color", FLOW)], [("out", FLOW)])
 swatch_shifted = Node("hsl", "swatch_shifted", [("layer", FLOW)], [("out", FLOW)])
 swatch_at = Node("transform", "swatch_at", [("layer", FLOW)], [("out", FLOW)])
 
@@ -74,7 +74,7 @@ def comp_tr(flow_input):
                 [("out", FLOW)])
 
 
-bar_tr = Node("rect", "bar", outputs=[("out", OFF_FLOW), ("out", FLOW)])
+bar_tr = Node("rectangle", "bar", outputs=[("out", OFF_FLOW), ("out", FLOW)])
 turned_two = Node("transform", "turned", [("layer", FLOW)],
                   [("out", OFF_FLOW), ("out", FLOW)])   # users: comp, grown (id order)
 turned_comp = Node("transform", "turned", [("layer", FLOW)],
@@ -102,26 +102,26 @@ SCREENS = {
     # 4. Follow the colour into the palette
     "flow_c": fx(*FLOW_C, centre=("logo_tinted", "in")).status("logo_tinted.black ← brand.accent")
         .bar("Conduit End Actions", "(c)onnect (i)nsert (d)isconnect"),
-    "primary": fx(*FLOW_C).status("brand.primary → bar.color")
+    "primary": fx(*FLOW_C).status("brand.primary → bar.fill_color")
         .bar("Conduit End Actions", "(f)ocus (c)onnect to (i)nsert (d)isconnect"),
 
     # 5. Follow it downstream
-    "flow_d": fx(*FLOW_D, centre=("brand", "out")).status("brand.primary → bar.color")
+    "flow_d": fx(*FLOW_D, centre=("brand", "out")).status("brand.primary → bar.fill_color")
         .bar("Conduit End Actions", "(c)onnect to (i)nsert (d)isconnect"),
 
     # 6. Back and forward
-    "back": fx(*FLOW_C, centre=("brand", "out")).status("back: brand.primary → bar.color")
+    "back": fx(*FLOW_C, centre=("brand", "out")).status("back: brand.primary → bar.fill_color")
         .bar("Conduit End Actions", "(f)ocus (c)onnect to (i)nsert (d)isconnect"),
 
     # 7. Jump with find
     "find": fx(*FLOW_C, centre=("brand", "out"))
         .popup(12, "find node (1 of 13)", ["/ swsh▏", "swatch_shifted  hsl"])
-        .status("back: brand.primary → bar.color").bar(PICKER),
+        .status("back: brand.primary → bar.fill_color").bar(PICKER),
     "flow_e": fx(*FLOW_E, centre="swatch_shifted").status("swatch_shifted (hsl)")
         .bar("Node Actions", "(e)dit (m)ove (L)slide (d)issolve"),
 
     # 8. One node, two places (examples/transform)
-    "tr_start": tr(Node("rect", "bg", outputs=[("out", FLOW)]), comp_tr("base"), preview_tr)
+    "tr_start": tr(bg, comp_tr("base"), preview_tr)
         .status("rendered 8 nodes in 23 ms").bar("Node Actions", SINK),
     "tr_flow": tr(bar_tr, turned_two, grown, baked, comp_tr("layers[2]"), preview_tr, centre=("comp", "in"))
         .status("comp.layers[2] ← baked")

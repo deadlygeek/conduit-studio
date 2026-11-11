@@ -1,7 +1,7 @@
-type = "rect"
+type = "rectangle"
 
 [inputs]
-color = "brand.primary"
+fill_color = "brand.primary"
 
 [params]
 width = 120

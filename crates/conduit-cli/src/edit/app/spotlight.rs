@@ -34,7 +34,7 @@ impl App {
         let draws = self.project.get(&id).is_some_and(|n| {
             n.outputs()
                 .iter()
-                .any(|(_, ty)| matches!(ty, ValueType::Image | ValueType::Layer))
+                .any(|(_, ty)| matches!(ty, ValueType::Image | ValueType::Layer | ValueType::Shape))
         });
         if draws {
             return vec![id];

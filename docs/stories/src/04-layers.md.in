@@ -6,7 +6,7 @@ Spec: [`../specs/node-editor-ui.md`](../specs/node-editor-ui.md) (draft 9).
 change which is drawn on top, and take layers off again, **so that** I can arrange the
 picture without editing the composite's file by hand.
 
-This carries on from story 1: the project `story` has `blue_rect → comp.base`,
+This carries on from story 1: the project `story` has `blue_bg → comp.base`,
 `comp → preview`, and nothing in `comp.layers`. `composite` draws its layers in list
 order, so later layers are drawn on top.
 
@@ -19,7 +19,7 @@ Everything else is white on black. The project has no errors, so nothing is red.
 conduit edit story
 ```
 
-The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`** to `comp`,
+The flow is `blue_bg → comp → preview`, focus on `preview`. **`h`** **`h`** to `comp`,
 **`j`** **`j`** to `layers`.
 
 {{slot}}
@@ -27,9 +27,11 @@ The flow is `blue_rect → comp → preview`, focus on `preview`. **`h`** **`h`*
 - Green: `·─┼─` on `layers`, the dimmed marker for an unconnected optional input (§4.3).
   Magenta: `layers`.
 
-**`i`** inserts a new node feeding this input. Type **`rect`**:
+**`i`** inserts a new node feeding this input. Type **`rect`**: the picker only offers
+kinds whose output can be a layer, and `rect` matches `rectangle` and, less closely,
+`intersect`. A rectangle is a vector shape, and a shape can be a layer.
 
-{{pick_rect}}
+{{pick_rectangle}}
 
 **`⏎`**, type the id **`card`**, **`⏎`**.
 

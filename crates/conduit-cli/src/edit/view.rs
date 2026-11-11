@@ -1306,11 +1306,11 @@ mod tests {
         assert!(lines[0].contains("conduit edit examples/effects"));
         assert_eq!(
             lines[3].trim_end(),
-            "    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮"
+            "      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮"
         );
         assert_eq!(
             lines[6].trim_end(),
-            "    │      out─┼──────┼─base        │  ╭───┼─image     │"
+            "    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │"
         );
         // Black background everywhere, even off the canvas.
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -1344,17 +1344,17 @@ mod tests {
     const STORY_2_STEP_1: &str = " conduit edit examples/effects  ·  13 nodes
 
 
-    ╭─ rect ───╮      ╭─ composite ─╮      ╭─ preview ─╮
-    │ bg       │      │ comp        │      │ preview   │
-    │──────────│      │─────────────│      │───────────│
-    │      out─┼──────┼─base        │  ╭───┼─image     │
-    ╰──────────╯    ▣─┼─layers[0]   │  │   ╰───────────╯
-                    ▣─┼─layers[1]   │  │
-                    ▣─┼─layers[2]   │  │
-                    ·─┼─layers      │  │
-                      │─────────────│  │
-                      │         out─┼──╯
-                      ╰─────────────╯
+      ╭─ canvas ─╮      ╭─ composite ─╮      ╭─ preview ─╮
+      │ bg       │      │ comp        │      │ preview   │
+      │──────────│      │─────────────│      │───────────│
+    ·─┼─image    │  ╭───┼─base        │  ╭───┼─image     │
+      │──────────│  │ ▣─┼─layers[0]   │  │   ╰───────────╯
+      │      out─┼──╯ ▣─┼─layers[1]   │  │
+      ╰──────────╯    ▣─┼─layers[2]   │  │
+                      ·─┼─layers      │  │
+                        │─────────────│  │
+                        │         out─┼──╯
+                        ╰─────────────╯
 
 
 
@@ -1396,24 +1396,19 @@ mod tests {
         // docs/stories/01-first-image.md, step 2 (the colour editor aside).
         let story = include_str!("../../../../docs/stories/01-first-image.md");
         let dir = tempfile::tempdir().unwrap();
-        // The story has `color` default to white; the real `rect` requires it.
-        let file = "type = \"rect\"\n[params]\ncolor = \"white\"\n";
-        std::fs::write(dir.path().join("blue_rect.toml"), file).unwrap();
-        let white = |screen: String| {
-            screen.replace("color  = ██ white (default)", "color  = ██ white          ")
-        };
+        std::fs::write(dir.path().join("blue_bg.toml"), "type = \"canvas\"\n").unwrap();
         let mut app = flow_app_at(dir.path(), dir.path());
         let path = dir.path().display().to_string();
         let screen = |app: &mut App| trimmed(&render(app, 80, 24)).replace(&path, "story");
 
         keys(&mut app, "e");
-        assert_eq!(screen(&mut app), white(story_screen(story, 5)));
-        keys(&mut app, "j");
-        assert_eq!(screen(&mut app), white(story_screen(story, 6)));
+        assert_eq!(screen(&mut app), story_screen(story, 5));
+        keys(&mut app, "jj"); // past `image` to `color`
+        assert_eq!(screen(&mut app), story_screen(story, 6));
 
         keys(&mut app, "je800\nje600\n");
-        // The story's colour is blue by now; ours is still white.
-        let expected = story_screen(story, 9).replace("██ blue ", "██ white");
+        // The story's colour is blue by now; ours is still the default white.
+        let expected = story_screen(story, 9).replace("██ blue           ", "██ white (default)");
         assert_eq!(screen(&mut app), expected);
 
         keys(&mut app, "\x1b");
@@ -1514,7 +1509,7 @@ mod tests {
         ));
         let screen = render(&mut app, 120, 16);
         for expected in [
-            "par color      = \"#e63946\"",
+            "par fill_color = \"#e63946\"",
             "par width      ← size  = 120",
             "par height     ← size  = 120",
             "width ← size  int",
@@ -1536,7 +1531,7 @@ mod tests {
         }
         let screen = render(&mut app, 120, 30);
         assert!(screen.contains("/ bl"), "{screen}");
-        assert!(screen.contains("black_sq  rect"), "{screen}");
+        assert!(screen.contains("black_sq  rectangle"), "{screen}");
 
         app.handle_key(KeyEvent::from(KeyCode::Esc));
         app.handle_key(KeyEvent::from(KeyCode::Char('?')));
@@ -1581,7 +1576,7 @@ mod tests {
         let screen = render(&mut app, 60, 30);
         let line_of = |text: &str| screen.lines().position(|l| l.contains(text));
         // Full text fits, and the panes are stacked top to bottom.
-        let inputs = line_of("base ← white_bg  rect").expect(&screen);
+        let inputs = line_of("base ← white_bg  canvas").expect(&screen);
         let node = line_of("in  layers[0]  ← placed").expect(&screen);
         let users = line_of("preview.image  preview").expect(&screen);
         assert!(inputs < node && node < users, "{screen}");
@@ -1664,7 +1659,7 @@ mod tests {
         go(&mut app, "/brand");
         let screen = render(&mut app, 120, 24);
         for expected in [
-            "col primary    ██ #264653  → stripe.color",
+            "col primary    ██ #264653  → stripe.fill_color",
             "col teal       ██ #2a9d8f",
             "col accent     ██ #e76f51  → accent_dark.color",
         ] {
@@ -1696,7 +1691,7 @@ mod tests {
         ));
         let screen = render(&mut app, 120, 24);
         assert!(
-            screen.contains("par color      ← accent_dark  ██ #cf401d"),
+            screen.contains("par fill_color ← accent_dark  ██ #cf401d"),
             "{screen}"
         );
         assert_eq!(

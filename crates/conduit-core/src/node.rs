@@ -6,6 +6,7 @@ use std::sync::Arc;
 use image::RgbaImage;
 use serde::de::DeserializeOwned;
 
+use crate::shape::Shape;
 use crate::value::{Layer, Value, ValueType};
 
 /// Describes one input or output port of a node kind.
@@ -650,6 +651,23 @@ impl Inputs {
             .map(|v| match v {
                 Value::Layer(l) => Ok(l),
                 other => Err(type_error(port, "layer", Some(other))),
+            })
+            .collect()
+    }
+
+    pub fn shape(&self, port: &str) -> NodeResult<&Shape> {
+        match self.get(port) {
+            Some(Value::Shape(s)) => Ok(s),
+            other => Err(type_error(port, "shape", other)),
+        }
+    }
+
+    pub fn shapes(&self, port: &str) -> NodeResult<Vec<&Shape>> {
+        self.all(port)
+            .iter()
+            .map(|v| match v {
+                Value::Shape(s) => Ok(s),
+                other => Err(type_error(port, "shape", Some(other))),
             })
             .collect()
     }

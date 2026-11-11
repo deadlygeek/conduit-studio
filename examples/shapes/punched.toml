@@ -1,0 +1,7 @@
+# The card minus the hole: keeps the card's fill and outline, which now runs around
+# the hole too
+type = "subtract"
+
+[inputs]
+base = "card"
+cut = ["hole"]

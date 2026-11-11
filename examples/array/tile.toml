@@ -1,7 +1,7 @@
 # 30x30 square, the image that gets repeated
-type = "rect"
+type = "rectangle"
 
 [params]
-color = "#e76f51"
+fill_color = "#e76f51"
 width = 30
 height = 30

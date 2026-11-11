@@ -31,7 +31,7 @@ pub use palette::parse_palette;
 pub use project::{Consumer, Project, ProjectNode, inspect, inspect_sources};
 pub use query::TreeItem;
 pub use registry::Registry;
-pub use shape::{BooleanOp, Shape, Style};
+pub use shape::{BooleanOp, Shape, StrokeJoin, Style};
 pub use value::{FontData, Layer, Value, ValueType};
 
 pub use image::{self, Rgba, RgbaImage};

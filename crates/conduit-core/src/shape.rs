@@ -14,6 +14,7 @@ use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
 use image::{Rgba, RgbaImage};
 use kurbo::{PathEl, Shape as _};
+use serde::Deserialize;
 
 /// How far a flattened curve may stray from the true curve, in pixels.
 const TOLERANCE: f64 = 0.05;
@@ -34,6 +35,24 @@ pub struct Style {
     pub stroke_opacity: f64,
     /// Centered on the outline. 0 draws no stroke.
     pub stroke_width: f64,
+    /// How the stroke turns corners.
+    pub join: StrokeJoin,
+    /// A [`StrokeJoin::Miter`] corner reaching further than this many stroke widths is
+    /// bevelled instead, as SVG's `stroke-miterlimit`.
+    pub miter_limit: f64,
+}
+
+/// How a stroke turns a corner, as SVG's `stroke-linejoin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StrokeJoin {
+    /// Pointed: the outer edges meet in a sharp point (up to the miter limit).
+    #[default]
+    Miter,
+    /// Rounded.
+    Round,
+    /// Flat: the point is cut off.
+    Bevel,
 }
 
 impl Default for Style {
@@ -45,6 +64,8 @@ impl Default for Style {
             stroke: Rgba([0, 0, 0, 255]),
             stroke_opacity: 1.0,
             stroke_width: 0.0,
+            join: StrokeJoin::Miter,
+            miter_limit: 4.0,
         }
     }
 }
@@ -219,7 +240,12 @@ impl Shape {
     fn skia_stroke(&self) -> tiny_skia::Stroke {
         tiny_skia::Stroke {
             width: self.style.stroke_width as f32,
-            line_join: tiny_skia::LineJoin::Miter,
+            line_join: match self.style.join {
+                StrokeJoin::Miter => tiny_skia::LineJoin::Miter,
+                StrokeJoin::Round => tiny_skia::LineJoin::Round,
+                StrokeJoin::Bevel => tiny_skia::LineJoin::Bevel,
+            },
+            miter_limit: self.style.miter_limit as f32,
             ..Default::default()
         }
     }
@@ -475,6 +501,44 @@ mod tests {
         assert_eq!(pixel_at(&s, 10, -2), BLUE.0, "outside half");
         assert_eq!(pixel_at(&s, -2, -2), BLUE.0, "mitered corner");
         assert_eq!(pixel_at(&s, 10, 10)[3], 0, "fill is transparent");
+    }
+
+    #[test]
+    fn round_and_bevel_joins_cut_the_corners() {
+        for join in [StrokeJoin::Round, StrokeJoin::Bevel] {
+            let style = Style {
+                stroke: BLUE,
+                stroke_width: 4.0,
+                join,
+                ..Style::default()
+            };
+            let s = Shape::rectangle(20.0, 20.0, 0.0, style);
+            assert_eq!(s.raster_bounds(), Some((-2, -2, 22, 22)), "{join:?}");
+            // The outermost corner pixel is at most touched by the rounding.
+            let corner = pixel_at(&s, -2, -2)[3];
+            assert!(corner < 100, "{join:?}: corner cut, alpha {corner}");
+            assert_eq!(pixel_at(&s, 10, -2), BLUE.0, "{join:?}: edges unchanged");
+        }
+    }
+
+    #[test]
+    fn miter_limit_bevels_sharp_points() {
+        // A thin wedge whose tip is at (100, 10): its miter is about 10 widths long.
+        let wedge = |miter_limit: f64| Shape {
+            contours: Arc::new(vec![vec![[0.0, 0.0], [100.0, 10.0], [0.0, 20.0]]]),
+            style: Style {
+                stroke_width: 4.0,
+                miter_limit,
+                ..Style::default()
+            },
+        };
+        let right = |s: Shape| s.raster_bounds().unwrap().2;
+        assert!(
+            right(wedge(20.0)) >= 115,
+            "long spike: {}",
+            right(wedge(20.0))
+        );
+        assert!(right(wedge(4.0)) <= 103, "bevelled: {}", right(wedge(4.0)));
     }
 
     #[test]

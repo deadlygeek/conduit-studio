@@ -89,14 +89,14 @@ typed value:
 
 ```toml
 # square.toml
-type = "rect"
+type = "rectangle"
 
 [inputs]
 width = "size"      # both come from the `int` node `size`
 height = "size"
 
 [params]
-color = "#e63946"
+fill_color = "#e63946"
 ```
 
 ```toml
@@ -133,10 +133,10 @@ lightness = -15          # -100..100; also hue (-180..180°), saturation (-100..
 
 ```toml
 # square.toml
-type = "rect"
+type = "rectangle"
 
 [inputs]
-color = "accent_dark"
+fill_color = "accent_dark"
 ```
 
 Color nodes chain: a palette color → a lighter version → a semi-transparent version of
@@ -195,16 +195,22 @@ Connections carry typed values:
 | `number` | a number (from `int`); feeds number params |
 | `color` | an RGBA color (from `color` or a palette); feeds color params |
 | `font` | a font file's contents (from `font`); feeds font params (`text.font`) |
+| `shape` | a vector outline plus its fill and stroke (from `rectangle`, `oval`, or a boolean node) |
 
 An `image` can be connected where a `layer` is expected; it becomes an untransformed layer at
-(0, 0). A `layer` can't be used as an `image`: it has no pixels of its own until it is drawn
+(0, 0). A `shape` can be too: it is rasterized onto its own bounding box, placed where the
+shape is (as `rasterize` does). A `layer` can't be used as an `image`: it has no pixels of its own until it is drawn
 onto a canvas (`composite`) or realized (`realize`).
 
 ### Built-in nodes
 
 | Type | Inputs | Params | Output `out` |
 |---|---|---|---|
-| `rect` | — | `color`, `width`, `height` (1–16384, default 100) | image filled with `color` |
+| `rectangle` | — | `width`, `height` (px, default 100), `corner_radius`, plus the shape params — see [Shapes](#shapes) | shape |
+| `oval` | — | `width`, `height` (the diameters, default 100), plus the shape params — see [Shapes](#shapes) | shape |
+| `union`, `intersect`, `exclude` | `shapes`: list of shapes | — | shape: the shapes combined, painted like the first — see [Shapes](#shapes) |
+| `subtract` | `base`: shape, `cut`: list of shapes | — | shape: `base` with every `cut` removed, painted like `base` |
+| `rasterize` | `shape`: shape | — | layer: the shape's pixels on its own bounding box, where the shape is |
 | `canvas` | `image`: image (optional) | `color` (default white), `width`, `height` (1–16384, default 1920 × 1080) — used only without an image, and hidden in the editor while one is connected; `opacity` (0–100 %, default 100) | image: the connected image, or a `color` fill, at `opacity` |
 | `image` | — | `path` (relative to the project folder) — see [Images](#images) | image: the file's pixels at its own size |
 | `font` | — | `path` (relative to the project folder) — see [Project fonts](#project-fonts) | font: to link into `text`'s `font` |
@@ -248,6 +254,53 @@ After Effects' y-down directions:
 - To apply a pixel effect after a transform, `realize` the layer first: it renders the
   layer onto its own bounding box (no canvas, so nothing is clipped) and still lands in the
   same place.
+
+### Shapes
+
+`rectangle` and `oval` make vector shapes: outlines that stay sharp until they become
+pixels. Combine them with boolean nodes, then wire the result into anything that takes a
+layer (`composite.layers`, `transform`, an effect, …); that is where it is rasterized. A
+shape can't be a `composite` base: use `canvas` for backgrounds.
+
+Every shape node has these params:
+
+| Param | Default | |
+|---|---|---|
+| `x`, `y` | 0 | top-left corner before rotating, in parent pixels |
+| `rotate` | 0 | degrees clockwise, about the shape's centre |
+| `fill_color` | white | `"transparent"` for no fill |
+| `fill_opacity` | 100 | 0–100 %, multiplies the color's own alpha |
+| `stroke_width` | 0 | outline thickness in pixels, centred on the edge; 0 for none |
+| `stroke_color` | black | |
+| `stroke_opacity` | 100 | 0–100 % |
+| `stroke_join` | miter | how the stroke turns corners: `miter` (pointed), `round` or `bevel` (flat), as SVG's `stroke-linejoin` |
+| `miter_limit` | 4 | 1–100: a pointed corner longer than this many stroke widths is bevelled instead, as SVG's `stroke-miterlimit` |
+
+Shapes are always closed outlines, so there are no line ends and no cap setting (SVG's
+`stroke-linecap`).
+
+Boolean nodes, as in Figma or Illustrator:
+
+- `union`: everything covered by any of the shapes.
+- `subtract`: `base` with each `cut` shape removed.
+- `intersect`: only where all of the shapes overlap.
+- `exclude`: where an odd number of shapes overlap (two shapes lose their shared part).
+
+The result is painted like the first shape (`base` for `subtract`). Its stroke follows the
+combined outline, so it runs around holes and leaves no seams where shapes joined:
+
+```toml
+# punched.toml: a rounded card with a circle cut out of it
+type = "subtract"
+
+[inputs]
+base = "card"     # a rectangle with corner_radius and a stroke
+cut = ["hole"]    # an oval
+```
+
+See `examples/shapes`. Curves are flattened into short straight segments (within 0.05 px)
+when the shape is made, which can't be seen at any normal size. For now a `transform`
+after a shape moves its pixels, not the outline.
 
 ### Duplicating
 
@@ -373,7 +426,7 @@ letters and `array` copies, stay exact.
 ### Color effects
 
 `hsl`, `tint` and `invert` change a layer's pixels and output a layer that lands in the
-same place, so they go anywhere a layer does: straight after `rect` or `text`, or after a
+same place, so they go anywhere a layer does: straight after a shape, an `image` or `text`, or after a
 `transform`. A rotated, scaled or skewed layer is realized first (as `realize` would), so
 the effect sees the pixels as they'll be drawn; images and layers moved by whole pixels
 go through untouched. One node per effect, as in Blender and Nuke.
@@ -503,7 +556,7 @@ focus: everything upstream of it on the left, everything that uses it on the rig
 ```
  conduit edit examples/basic  ·  5 nodes
 ┌ ← inputs (3) ───────────┐┏ ● comp  composite ━━━━━━━━━━━━┓┌ used by → (1) ────────┐
-│   base ← white_bg  rect  │┃ in  base       ← white_bg     ┃│   preview.image       │
+│   base ← white_bg  canvas│┃ in  base       ← white_bg     ┃│   preview.image       │
 │ ▾ layers ← placed  tran… │┃ in  layers[0]  ← placed       ┃│                       │
 │     layer ← black_sq     │┃ out out        → preview.image┃│                       │
 └──────────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└───────────────────────┘

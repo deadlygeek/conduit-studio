@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use conduit_core::{
     BooleanOp, Color, EvalCtx, Inputs, Layer, Node, NodeError, NodeResult, NodeSpec, Outputs,
-    ParamSpec, PortSpec, Shape, Style, Value, ValueType, shape,
+    ParamSpec, PortSpec, Shape, StrokeJoin, Style, Value, ValueType, shape,
 };
 use serde::Deserialize;
 
@@ -43,6 +43,12 @@ fn common_params() -> Vec<ParamSpec> {
         ParamSpec::int("stroke_opacity", 0, 100, "100")
             .default("100")
             .doc("outline opacity, in %"),
+        ParamSpec::text("stroke_join", "\"miter\"")
+            .default("\"miter\"")
+            .doc("corner style: miter (pointed), round or bevel (flat)"),
+        ParamSpec::float("miter_limit", 1.0, 100.0, "4")
+            .default("4")
+            .doc("pointed corners longer than this many stroke widths are bevelled"),
     ]
 }
 
@@ -84,6 +90,8 @@ macro_rules! shape_params {
             stroke_width: f64,
             stroke_color: Color,
             stroke_opacity: u8,
+            stroke_join: StrokeJoin,
+            miter_limit: f64,
             $($extra: $ty,)*
         }
 
@@ -106,6 +114,8 @@ macro_rules! shape_params {
                         stroke: self.stroke_color.0,
                         stroke_opacity: f64::from(self.stroke_opacity) / 100.0,
                         stroke_width: self.stroke_width,
+                        join: self.stroke_join,
+                        miter_limit: self.miter_limit,
                     },
                 })
             }
@@ -408,6 +418,9 @@ mod tests {
             "ovals have no corners"
         );
         assert!(check(&Rectangle, "corner_radius = 3").is_ok());
+        assert!(check(&Rectangle, "stroke_join = \"pointy\"").is_err());
+        assert!(check(&Rectangle, "miter_limit = 0.5").is_err());
+        assert!(check(&Oval, "stroke_join = \"round\"\nmiter_limit = 10").is_ok());
     }
 
     #[test]
